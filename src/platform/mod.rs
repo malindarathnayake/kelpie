@@ -541,7 +541,22 @@ pub(crate) fn quote_powershell_arg(value: &str) -> String {
     {
         return value.to_string();
     }
-    format!("'{}'", value.replace('\'', "''"))
+    // PowerShell ends a single-quoted string at any of these quote characters,
+    // not only ASCII `'`, so each one must be doubled to stay literal.
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('\'');
+    for ch in value.chars() {
+        if is_powershell_single_quote(ch) {
+            quoted.push(ch);
+        }
+        quoted.push(ch);
+    }
+    quoted.push('\'');
+    quoted
+}
+
+fn is_powershell_single_quote(ch: char) -> bool {
+    matches!(ch, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}')
 }
 
 pub(crate) fn quote_windows_command_line_arg(value: &str) -> String {
@@ -939,4 +954,69 @@ pub(crate) fn shared_ssh_control_path(
         std::io::ErrorKind::Unsupported,
         "interactive SSH recovery requires Unix OpenSSH multiplexing",
     ))
+}
+
+#[cfg(test)]
+mod powershell_quote_tests {
+    use super::quote_powershell_arg;
+
+    #[test]
+    fn powershell_quote_doubles_typographic_single_quotes() {
+        assert_eq!(quote_powershell_arg("a'b"), "'a''b'");
+        // A lone typographic quote must not take the unquoted fast path.
+        assert_eq!(quote_powershell_arg("a\u{2019}b"), "'a\u{2019}\u{2019}b'");
+        for quote in ['\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'] {
+            let value = format!("x{quote}; Write-Output PWNED; {quote}y");
+            assert_eq!(
+                quote_powershell_arg(&value),
+                format!("'x{quote}{quote}; Write-Output PWNED; {quote}{quote}y'")
+            );
+        }
+        assert_eq!(
+            quote_powershell_arg("a\u{201C}b\u{201D}"),
+            "'a\u{201C}b\u{201D}'"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_quote_round_trips_through_pwsh() {
+        let values = [
+            "a'b".to_string(),
+            "x\u{2018}a\u{2019}b\u{201A}c\u{201B}y".to_string(),
+            "x\u{2019}; Write-Output PWNED; \u{2019}y".to_string(),
+        ];
+        let script = values
+            .iter()
+            .map(|value| {
+                format!(
+                    "[int[]][char[]]{} | ForEach-Object {{ [Console]::Out.WriteLine($_) }}",
+                    quote_powershell_arg(value)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        // Skip when pwsh is not installed; the unit test above still covers the encoding.
+        let Ok(output) = std::process::Command::new("pwsh")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+        else {
+            return;
+        };
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines = stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>();
+        let expected = values
+            .iter()
+            .flat_map(|value| value.chars().map(|ch| (ch as u32).to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(lines, expected);
+    }
 }
