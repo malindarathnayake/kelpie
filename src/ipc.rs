@@ -428,6 +428,25 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    /// A second listener on a live pipe name must fail instead of joining it as
+    /// another instance. interprocess sets `FILE_FLAG_FIRST_PIPE_INSTANCE` on the
+    /// first instance; this pins that behaviour against dependency upgrades.
+    #[cfg(windows)]
+    #[test]
+    fn second_listener_on_live_pipe_name_is_rejected() {
+        for bind in [bind_local_listener, bind_private_local_listener] {
+            let path = temp_socket_marker_path("pipe-squat");
+            let _ = fs::remove_file(&path);
+            let listener = bind(&path).unwrap();
+            assert!(
+                bind(&path).is_err(),
+                "second bind on a live pipe name must fail"
+            );
+            drop(listener);
+            let _ = fs::remove_file(path);
+        }
+    }
+
     #[cfg(windows)]
     fn temp_socket_marker_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("herdr-{name}-{}.sock", std::process::id()))
