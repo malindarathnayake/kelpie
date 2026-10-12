@@ -75,6 +75,7 @@ fn default_capabilities() -> Option<ServerCapabilities> {
         surface_interest: true,
         health_check: true,
         ssh_agent_registration: false,
+        supervisor_v1: crate::supervisor::enabled(),
     })
 }
 
@@ -1500,6 +1501,7 @@ mod tests {
                 surface_interest: true,
                 health_check: true,
                 ssh_agent_registration: false,
+                supervisor_v1: false,
             }),
             None,
             None,

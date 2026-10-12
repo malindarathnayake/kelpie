@@ -10446,6 +10446,11 @@
               "description": "Supports connection-scoped `server.ssh_agent.register` on the local JSON API.",
               "type": "boolean"
             },
+            "supervisor_v1": {
+              "default": false,
+              "description": "Fork supervisor facts surface (`agents.digest`). False unless `[supervisor] enabled`.",
+              "type": "boolean"
+            },
             "surface_interest": {
               "default": false,
               "description": "Whether this server supports explicit client-shell surface interest.",

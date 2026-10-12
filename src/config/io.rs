@@ -12,6 +12,7 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "remote",
     "server",
     "session",
+    "supervisor",
     "terminal",
     "theme",
     "ui",
@@ -750,6 +751,36 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supervisor_config_parses_enabled_true() {
+        let content = "[supervisor]\nenabled = true\n";
+        let (config, ignored) =
+            deserialize_with_ignored::<Config, _>(toml::Deserializer::new(content)).unwrap();
+        assert!(config.supervisor.enabled);
+        assert!(ignored.is_empty());
+        let (unknown, diagnostics) = unknown_top_level_sections_from_str(content);
+        assert!(unknown.is_empty());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn supervisor_config_defaults_to_disabled() {
+        let (config, ignored) =
+            deserialize_with_ignored::<Config, _>(toml::Deserializer::new("")).unwrap();
+        assert!(!config.supervisor.enabled);
+        assert!(ignored.is_empty());
+    }
+
+    #[test]
+    fn supervisor_config_unknown_key_is_reported_not_fatal() {
+        let content = "[supervisor]\nbogus = 1\n";
+        let (config, ignored) =
+            deserialize_with_ignored::<Config, _>(toml::Deserializer::new(content)).unwrap();
+        assert!(!config.supervisor.enabled);
+        let paths: Vec<String> = ignored.iter().map(|p| format_config_key_path(p)).collect();
+        assert_eq!(paths, vec!["supervisor.bogus".to_string()]);
+    }
 
     #[test]
     fn upsert_top_level_bool_replaces_existing_value() {

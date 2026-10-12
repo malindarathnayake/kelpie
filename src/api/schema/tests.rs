@@ -727,6 +727,7 @@ fn success_response_round_trips() {
                 surface_interest: true,
                 health_check: true,
                 ssh_agent_registration: false,
+                supervisor_v1: false,
             }),
         },
     };
@@ -734,6 +735,29 @@ fn success_response_round_trips() {
     let json = serde_json::to_string(&response).unwrap();
     let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
     assert_eq!(restored, response);
+}
+
+#[test]
+fn server_capabilities_without_supervisor_v1_decode_false() {
+    let caps: ServerCapabilities = serde_json::from_str(r#"{"live_handoff":true}"#).unwrap();
+    assert!(!caps.supervisor_v1);
+}
+
+#[test]
+fn server_capabilities_supervisor_v1_round_trips_true() {
+    let caps = ServerCapabilities {
+        live_handoff: true,
+        detached_server_daemon: false,
+        endpoint_protocol_generation: None,
+        surface_interest: false,
+        health_check: false,
+        ssh_agent_registration: false,
+        supervisor_v1: true,
+    };
+    let json = serde_json::to_string(&caps).unwrap();
+    assert!(json.contains("\"supervisor_v1\":true"));
+    let restored: ServerCapabilities = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored, caps);
 }
 
 #[test]

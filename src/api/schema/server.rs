@@ -36,4 +36,7 @@ pub struct ServerCapabilities {
     /// Supports connection-scoped `server.ssh_agent.register` on the local JSON API.
     #[serde(default)]
     pub ssh_agent_registration: bool,
+    /// Fork supervisor facts surface (`agents.digest`). False unless `[supervisor] enabled`.
+    #[serde(default)]
+    pub supervisor_v1: bool,
 }

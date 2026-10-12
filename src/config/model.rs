@@ -323,6 +323,7 @@ pub struct Config {
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
+    pub supervisor: SupervisorConfig,
 }
 
 #[derive(Debug)]
@@ -1034,6 +1035,15 @@ impl ImeCursorShape {
             Self::SteadyBar => 6,
         }
     }
+}
+
+/// Read-only supervisor facts surface (`agents.digest`, `supervisor_v1` capability).
+/// Default: disabled. Changing it requires a server restart.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct SupervisorConfig {
+    /// Advertise `supervisor_v1` and serve `agents.digest`. Default: false.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
