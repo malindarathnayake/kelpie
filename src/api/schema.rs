@@ -118,6 +118,8 @@ pub enum Method {
     TabClose(TabTarget),
     #[serde(rename = "agent.list")]
     AgentList(EmptyParams),
+    #[serde(rename = "agents.digest")]
+    AgentsDigest(supervisor::AgentsDigestParams),
     #[serde(rename = "agent.get")]
     AgentGet(AgentTarget),
     #[serde(rename = "agent.read")]

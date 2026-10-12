@@ -1,11 +1,11 @@
 //! Fork-only supervisor facts surface (read-only in step 2). Agent-neutral: any supervisor
 //! (Dot, Hermes, OpenClaw, scripts) uses the same methods. Disabled unless `[supervisor] enabled`.
 
+pub mod activity;
 pub mod background;
+pub mod digest;
 pub mod question;
 pub mod registry;
-// Later units consume the re-export.
-#[allow(unused_imports)]
 pub use registry::SupervisorState;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -62,16 +62,12 @@ pub fn server_epoch() -> &'static str {
 }
 
 /// Process-unique trace id: first 8 chars of the epoch, then a 16-hex counter.
-// Later units attach trace ids to supervisor responses.
-#[allow(dead_code)]
 pub fn next_trace_id() -> String {
     let n = TRACE_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{}-{:016x}", &server_epoch()[..8], n)
 }
 
 /// Milliseconds since the UNIX epoch; 0 on clock error.
-// Later units timestamp supervisor facts.
-#[allow(dead_code)]
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

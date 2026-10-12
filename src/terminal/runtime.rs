@@ -601,6 +601,12 @@ impl TerminalRuntime {
     pub(crate) fn content_seq(&self) -> u64 {
         self.0.content_seq()
     }
+
+    pub(crate) fn supervisor_activity(
+        &self,
+    ) -> &std::sync::Arc<crate::supervisor::activity::PaneActivity> {
+        self.0.supervisor_activity()
+    }
 }
 
 #[cfg(test)]

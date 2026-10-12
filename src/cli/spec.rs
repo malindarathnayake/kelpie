@@ -324,6 +324,12 @@ fn agent_command() -> Command {
     Command::new("agent")
         .about("Control and inspect agent panes")
         .subcommand(Command::new("list").about("List agents"))
+        .subcommand(
+            Command::new("digest")
+                .about("Show supervisor facts for all agents as JSON")
+                .arg(option("page-cursor", "CURSOR"))
+                .arg(option("trace-id", "TRACE_ID")),
+        )
         .subcommand(id_command("get", "target", "Show an agent"))
         .subcommand(
             Command::new("read")
@@ -1042,6 +1048,15 @@ mod tests {
             .flatten()
             .map(|value| value.get_name().to_string())
             .collect()
+    }
+
+    #[test]
+    fn spec_lists_agent_digest_with_options() {
+        let cmd = super::command();
+        let digest = command_path(&cmd, &["agent", "digest"]);
+        assert!(has_option(digest, "page-cursor"));
+        assert!(has_option(digest, "trace-id"));
+        assert!(!has_option(digest, "json"));
     }
 
     fn has_option(cmd: &Command, option: &str) -> bool {

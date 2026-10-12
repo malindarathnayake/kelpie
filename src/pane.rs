@@ -1515,6 +1515,7 @@ pub struct PaneRuntime {
     self_reported_agent_active: Arc<AtomicBool>,
     detect_reset_notify: Arc<Notify>,
     pending_release: Arc<Mutex<Option<PendingAgentRelease>>>,
+    supervisor_activity: Arc<crate::supervisor::activity::PaneActivity>,
     preserve_processes_on_drop: bool,
     // Task handles for deterministic shutdown
     compression: TerminalCompressionTask,
@@ -2592,6 +2593,7 @@ impl PaneRuntime {
         let content_seq = Arc::new(AtomicU64::new(0));
         let content_write_lock = Arc::new(Mutex::new(()));
         let detection_content_seq = Arc::new(AtomicU64::new(0));
+        let supervisor_activity = Arc::new(crate::supervisor::activity::PaneActivity::default());
 
         let io = {
             let terminal = terminal.clone();
@@ -2601,6 +2603,7 @@ impl PaneRuntime {
             let content_seq = content_seq.clone();
             let content_write_lock = content_write_lock.clone();
             let detection_content_seq = detection_content_seq.clone();
+            let supervisor_activity = supervisor_activity.clone();
             let child_pid = child_pid.clone();
             let read_events = events.clone();
             let reported_cwd = reported_cwd.clone();
@@ -2618,6 +2621,7 @@ impl PaneRuntime {
                     terminal.process_pty_bytes(pane_id, shell_pid, bytes, &response_writer);
                 content_seq.fetch_add(1, Ordering::Release);
                 drop(_content_write_guard);
+                supervisor_activity.record_output();
                 compression_wake.wake();
                 publish_terminal_bells(pane_id, result.terminal_bells, &read_events);
                 observe_detection_content_change(bytes, &detection_content_seq);
@@ -2705,6 +2709,7 @@ impl PaneRuntime {
             self_reported_agent_active,
             detect_reset_notify,
             pending_release,
+            supervisor_activity,
             preserve_processes_on_drop: true,
             compression,
             detect_handle: Some(detect_handle),
@@ -2761,6 +2766,7 @@ impl PaneRuntime {
         let child_wait_completed = Arc::new(AtomicBool::new(false));
         let content_seq = Arc::new(AtomicU64::new(0));
         let detection_content_seq = Arc::new(AtomicU64::new(0));
+        let supervisor_activity = Arc::new(crate::supervisor::activity::PaneActivity::default());
         let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
         let self_reported_agent_active = Arc::new(AtomicBool::new(false));
         {
@@ -2805,6 +2811,7 @@ impl PaneRuntime {
             let content_seq = content_seq.clone();
             let content_write_lock = content_write_lock.clone();
             let detection_content_seq = detection_content_seq.clone();
+            let supervisor_activity = supervisor_activity.clone();
             let child_pid = child_pid.clone();
             let events = events.clone();
             let reported_cwd = reported_cwd.clone();
@@ -2821,6 +2828,7 @@ impl PaneRuntime {
                     terminal.process_pty_bytes(pane_id, shell_pid, bytes, &response_writer);
                 content_seq.fetch_add(1, Ordering::Release);
                 drop(_content_write_guard);
+                supervisor_activity.record_output();
                 compression_wake.wake();
                 publish_terminal_bells(pane_id, result.terminal_bells, &events);
                 if agent_detection == AgentDetection::Enabled {
@@ -3318,6 +3326,7 @@ impl PaneRuntime {
             self_reported_agent_active,
             detect_reset_notify,
             pending_release,
+            supervisor_activity,
             preserve_processes_on_drop: false,
             compression,
             detect_handle,
@@ -3364,6 +3373,10 @@ impl PaneRuntime {
 
     pub(crate) fn content_seq(&self) -> u64 {
         self.content_seq.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn supervisor_activity(&self) -> &Arc<crate::supervisor::activity::PaneActivity> {
+        &self.supervisor_activity
     }
 
     /// Resize if the dimensions actually changed.
@@ -4111,6 +4124,7 @@ impl PaneRuntime {
                 self_reported_agent_active: Arc::new(AtomicBool::new(false)),
                 detect_reset_notify: Arc::new(Notify::new()),
                 pending_release: Arc::new(Mutex::new(None)),
+                supervisor_activity: Arc::new(Default::default()),
                 preserve_processes_on_drop: true,
                 compression,
                 detect_handle: Some(tokio::spawn(async {}).abort_handle()),
@@ -5519,6 +5533,7 @@ mod tests {
             full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
             detect_reset_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
+            supervisor_activity: Arc::new(Default::default()),
             preserve_processes_on_drop: true,
             compression,
             detect_handle: Some(tokio::spawn(async {}).abort_handle()),
@@ -5559,6 +5574,7 @@ mod tests {
             full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
             detect_reset_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
+            supervisor_activity: Arc::new(Default::default()),
             preserve_processes_on_drop: true,
             compression,
             detect_handle: Some(tokio::spawn(async {}).abort_handle()),

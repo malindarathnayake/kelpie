@@ -1,7 +1,5 @@
 //! Pure prose-question heuristic over terminal text. Chrome-aware: ignores the agent input box
 //! and footer, so only agent output above them is considered.
-// A later unit wires this into the Idle-transition path.
-#![allow(dead_code)]
 
 use sha2::{Digest, Sha256};
 

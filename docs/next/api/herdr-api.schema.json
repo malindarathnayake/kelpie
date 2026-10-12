@@ -1695,6 +1695,34 @@
           ],
           "type": "object"
         },
+        "AgentsDigestParams": {
+          "description": "Parameters for an agents digest request.",
+          "properties": {
+            "filter": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/DigestFilter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "page_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "trace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "ClientShellSurfaceSetParams": {
           "description": "Updates whether the requesting client shell receives and controls pane presentation.",
           "properties": {
@@ -1757,6 +1785,21 @@
           "required": [
             "command_id"
           ],
+          "type": "object"
+        },
+        "DigestFilter": {
+          "description": "Filter selecting which agents a digest covers.",
+          "properties": {
+            "pane_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
           "type": "object"
         },
         "EmptyParams": {
@@ -5260,6 +5303,22 @@
         {
           "properties": {
             "method": {
+              "const": "agents.digest",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentsDigestParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "agent.get",
               "type": "string"
             },
@@ -6540,6 +6599,122 @@
     },
     "success_response": {
       "$defs": {
+        "AgentFacts": {
+          "description": "Full set of supervisor-visible facts for one agent.",
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_session": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/AgentSessionInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "agent_status": {
+              "$ref": "#/schemas/success_response/$defs/AgentStatus"
+            },
+            "background": {
+              "$ref": "#/schemas/success_response/$defs/Fact2"
+            },
+            "background_jobs": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "blocking_reason": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/BlockingReason"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completion": {
+              "$ref": "#/schemas/success_response/$defs/Completion"
+            },
+            "completion_seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "connection": {
+              "$ref": "#/schemas/success_response/$defs/Fact3"
+            },
+            "foreground": {
+              "$ref": "#/schemas/success_response/$defs/Fact"
+            },
+            "last_activity_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "last_output_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "lineage": {
+              "default": [],
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/LineageEntry"
+              },
+              "type": "array"
+            },
+            "owner_input": {
+              "$ref": "#/schemas/success_response/$defs/OwnerInput"
+            },
+            "pending_questions": {
+              "default": [],
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PendingQuestion"
+              },
+              "type": "array"
+            },
+            "state_change_seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "target_ref": {
+              "$ref": "#/schemas/success_response/$defs/TargetRef"
+            },
+            "view": {
+              "$ref": "#/schemas/success_response/$defs/View"
+            }
+          },
+          "required": [
+            "target_ref",
+            "foreground",
+            "background",
+            "connection",
+            "completion",
+            "owner_input",
+            "view",
+            "agent_status",
+            "state_change_seq",
+            "completion_seq"
+          ],
+          "type": "object"
+        },
         "AgentInfo": {
           "properties": {
             "agent": {
@@ -6776,6 +6951,82 @@
           ],
           "type": "string"
         },
+        "AgentsDigest": {
+          "description": "Point-in-time digest of all agents' facts.",
+          "properties": {
+            "agents": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/AgentFacts"
+              },
+              "type": "array"
+            },
+            "as_of_seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "generated_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "monitors": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/MonitorInfo"
+              },
+              "type": "array"
+            },
+            "next_page": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "server_epoch": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "truncated": {
+              "$ref": "#/schemas/success_response/$defs/DigestTruncation"
+            }
+          },
+          "required": [
+            "server_epoch",
+            "trace_id",
+            "as_of_seq",
+            "generated_at_ms",
+            "agents",
+            "monitors",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        "Background": {
+          "description": "Background job activity of the agent.",
+          "enum": [
+            "active",
+            "inactive",
+            "unsupported",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "BlockingReason": {
+          "description": "Why an agent is not considered complete.",
+          "enum": [
+            "foreground_working",
+            "awaiting_human",
+            "open_question",
+            "background_active",
+            "background_unknown",
+            "foreground_unknown",
+            "disconnected",
+            "unknown"
+          ],
+          "type": "string"
+        },
         "ClientWindowTitleReason": {
           "enum": [
             "set",
@@ -6784,11 +7035,63 @@
           ],
           "type": "string"
         },
+        "Completion": {
+          "description": "Whether the agent's work is complete.",
+          "enum": [
+            "complete",
+            "incomplete",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "Confidence": {
+          "description": "How much to trust a fact.",
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "type": "string"
+        },
         "ConfigReloadStatus": {
           "enum": [
             "applied",
             "partial",
             "failed"
+          ],
+          "type": "string"
+        },
+        "Connection": {
+          "description": "Connection state between herdr and the agent.",
+          "enum": [
+            "connected",
+            "disconnected",
+            "stale",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "DigestTruncation": {
+          "description": "Flags showing which digest sections were truncated.",
+          "properties": {
+            "questions": {
+              "default": false,
+              "type": "boolean"
+            },
+            "resolved_history": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "DraftState": {
+          "description": "State of the owner's input draft.",
+          "enum": [
+            "clean",
+            "dirty",
+            "unknown"
           ],
           "type": "string"
         },
@@ -7485,6 +7788,123 @@
           ],
           "type": "string"
         },
+        "Fact": {
+          "description": "A value together with its provenance and confidence.",
+          "properties": {
+            "confidence": {
+              "$ref": "#/schemas/success_response/$defs/Confidence"
+            },
+            "observed_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "$ref": "#/schemas/success_response/$defs/FactSource"
+            },
+            "value": {
+              "$ref": "#/schemas/success_response/$defs/Foreground"
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "confidence"
+          ],
+          "type": "object"
+        },
+        "Fact2": {
+          "description": "A value together with its provenance and confidence.",
+          "properties": {
+            "confidence": {
+              "$ref": "#/schemas/success_response/$defs/Confidence"
+            },
+            "observed_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "$ref": "#/schemas/success_response/$defs/FactSource"
+            },
+            "value": {
+              "$ref": "#/schemas/success_response/$defs/Background"
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "confidence"
+          ],
+          "type": "object"
+        },
+        "Fact3": {
+          "description": "A value together with its provenance and confidence.",
+          "properties": {
+            "confidence": {
+              "$ref": "#/schemas/success_response/$defs/Confidence"
+            },
+            "observed_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "$ref": "#/schemas/success_response/$defs/FactSource"
+            },
+            "value": {
+              "$ref": "#/schemas/success_response/$defs/Connection"
+            }
+          },
+          "required": [
+            "value",
+            "source",
+            "confidence"
+          ],
+          "type": "object"
+        },
+        "FactSource": {
+          "description": "Where a fact originated.",
+          "enum": [
+            "hook",
+            "protocol",
+            "manifest_rule",
+            "screen_heuristic",
+            "derived",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "Foreground": {
+          "description": "Foreground activity of the agent.",
+          "enum": [
+            "working",
+            "idle",
+            "awaiting_human",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "GenerationReason": {
+          "description": "Why a target generation changed.",
+          "enum": [
+            "session_changed",
+            "agent_started",
+            "agent_exited",
+            "pane_moved",
+            "unknown"
+          ],
+          "type": "string"
+        },
         "InstalledPluginInfo": {
           "properties": {
             "actions": {
@@ -7774,6 +8194,52 @@
             }
           ]
         },
+        "LineageEntry": {
+          "description": "One entry in a target's generation lineage.",
+          "properties": {
+            "at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "$ref": "#/schemas/success_response/$defs/GenerationReason"
+            }
+          },
+          "required": [
+            "generation",
+            "reason",
+            "at_ms"
+          ],
+          "type": "object"
+        },
+        "MonitorInfo": {
+          "description": "Liveness info for a connected monitor principal.",
+          "properties": {
+            "last_seen_ms_ago": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "principal_id": {
+              "type": "string"
+            },
+            "stale": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "principal_id",
+            "last_seen_ms_ago",
+            "stale"
+          ],
+          "type": "object"
+        },
         "NotificationShowReason": {
           "enum": [
             "shown",
@@ -7783,6 +8249,26 @@
             "busy"
           ],
           "type": "string"
+        },
+        "OwnerInput": {
+          "description": "Owner input activity for an agent pane.",
+          "properties": {
+            "draft": {
+              "$ref": "#/schemas/success_response/$defs/DraftState"
+            },
+            "last_owner_input_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "draft"
+          ],
+          "type": "object"
         },
         "PaneDirection": {
           "enum": [
@@ -8583,6 +9069,58 @@
           ],
           "type": "object"
         },
+        "PendingQuestion": {
+          "description": "A question the agent has asked and that may still be open.",
+          "properties": {
+            "asked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "confidence": {
+              "$ref": "#/schemas/success_response/$defs/Confidence"
+            },
+            "excerpt": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/schemas/success_response/$defs/QuestionKind"
+            },
+            "possible_response_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "question_id": {
+              "type": "string"
+            },
+            "resolution": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/QuestionResolution"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "$ref": "#/schemas/success_response/$defs/FactSource"
+            }
+          },
+          "required": [
+            "question_id",
+            "kind",
+            "excerpt",
+            "asked_at_ms",
+            "source",
+            "confidence"
+          ],
+          "type": "object"
+        },
         "PluginActionContext": {
           "enum": [
             "global",
@@ -9149,6 +9687,34 @@
             }
           ]
         },
+        "QuestionKind": {
+          "description": "How a pending question was detected.",
+          "enum": [
+            "structured_approval",
+            "structured_dialog",
+            "prose_question",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "QuestionResolution": {
+          "description": "Resolution record for a question.",
+          "properties": {
+            "at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "by": {
+              "$ref": "#/schemas/success_response/$defs/ResolutionBy"
+            }
+          },
+          "required": [
+            "at_ms",
+            "by"
+          ],
+          "type": "object"
+        },
         "ReadFormat": {
           "enum": [
             "text",
@@ -9162,6 +9728,17 @@
             "recent",
             "recent_unwrapped",
             "detection"
+          ],
+          "type": "string"
+        },
+        "ResolutionBy": {
+          "description": "Who or what resolved a question.",
+          "enum": [
+            "owner_answer",
+            "owner_resolved",
+            "host_reported",
+            "superseded",
+            "unknown"
           ],
           "type": "string"
         },
@@ -9508,6 +10085,19 @@
               "required": [
                 "type",
                 "agents"
+              ],
+              "type": "object"
+            },
+            {
+              "$ref": "#/schemas/success_response/$defs/AgentsDigest",
+              "properties": {
+                "type": {
+                  "const": "agents_digest",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
               ],
               "type": "object"
             },
@@ -10577,6 +11167,37 @@
             "agent_status"
           ],
           "type": "object"
+        },
+        "TargetRef": {
+          "description": "Identifies one agent target by server epoch, pane, and generation.",
+          "properties": {
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "server_epoch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "server_epoch",
+            "pane_id",
+            "generation"
+          ],
+          "type": "object"
+        },
+        "View": {
+          "description": "Which view the pane is shown in.",
+          "enum": [
+            "main",
+            "non_main",
+            "unknown"
+          ],
+          "type": "string"
         },
         "WorkspaceInfo": {
           "properties": {

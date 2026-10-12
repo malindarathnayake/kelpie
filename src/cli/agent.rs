@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use crate::api::schema::supervisor::AgentsDigestParams;
 use crate::api::schema::{
     AgentPromptParams, AgentPromptWaitOptions, AgentReadParams, AgentRenameParams,
     AgentSendKeysParams, AgentStartParams, AgentTarget, AgentWaitParams, EmptyParams, ErrorBody,
@@ -17,6 +18,7 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
 
     match subcommand {
         "list" => agent_list(&args[1..]),
+        "digest" => agent_digest(&args[1..]),
         "get" => agent_get(&args[1..]),
         "read" => agent_read(&args[1..]),
         "send-keys" => agent_send_keys(&args[1..]),
@@ -444,6 +446,47 @@ fn agent_list(args: &[String]) -> std::io::Result<i32> {
     super::print_response(&super::send_request(&Request {
         id: "cli:agent:list".into(),
         method: Method::AgentList(EmptyParams::default()),
+    })?)
+}
+
+fn parse_agent_digest_args(args: &[String]) -> Result<AgentsDigestParams, String> {
+    const USAGE: &str = "usage: herdr agent digest [--page-cursor C] [--trace-id T]";
+    let mut page_cursor: Option<String> = None;
+    let mut trace_id: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        let (flag, slot) = match args[index].as_str() {
+            "--page-cursor" => ("--page-cursor", &mut page_cursor),
+            "--trace-id" => ("--trace-id", &mut trace_id),
+            _ => return Err(USAGE.to_string()),
+        };
+        if slot.is_some() {
+            return Err(USAGE.to_string());
+        }
+        let Some(value) = args.get(index + 1) else {
+            return Err(format!("missing value for {flag}"));
+        };
+        *slot = Some(value.clone());
+        index += 2;
+    }
+    Ok(AgentsDigestParams {
+        filter: None,
+        page_cursor,
+        trace_id,
+    })
+}
+
+fn agent_digest(args: &[String]) -> std::io::Result<i32> {
+    let params = match parse_agent_digest_args(args) {
+        Ok(params) => params,
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(2);
+        }
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:digest".into(),
+        method: Method::AgentsDigest(params),
     })?)
 }
 
@@ -932,6 +975,7 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
 fn print_agent_help() {
     eprintln!("herdr agent commands:");
     eprintln!("  herdr agent list");
+    eprintln!("  herdr agent digest [--page-cursor C] [--trace-id T]");
     eprintln!("  herdr agent get <target>");
     eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
     eprintln!("  herdr agent send-keys <target> <key> [key ...]");
@@ -956,4 +1000,55 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
         eprintln!("{err}");
         2
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_agent_digest_args;
+
+    const USAGE: &str = "usage: herdr agent digest [--page-cursor C] [--trace-id T]";
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
+    #[test]
+    fn agent_digest_args_empty_is_all_none() {
+        let params = parse_agent_digest_args(&[]).unwrap();
+        assert!(params.filter.is_none());
+        assert!(params.page_cursor.is_none());
+        assert!(params.trace_id.is_none());
+    }
+
+    #[test]
+    fn agent_digest_args_parse_both_flags() {
+        let params =
+            parse_agent_digest_args(&args(&["--page-cursor", "o:2", "--trace-id", "t1"])).unwrap();
+        assert_eq!(params.page_cursor.as_deref(), Some("o:2"));
+        assert_eq!(params.trace_id.as_deref(), Some("t1"));
+    }
+
+    #[test]
+    fn agent_digest_args_missing_value_errors() {
+        assert_eq!(
+            parse_agent_digest_args(&args(&["--page-cursor"])).unwrap_err(),
+            "missing value for --page-cursor"
+        );
+        assert_eq!(
+            parse_agent_digest_args(&args(&["--trace-id"])).unwrap_err(),
+            "missing value for --trace-id"
+        );
+    }
+
+    #[test]
+    fn agent_digest_args_reject_json_positional_and_repeats() {
+        for bad in [
+            args(&["--json"]),
+            args(&["x"]),
+            args(&["--trace-id", "a", "--trace-id", "b"]),
+            args(&["--page-cursor", "a", "--page-cursor", "b"]),
+        ] {
+            assert_eq!(parse_agent_digest_args(&bad).unwrap_err(), USAGE);
+        }
+    }
 }

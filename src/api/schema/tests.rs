@@ -1483,3 +1483,74 @@ fn pane_link_resolve_round_trips() {
         result
     );
 }
+
+#[test]
+fn agents_digest_request_and_response_round_trip() {
+    use super::supervisor::{AgentsDigest, AgentsDigestParams, DigestFilter, DigestTruncation};
+
+    let request = Request {
+        id: "r".into(),
+        method: Method::AgentsDigest(AgentsDigestParams {
+            filter: Some(DigestFilter {
+                pane_ids: Some(vec!["p1".into()]),
+            }),
+            page_cursor: Some("o:2".into()),
+            trace_id: Some("t".into()),
+        }),
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["method"], "agents.digest");
+    assert_eq!(serde_json::from_value::<Request>(json).unwrap(), request);
+
+    let bare: Request =
+        serde_json::from_str(r#"{"id":"r","method":"agents.digest","params":{}}"#).unwrap();
+    assert_eq!(
+        bare.method,
+        Method::AgentsDigest(AgentsDigestParams {
+            filter: None,
+            page_cursor: None,
+            trace_id: None,
+        })
+    );
+
+    let response = SuccessResponse {
+        id: "r".into(),
+        result: ResponseResult::AgentsDigest(Box::new(AgentsDigest {
+            server_epoch: "e".repeat(32),
+            trace_id: "x".into(),
+            as_of_seq: 7,
+            generated_at_ms: 1,
+            agents: vec![],
+            monitors: vec![],
+            next_page: None,
+            truncated: DigestTruncation {
+                questions: false,
+                resolved_history: false,
+            },
+        })),
+    };
+    let json = serde_json::to_value(&response).unwrap();
+    assert_eq!(json["result"]["type"], "agents_digest");
+    assert_eq!(json["result"]["as_of_seq"], 7);
+    assert_eq!(
+        serde_json::from_value::<SuccessResponse>(json).unwrap(),
+        response
+    );
+}
+
+#[test]
+fn agents_digest_method_name_and_read_only() {
+    let request = Request {
+        id: "r".into(),
+        method: Method::AgentsDigest(super::supervisor::AgentsDigestParams {
+            filter: None,
+            page_cursor: None,
+            trace_id: None,
+        }),
+    };
+    assert_eq!(
+        crate::api::server::api_method_name(&request.method),
+        "agents.digest"
+    );
+    assert!(!crate::api::request_changes_ui(&request));
+}

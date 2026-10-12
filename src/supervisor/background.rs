@@ -18,8 +18,6 @@ pub fn is_background_rule(agent: &str, rule_id: &str) -> bool {
 /// Derives the background fact plus the job count when a current hook reported one.
 /// A hook token counts only when `hook_current` (reported in the current generation).
 /// An unparseable token is ignored.
-// Wired in by the agents.digest handler (p4).
-#[allow(dead_code)]
 pub fn derive_background(
     token: Option<&str>,
     hook_current: bool,

@@ -2448,6 +2448,60 @@ async fn geometry_reapply_replaces_a_controller_that_left_the_tab() {
     shutdown_test_runtimes(&mut server);
 }
 
+struct SupervisorOverrideReset;
+
+impl Drop for SupervisorOverrideReset {
+    fn drop(&mut self) {
+        crate::supervisor::set_enabled_for_test(None);
+    }
+}
+
+async fn forwarded_key_owner_input_stamp(enabled: bool) -> Option<u64> {
+    let _reset = SupervisorOverrideReset;
+    crate::supervisor::set_enabled_for_test(Some(enabled));
+    let mut server = test_headless_server();
+    let mut workspace = crate::workspace::Workspace::test_new("supervisor-activity");
+    let pane = workspace.tabs[0].root_pane;
+    let (runtime, mut input) =
+        crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"", 4);
+    workspace.insert_test_runtime(pane, runtime);
+    server.app.state.workspaces = vec![workspace];
+    server.app.state.active = Some(0);
+    server.app.state.selected = 0;
+    server.app.state.mode = crate::app::Mode::Terminal;
+    let pane_id = server.app.public_pane_id(0, pane).unwrap();
+
+    let (control, _render) = connect_test_shell(&mut server, 91, 100, 30);
+    let _ = control.recv().expect("snapshot");
+
+    server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 91,
+        pane_id,
+        events: vec![crate::protocol::ClientPaneInputEvent::TextCommit(
+            "typed".into(),
+        )],
+    });
+    assert_eq!(
+        input.try_recv().expect("forwarded input"),
+        Bytes::from_static(b"typed")
+    );
+    let stamp = server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .last_owner_input_ms();
+    shutdown_test_runtimes(&mut server);
+    stamp
+}
+
+#[tokio::test]
+async fn supervisor_activity_owner_input_stamped_on_forwarded_key() {
+    assert!(forwarded_key_owner_input_stamp(true).await.is_some());
+}
+
+#[tokio::test]
+async fn supervisor_activity_owner_input_not_stamped_when_disabled() {
+    assert_eq!(forwarded_key_owner_input_stamp(false).await, None);
+}
+
 #[tokio::test]
 async fn client_shell_tabs_render_accept_input_and_resize_independently() {
     let mut server = test_headless_server();

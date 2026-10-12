@@ -32,7 +32,6 @@ impl App {
     ///
     /// Perf (tier standard): one manifest evaluation, called on demand from the digest
     /// only; never on the PTY byte path and never cached.
-    #[allow(dead_code)] // Consumed by the digest in a later unit.
     pub(crate) fn background_rule_hit(
         &self,
         ws_idx: usize,

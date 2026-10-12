@@ -2448,6 +2448,7 @@ impl HeadlessServer {
                 );
                 let scroll_changed = runtime.scroll_metrics() != scroll_before;
                 if keyboard_forwarded {
+                    runtime.supervisor_activity().record_owner_input();
                     self.note_interactive_input(runtime_pane_id, Instant::now());
                 }
                 if let Err(err) = input_result {

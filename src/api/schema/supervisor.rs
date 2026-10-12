@@ -1,6 +1,4 @@
-//! Read-only supervisor wire types (facts and digest). Not yet reachable from `Method`.
-// Later units wire these types into the API surface.
-#![allow(dead_code)]
+//! Read-only supervisor wire types (facts and digest).
 
 use serde::{Deserialize, Serialize};
 

@@ -1,9 +1,6 @@
 //! Pure per-pane supervisor registry: generations, lineage and question bookkeeping.
 //! No App access and no I/O.
 
-// Later units consume the full registry API.
-#![allow(dead_code)]
-
 use std::collections::{HashMap, VecDeque};
 
 use crate::api::schema::supervisor::{
@@ -139,12 +136,15 @@ impl PaneSupervisorState {
     }
 }
 
+// target_ref validator error; first caller is step-3 write verbs.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaleTarget {
     pub current_generation: Option<u64>,
 }
 
 impl SupervisorState {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }
@@ -223,6 +223,8 @@ impl SupervisorState {
         }
     }
 
+    // target_ref validator; first caller is step-3 write verbs.
+    #[allow(dead_code)]
     pub fn check_target_ref(
         &self,
         target: &TargetRef,
