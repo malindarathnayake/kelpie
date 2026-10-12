@@ -575,6 +575,7 @@ impl App {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            supervisor: Default::default(),
         };
 
         state.terminals = restored_terminals;

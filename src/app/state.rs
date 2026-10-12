@@ -888,6 +888,8 @@ pub struct AppState {
     /// Terminal runtimes that should be shut down by the app/runtime layer
     /// after state has detached their terminal metadata.
     pub(crate) terminal_runtime_shutdowns: Vec<crate::terminal::TerminalId>,
+    /// Fork-only supervisor facts registry (per-pane generation and lineage).
+    pub(crate) supervisor: crate::supervisor::SupervisorState,
 }
 
 impl AppState {
@@ -1120,6 +1122,7 @@ impl AppState {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            supervisor: Default::default(),
         }
     }
 

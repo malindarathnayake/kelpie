@@ -660,6 +660,7 @@ impl AppState {
         }
         for pane_id in pane_ids {
             self.plugin_panes.remove(&pane_id);
+            self.supervisor.remove_pane(pane_id);
         }
     }
 
@@ -1744,6 +1745,23 @@ impl AppState {
         if completion_reset {
             self.pending_agent_notifications.remove(&pane_id);
             self.workspaces[ws_idx].pane_state_mut(pane_id)?.seen = true;
+        }
+        if crate::supervisor::enabled() {
+            let started = mutation
+                .effective_state_change
+                .as_ref()
+                .is_some_and(|c| c.previous_agent_label.is_none() && c.agent_label.is_some());
+            if let Some(reason) = crate::supervisor::registry::generation_reason(
+                mutation.session_ref_changed,
+                mutation.agent_released,
+                started,
+            ) {
+                self.supervisor.record_generation_change(
+                    pane_id,
+                    reason,
+                    crate::supervisor::now_ms(),
+                );
+            }
         }
         if mutation.session_ref_changed || managed_changed || agent_name_changed {
             self.mark_session_dirty();

@@ -10,6 +10,7 @@ pub mod plugins;
 pub mod response;
 pub mod server;
 pub mod session;
+pub mod supervisor;
 pub mod tabs;
 pub mod workspaces;
 pub mod worktrees;

@@ -1,6 +1,11 @@
 //! Fork-only supervisor facts surface (read-only in step 2). Agent-neutral: any supervisor
 //! (Dot, Hermes, OpenClaw, scripts) uses the same methods. Disabled unless `[supervisor] enabled`.
 
+pub mod registry;
+// Later units consume the re-export.
+#[allow(unused_imports)]
+pub use registry::SupervisorState;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,8 +21,23 @@ pub fn set_enabled(enabled: bool) {
     let _ = ENABLED.set(enabled);
 }
 
+#[cfg(test)]
+thread_local! {
+    static TEST_ENABLED: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test-only per-thread override of the enable flag. `None` restores the global value.
+#[cfg(test)]
+pub fn set_enabled_for_test(value: Option<bool>) {
+    TEST_ENABLED.with(|c| c.set(value));
+}
+
 /// Whether the supervisor surface is enabled. False when never set.
 pub fn enabled() -> bool {
+    #[cfg(test)]
+    if let Some(v) = TEST_ENABLED.with(|c| c.get()) {
+        return v;
+    }
     ENABLED.get().copied().unwrap_or(false)
 }
 
@@ -91,6 +111,17 @@ mod tests {
 
     #[test]
     fn enabled_defaults_to_false_when_unset() {
+        assert!(!enabled());
+    }
+
+    #[test]
+    fn enabled_for_test_override_is_thread_local() {
+        set_enabled_for_test(Some(true));
+        assert!(enabled());
+        std::thread::spawn(|| assert!(!enabled()))
+            .join()
+            .expect("thread panicked");
+        set_enabled_for_test(None);
         assert!(!enabled());
     }
 }

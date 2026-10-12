@@ -1268,6 +1268,15 @@ impl App {
             }
         };
 
+        // Destination insert succeeded: the move is committed.
+        if crate::supervisor::enabled() {
+            self.state.supervisor.bump_generation(
+                moved_pane_id,
+                crate::api::schema::supervisor::GenerationReason::PaneMoved,
+                crate::supervisor::now_ms(),
+            );
+        }
+
         if focus || self.state.active.is_none() {
             self.state
                 .switch_workspace_tab(target_ws_idx, target_tab_idx);
@@ -2344,6 +2353,192 @@ mod tests {
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
         (app, public_pane_id)
+    }
+
+    fn move_split_pane_to_new_tab(app: &mut App) -> crate::layout::PaneId {
+        let moved = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        let public = app.public_pane_id(0, moved).unwrap();
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "move".into(),
+            method: crate::api::schema::Method::PaneMove(crate::api::schema::PaneMoveParams {
+                pane_id: public,
+                destination: crate::api::schema::PaneMoveDestination::NewTab {
+                    workspace_id: None,
+                    label: Some("moved".into()),
+                },
+                focus: true,
+            }),
+        });
+        serde_json::from_str::<SuccessResponse>(&response)
+            .unwrap_or_else(|e| panic!("pane move failed: {e}: {response}"));
+        moved
+    }
+
+    /// Resets the supervisor enable override even when a test panics.
+    struct ResetOverride;
+    impl Drop for ResetOverride {
+        fn drop(&mut self) {
+            crate::supervisor::set_enabled_for_test(None);
+        }
+    }
+
+    #[test]
+    fn supervisor_generation_bumps_on_pane_move() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let moved = move_split_pane_to_new_tab(&mut app);
+        let state = app.state.supervisor.pane(moved).expect("pane tracked");
+        assert_eq!(state.generation, 2);
+        assert_eq!(
+            state.lineage.back().unwrap().reason,
+            crate::api::schema::supervisor::GenerationReason::PaneMoved
+        );
+    }
+
+    #[test]
+    fn supervisor_generation_entry_evicted_on_pane_close() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let moved = move_split_pane_to_new_tab(&mut app);
+        assert!(app.state.supervisor.pane(moved).is_some());
+        let public = app.public_pane_id(0, moved).expect("moved pane public id");
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "close".into(),
+            method: crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
+                pane_id: public,
+            }),
+        });
+        serde_json::from_str::<SuccessResponse>(&response)
+            .unwrap_or_else(|e| panic!("pane close failed: {e}: {response}"));
+        assert!(app.state.supervisor.pane(moved).is_none());
+    }
+
+    #[test]
+    fn supervisor_generation_bumps_on_agent_start() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        app.state
+            .handle_app_event(crate::events::AppEvent::HookStateReported {
+                pane_id,
+                source: "custom:worker".into(),
+                agent_label: "worker".into(),
+                state: AgentState::Working,
+                message: None,
+                seq: Some(1),
+                session_ref: None,
+            });
+        let state = app.state.supervisor.pane(pane_id).expect("pane tracked");
+        assert_eq!(
+            state.lineage.back().unwrap().reason,
+            crate::api::schema::supervisor::GenerationReason::AgentStarted
+        );
+    }
+
+    #[test]
+    fn supervisor_generation_untouched_when_disabled_on_session_change() {
+        crate::supervisor::set_enabled_for_test(None);
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        for (seq, session) in [(1, "session-a"), (2, "session-b")] {
+            app.state
+                .handle_app_event(crate::events::AppEvent::AgentSessionReported {
+                    pane_id,
+                    source: "herdr:claude".into(),
+                    agent_label: "claude".into(),
+                    seq: Some(seq),
+                    session_ref: crate::agent_resume::AgentSessionRef::id(session),
+                    session_start_source: Some("startup".into()),
+                });
+        }
+        assert!(app.state.supervisor.pane(pane_id).is_none());
+    }
+
+    #[test]
+    fn supervisor_generation_bumps_on_session_change() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        for (seq, session) in [(1, "session-a"), (2, "session-b")] {
+            app.state
+                .handle_app_event(crate::events::AppEvent::AgentSessionReported {
+                    pane_id,
+                    source: "herdr:claude".into(),
+                    agent_label: "claude".into(),
+                    seq: Some(seq),
+                    session_ref: crate::agent_resume::AgentSessionRef::id(session),
+                    session_start_source: Some("startup".into()),
+                });
+        }
+        let state = app.state.supervisor.pane(pane_id).expect("pane tracked");
+        assert!(state.generation >= 2);
+        assert_eq!(
+            state.lineage.back().unwrap().reason,
+            crate::api::schema::supervisor::GenerationReason::SessionChanged
+        );
+    }
+
+    #[test]
+    fn supervisor_generation_release_with_session_change_records_agent_exited() {
+        use crate::api::schema::supervisor::GenerationReason;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let report = |app: &mut App, seq: u64, session: &str| {
+            app.state
+                .handle_app_event(crate::events::AppEvent::AgentSessionReported {
+                    pane_id,
+                    source: "custom:acme".into(),
+                    agent_label: "acme".into(),
+                    seq: Some(seq),
+                    session_ref: crate::agent_resume::AgentSessionRef::id(session),
+                    session_start_source: Some("startup".into()),
+                });
+        };
+        report(&mut app, 1, "session-a");
+        let before = app.state.supervisor.pane(pane_id).unwrap().generation;
+
+        app.state
+            .handle_app_event(crate::events::AppEvent::HookAgentReleased {
+                pane_id,
+                source: "custom:acme".into(),
+                agent_label: "acme".into(),
+                known_agent: None,
+                seq: Some(2),
+            });
+        let state = app.state.supervisor.pane(pane_id).unwrap();
+        assert_eq!(state.generation, before + 1);
+        assert_eq!(
+            state.lineage.back().unwrap().reason,
+            GenerationReason::AgentExited
+        );
+        assert!(state.exited);
+
+        report(&mut app, 3, "session-b");
+        let state = app.state.supervisor.pane(pane_id).unwrap();
+        assert_eq!(
+            state.lineage.back().unwrap().reason,
+            GenerationReason::SessionChanged
+        );
+        assert!(!state.exited);
+    }
+
+    #[test]
+    fn supervisor_generation_untouched_when_disabled() {
+        crate::supervisor::set_enabled_for_test(None);
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let moved = move_split_pane_to_new_tab(&mut app);
+        assert!(app.state.supervisor.pane(moved).is_none());
     }
 
     #[test]
