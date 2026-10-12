@@ -51,12 +51,18 @@ pub fn generation_reason(
 #[derive(Debug, Default)]
 pub struct SupervisorState {
     panes: HashMap<PaneId, PaneSupervisorState>,
+    /// Registry-wide monotonic event counter; orders hook reports against turn
+    /// starts without relying on wall-clock milliseconds.
+    event_seq: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct PaneSupervisorState {
     /// Starts at 1 on first sight.
     pub generation: u64,
+    /// Conversation epoch used in question ids. Starts at 1 and bumps with every
+    /// generation change except a pane move, which only changes routing.
+    pub question_epoch: u64,
     /// Newest last, capped at `MAX_LINEAGE` (oldest dropped).
     pub lineage: VecDeque<LineageEntry>,
     /// Open and resolved questions in insertion order.
@@ -66,6 +72,8 @@ pub struct PaneSupervisorState {
     /// Set when a resolved question was dropped for the cap.
     pub truncated_resolved: bool,
     pub turn_started_ms: Option<u64>,
+    /// Event sequence of the most recent Working transition.
+    pub turn_seq: Option<u64>,
     pub idle_since_ms: Option<u64>,
     pub rescanned_this_idle: bool,
     pub last_transition_ms: Option<u64>,
@@ -73,6 +81,10 @@ pub struct PaneSupervisorState {
     pub background_rule_seen_ms: Option<u64>,
     /// Generation in which a background_jobs token was last reported.
     pub background_hook_generation: Option<u64>,
+    /// Event sequence of the last `background_jobs` report.
+    pub background_hook_seq: Option<u64>,
+    /// Wall-clock time of the last `background_jobs` report.
+    pub background_hook_ms: Option<u64>,
     pub exited: bool,
     /// Structured-approval scan for the Blocked transition with this sequence;
     /// independent of `pending_prose`. Cleared on generation change.
@@ -87,16 +99,20 @@ impl PaneSupervisorState {
     fn new() -> Self {
         Self {
             generation: 1,
+            question_epoch: 1,
             lineage: VecDeque::new(),
             questions: Vec::new(),
             truncated_questions: false,
             truncated_resolved: false,
             turn_started_ms: None,
+            turn_seq: None,
             idle_since_ms: None,
             rescanned_this_idle: false,
             last_transition_ms: None,
             background_rule_seen_ms: None,
             background_hook_generation: None,
+            background_hook_seq: None,
+            background_hook_ms: None,
             exited: false,
             pending_blocked: None,
             pending_prose: false,
@@ -160,6 +176,15 @@ impl SupervisorState {
             .or_insert_with(PaneSupervisorState::new)
     }
 
+    /// Returns the next registry-wide event sequence number (starts at 1).
+    fn next_event_seq(&mut self) -> u64 {
+        self.event_seq += 1;
+        self.event_seq
+    }
+
+    /// Bumps the routing generation. A pane move changes only routing: open
+    /// questions, pending scans and turn/idle markers are kept and the question
+    /// epoch is unchanged. Every other reason replaces the conversation.
     pub fn bump_generation(&mut self, pane: PaneId, reason: GenerationReason, now_ms: u64) -> u64 {
         let state = self.pane_mut(pane);
         state.generation += 1;
@@ -172,6 +197,20 @@ impl SupervisorState {
         while state.lineage.len() > MAX_LINEAGE {
             state.lineage.pop_front();
         }
+        // Rule evidence does not survive a generation change; the hook generation is
+        // left as is and is now stale relative to `generation`.
+        state.background_rule_seen_ms = None;
+        if reason == GenerationReason::PaneMoved {
+            tracing::debug!(
+                event = "supervisor.generation",
+                subsystem = "supervisor",
+                pane_id = pane.raw(),
+                generation = new,
+                reason = reason_name(reason)
+            );
+            return new;
+        }
+        state.question_epoch += 1;
         for q in state
             .questions
             .iter_mut()
@@ -182,10 +221,8 @@ impl SupervisorState {
                 by: ResolutionBy::Superseded,
             });
         }
-        // Rule evidence does not survive a generation change; the hook generation is
-        // left as is and is now stale relative to `generation`.
-        state.background_rule_seen_ms = None;
         state.turn_started_ms = None;
+        state.turn_seq = None;
         state.idle_since_ms = None;
         state.rescanned_this_idle = false;
         state.pending_blocked = None;
@@ -266,17 +303,31 @@ impl SupervisorState {
         true
     }
 
-    /// Records that a `background_jobs` token was reported in the current generation.
-    pub fn note_background_hook(&mut self, pane: PaneId) {
+    /// Records that a `background_jobs` token was reported in the current generation,
+    /// with its event sequence and report time.
+    pub fn note_background_hook(&mut self, pane: PaneId, now_ms: u64) {
+        let seq = self.next_event_seq();
         let state = self.pane_mut(pane);
         state.background_hook_generation = Some(state.generation);
+        state.background_hook_seq = Some(seq);
+        state.background_hook_ms = Some(now_ms);
     }
 
-    /// True when a `background_jobs` token was reported in the pane's current generation.
+    /// True when a `background_jobs` token was reported in the pane's current
+    /// generation and after the most recent Working transition (if any).
     pub fn background_hook_current(&self, pane: PaneId) -> bool {
-        self.panes
-            .get(&pane)
-            .is_some_and(|s| s.background_hook_generation == Some(s.generation))
+        self.panes.get(&pane).is_some_and(|s| {
+            s.background_hook_generation == Some(s.generation)
+                && match s.turn_seq {
+                    None => true,
+                    Some(turn) => s.background_hook_seq.is_some_and(|h| h > turn),
+                }
+        })
+    }
+
+    /// Wall-clock time of the last `background_jobs` report, if any.
+    pub fn background_hook_ms(&self, pane: PaneId) -> Option<u64> {
+        self.panes.get(&pane).and_then(|s| s.background_hook_ms)
     }
 
     pub fn remove_pane(&mut self, pane: PaneId) {
@@ -293,6 +344,7 @@ impl SupervisorState {
         state_change_seq: u64,
         now_ms: u64,
     ) {
+        let seq = matches!(new, AgentState::Working).then(|| self.next_event_seq());
         let state = self.pane_mut(pane);
         state.last_transition_ms = Some(now_ms);
         state.last_state = Some(new);
@@ -305,6 +357,7 @@ impl SupervisorState {
         match new {
             AgentState::Working => {
                 state.turn_started_ms = Some(now_ms);
+                state.turn_seq = seq;
             }
             AgentState::Idle => {
                 state.idle_since_ms = Some(now_ms);
@@ -326,14 +379,14 @@ impl SupervisorState {
         if blocked.is_none() && !prose {
             return;
         }
-        let generation = state.generation;
+        let epoch = state.question_epoch;
         let still_blocked = matches!(state.last_state, Some(AgentState::Blocked));
         let rows = content_rows(text);
         if let Some(state_change_seq) = blocked {
             let question = PendingQuestion {
                 question_id: question_id(
                     pane.raw(),
-                    generation,
+                    epoch,
                     "blocked",
                     &state_change_seq.to_string(),
                 ),
@@ -358,7 +411,7 @@ impl SupervisorState {
         if prose {
             if let Some(excerpt) = detect_prose_question(&rows) {
                 let question = PendingQuestion {
-                    question_id: question_id(pane.raw(), generation, "prose", &normalize(&excerpt)),
+                    question_id: question_id(pane.raw(), epoch, "prose", &normalize(&excerpt)),
                     kind: QuestionKind::ProseQuestion,
                     excerpt,
                     asked_at_ms: now_ms,
@@ -509,7 +562,7 @@ mod tests {
     fn supervisor_background_hook_generation_goes_stale_on_bump() {
         let mut s = SupervisorState::new();
         assert!(!s.background_hook_current(pid(1)));
-        s.note_background_hook(pid(1));
+        s.note_background_hook(pid(1), 1);
         assert!(s.background_hook_current(pid(1)));
         s.bump_generation(pid(1), GenerationReason::AgentStarted, 5);
         assert!(!s.background_hook_current(pid(1)));
@@ -824,5 +877,101 @@ mod tests {
             .collect();
         assert_eq!(prose.len(), 1);
         assert_eq!(prose[0].excerpt, "Should I start the brief?");
+    }
+
+    #[test]
+    fn registry_pane_move_keeps_open_questions() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.apply_scan(pid(1), TITLED, 110);
+        assert_eq!(open_questions(&s, pid(1)).len(), 1);
+        let epoch = s.pane(pid(1)).unwrap().question_epoch;
+        assert_eq!(
+            s.bump_generation(pid(1), GenerationReason::PaneMoved, 200),
+            2
+        );
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.generation, 2);
+        assert_eq!(p.question_epoch, epoch);
+        assert_eq!(p.questions.len(), 1);
+        assert_eq!(p.questions[0].resolution, None);
+        let last = p.lineage.back().unwrap();
+        assert_eq!(last.reason, GenerationReason::PaneMoved);
+        assert_eq!(last.generation, 2);
+        assert_eq!(p.last_state, Some(AgentState::Idle));
+        assert_eq!(p.idle_since_ms, Some(100));
+    }
+
+    #[test]
+    fn registry_pane_move_rescan_no_duplicate() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.apply_scan(pid(1), TITLED, 110);
+        s.bump_generation(pid(1), GenerationReason::PaneMoved, 200);
+        assert!(s.request_quiescence_rescan(pid(1), 2000));
+        s.apply_scan(pid(1), TITLED, 2010);
+        assert_eq!(open_questions(&s, pid(1)).len(), 1);
+        assert_eq!(s.pane(pid(1)).unwrap().questions.len(), 1);
+    }
+
+    #[test]
+    fn registry_pane_move_keeps_pending_scans() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.bump_generation(pid(1), GenerationReason::PaneMoved, 150);
+        assert_eq!(s.panes_pending_scan(), vec![pid(1)]);
+        s.apply_scan(pid(1), TITLED, 160);
+        let open = open_questions(&s, pid(1));
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].kind, QuestionKind::ProseQuestion);
+
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(2), AgentState::Working, AgentState::Blocked, 7, 100);
+        s.bump_generation(pid(2), GenerationReason::PaneMoved, 150);
+        assert_eq!(s.pane(pid(2)).unwrap().pending_blocked, Some(7));
+        s.apply_scan(
+            pid(2),
+            "Allow edit to foo.rs?
+  1. Yes
+  2. No
+",
+            160,
+        );
+        let open = open_questions(&s, pid(2));
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].kind, QuestionKind::StructuredApproval);
+        assert_eq!(open[0].excerpt, "2. No");
+        assert_eq!(open[0].question_id, question_id(2, 1, "blocked", "7"));
+    }
+
+    #[test]
+    fn registry_pane_move_keeps_exited() {
+        let mut s = SupervisorState::new();
+        s.record_generation_change(pid(1), GenerationReason::AgentExited, 10);
+        assert!(s.pane(pid(1)).unwrap().exited);
+        s.bump_generation(pid(1), GenerationReason::PaneMoved, 20);
+        let p = s.pane(pid(1)).unwrap();
+        assert!(p.exited);
+        assert_eq!(p.generation, 3);
+    }
+
+    #[test]
+    fn registry_session_change_still_supersedes() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.apply_scan(pid(1), TITLED, 110);
+        let epoch = s.pane(pid(1)).unwrap().question_epoch;
+        s.bump_generation(pid(1), GenerationReason::SessionChanged, 200);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.question_epoch, epoch + 1);
+        assert_eq!(p.questions.len(), 1);
+        assert_eq!(
+            p.questions[0].resolution,
+            Some(QuestionResolution {
+                at_ms: 200,
+                by: ResolutionBy::Superseded
+            })
+        );
+        assert!(open_questions(&s, pid(1)).is_empty());
     }
 }

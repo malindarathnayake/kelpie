@@ -1859,7 +1859,9 @@ impl App {
             changed
         });
         if reports_background_jobs {
-            self.state.supervisor.note_background_hook(pane_id);
+            self.state
+                .supervisor
+                .note_background_hook(pane_id, crate::supervisor::now_ms());
         }
 
         if presentation_requested {

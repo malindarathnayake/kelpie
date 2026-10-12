@@ -212,6 +212,7 @@ impl App {
         let (background, background_jobs) = crate::supervisor::background::derive_background(
             info.tokens.get("background_jobs").map(String::as_str),
             self.state.supervisor.background_hook_current(pane_id),
+            self.state.supervisor.background_hook_ms(pane_id),
             self.background_rule_hit(ws_idx, pane_id),
             now,
         );
@@ -569,5 +570,84 @@ mod tests {
         let a = &d.agents[0];
         assert_eq!(a.background.value, Background::Inactive);
         assert_eq!(a.background_jobs, Some(0));
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_pane_move_keeps_question_incomplete() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, _root) = app_with_screen("digest-move", b"");
+        let moved = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(moved)
+            .expect("moved pane state")
+            .attached_terminal_id
+            .clone();
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(
+            80,
+            24,
+            b"Plan ready.
+  Should I start the brief?
+",
+        );
+        app.terminal_runtimes.insert(terminal_id, runtime);
+        app.handle_internal_event(hook_state(moved, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(moved, AgentState::Idle, 2));
+
+        let public = app.public_pane_id(0, moved).expect("moved pane public id");
+        let d = digest(&mut app, empty_params());
+        let a = d
+            .agents
+            .iter()
+            .find(|a| a.target_ref.pane_id == public)
+            .expect("moved agent in digest");
+        let before_generation = a.target_ref.generation;
+        let open_before: Vec<_> = a
+            .pending_questions
+            .iter()
+            .filter(|q| q.resolution.is_none())
+            .map(|q| q.question_id.clone())
+            .collect();
+        assert_eq!(open_before.len(), 1);
+
+        let response = app.handle_api_request(Request {
+            id: "move".into(),
+            method: Method::PaneMove(crate::api::schema::PaneMoveParams {
+                pane_id: public,
+                destination: crate::api::schema::PaneMoveDestination::NewTab {
+                    workspace_id: None,
+                    label: Some("moved".into()),
+                },
+                focus: true,
+            }),
+        });
+        serde_json::from_str::<SuccessResponse>(&response)
+            .unwrap_or_else(|e| panic!("pane move failed: {e}: {response}"));
+
+        report_background_token(&mut app, moved, Some("0".to_string()));
+        let public = app.public_pane_id(0, moved).expect("moved pane public id");
+        let d = digest(&mut app, empty_params());
+        let a = d
+            .agents
+            .iter()
+            .find(|a| a.target_ref.pane_id == public)
+            .expect("moved agent in digest");
+        assert_eq!(a.target_ref.generation, before_generation + 1);
+        assert_eq!(
+            a.lineage.last().map(|l| l.reason),
+            Some(crate::api::schema::supervisor::GenerationReason::PaneMoved)
+        );
+        let open_after: Vec<_> = a
+            .pending_questions
+            .iter()
+            .filter(|q| q.resolution.is_none())
+            .map(|q| q.question_id.clone())
+            .collect();
+        assert_eq!(open_after, open_before);
+        assert_eq!(a.background.value, Background::Inactive);
+        assert_eq!(a.completion, Completion::Incomplete);
     }
 }
