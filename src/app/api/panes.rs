@@ -1874,8 +1874,9 @@ impl App {
                 ttl,
             });
         }
-        // Noted after the lifecycle change above so an AgentStarted bump caused by this
-        // same report cannot make its own background evidence stale.
+        // Noted after the metadata event above as a defensive guard: metadata reports do
+        // not change the agent label today, but if a future metadata lifecycle path ever
+        // bumped the generation, this report's background evidence would stay current.
         if reports_background_jobs {
             self.state
                 .supervisor
