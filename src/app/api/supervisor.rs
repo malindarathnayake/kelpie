@@ -230,7 +230,7 @@ impl App {
                     .metadata_tokens
                     .validity("background_jobs", std::time::Instant::now())
             });
-        let (background, background_jobs) = crate::supervisor::background::derive_background(
+        let derived = crate::supervisor::background::derive_background(
             info.tokens.get("background_jobs").map(String::as_str),
             background_validity,
             self.state.supervisor.background_hook_current(pane_id),
@@ -238,6 +238,9 @@ impl App {
             self.background_rule_hit(ws_idx, pane_id),
             now,
         );
+        // No reporter sends a work/turn correlation yet (C18b open), so zero reads Unknown.
+        let (background, background_jobs) =
+            crate::supervisor::background::require_zero_correlation(derived, false);
         AgentFactInputs {
             target_ref,
             status: info.agent_status,
@@ -609,13 +612,15 @@ mod tests {
         assert_eq!(a.completion, Completion::Incomplete);
         assert_eq!(a.blocking_reason, Some(BlockingReason::BackgroundActive));
 
+        // A current, live zero is still uncorrelated (C18b open), so it reads Unknown.
         report_background_token(&mut app, pane_id, Some("0".to_string()), Some(LIVE_TTL_MS));
-        let report_ms = app.state.supervisor.background_hook_ms(pane_id);
+        assert!(app.state.supervisor.background_hook_current(pane_id));
         let d = digest(&mut app, empty_params());
         let a = &d.agents[0];
-        assert_eq!(a.background.value, Background::Inactive);
-        assert_eq!(a.background_jobs, Some(0));
-        assert_eq!(a.background.observed_at_ms, report_ms);
+        assert_eq!(a.background.value, Background::Unknown);
+        assert_eq!(a.background_jobs, None);
+        assert_eq!(a.completion, Completion::Incomplete);
+        assert_eq!(a.blocking_reason, Some(BlockingReason::BackgroundUnknown));
 
         // Re-reporting zero without a TTL removes the validity boundary.
         report_background_token(&mut app, pane_id, Some("0".to_string()), None);
@@ -624,6 +629,33 @@ mod tests {
         assert_eq!(a.background.value, Background::Unknown);
         assert_eq!(a.background_jobs, None);
         assert_ne!(a.completion, Completion::Complete);
+    }
+
+    /// Zero always reads Unknown (C18b interim), so the read-time deadline check is
+    /// observed end to end through a positive count.
+    #[tokio::test]
+    async fn supervisor_digest_expired_positive_before_sweep_is_unknown() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, pane_id) = app_with_screen("digest-bg-expired-pos", b"");
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
+        report_background_token(&mut app, pane_id, Some("1".to_string()), Some(LIVE_TTL_MS));
+        let d = digest(&mut app, empty_params());
+        assert_eq!(d.agents[0].background.value, Background::Active);
+        assert_eq!(d.agents[0].background_jobs, Some(1));
+
+        report_background_token(&mut app, pane_id, Some("1".to_string()), Some(1));
+        // Wait past the 1 ms deadline without running the expiry sweep.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5);
+        while std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        let d = digest(&mut app, empty_params());
+        let a = &d.agents[0];
+        assert_eq!(a.background.value, Background::Unknown);
+        assert_eq!(a.background_jobs, None);
+        assert_eq!(a.blocking_reason, Some(BlockingReason::BackgroundUnknown));
     }
 
     #[tokio::test]
@@ -774,8 +806,9 @@ mod tests {
             a.lineage.last().map(|l| l.reason),
             Some(crate::api::schema::supervisor::GenerationReason::PaneMoved)
         );
-        assert_eq!(a.background.value, Background::Inactive);
-        assert_eq!(a.background.observed_at_ms, report_ms);
+        // Hook currency survives the move; the uncorrelated zero still reads Unknown.
+        assert!(report_ms.is_some());
+        assert_eq!(a.background.value, Background::Unknown);
     }
 
     #[tokio::test]
@@ -902,7 +935,7 @@ mod tests {
             .map(|q| q.question_id.clone())
             .collect();
         assert_eq!(open_after, open_before);
-        assert_eq!(a.background.value, Background::Inactive);
+        assert_eq!(a.background.value, Background::Unknown);
         assert_eq!(a.completion, Completion::Incomplete);
     }
 
@@ -1059,8 +1092,9 @@ mod tests {
         assert_ne!(a.completion, Completion::Complete);
 
         report_background_token(&mut app, pane_id, Some("0".to_string()), Some(LIVE_TTL_MS));
+        assert!(app.state.supervisor.background_hook_current(pane_id));
         let d = digest(&mut app, empty_params());
-        assert_eq!(d.agents[0].background.value, Background::Inactive);
+        assert_eq!(d.agents[0].background.value, Background::Unknown);
     }
 
     /// A detection state report without an edge does not start a new turn.

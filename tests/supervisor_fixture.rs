@@ -412,7 +412,8 @@ impl Fixture {
             "--seq",
             &seq,
         ];
-        // A zero count counts as Inactive only while its reporter-supplied TTL is live.
+        // A zero needs a live reporter TTL to pass the freshness fence; the digest still
+        // reads it Unknown while C18b is open (no reporter correlation).
         if jobs == 0 {
             args.extend(["--ttl-ms", "600000"]);
         }
@@ -714,13 +715,15 @@ fn t1a_question_survives_next_turn() {
     fixture.report(&pane, "claude", "idle");
     fixture.report_background_jobs(&pane, 0);
 
-    let agent = fixture.digest_agent_until(&pane, "background_jobs=0", |agent| {
-        agent["background"]["value"] == "inactive"
+    // An uncorrelated zero reads Unknown (C18b open); the open question is kept.
+    let agent = fixture.digest_agent_until(&pane, "idle after the next turn", |agent| {
+        agent["agent_status"] == "idle"
     });
     let questions = agent["pending_questions"].as_array().unwrap();
     assert_eq!(questions.len(), 1, "{agent}");
     assert_eq!(questions[0]["question_id"], id, "{agent}");
     assert!(questions[0].get("resolution").is_none_or(|r| r.is_null()));
+    assert_eq!(agent["background"]["value"], "unknown", "{agent}");
     assert_eq!(agent["completion"], "incomplete", "{agent}");
 }
 

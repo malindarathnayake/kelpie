@@ -83,6 +83,30 @@ pub fn derive_background(
     )
 }
 
+/// Interim fail-closed policy for open finding C18b: a zero report has no reporter
+/// work/turn correlation yet, so a delayed zero that arrives after new work started
+/// cannot be told apart from a current one. Until a correlation exists, a derived
+/// Inactive becomes Unknown unless `zero_correlated`. Cost: hook evidence alone can no
+/// longer produce Inactive, so Complete is unreachable from it. Active and Unknown
+/// results pass through unchanged.
+pub fn require_zero_correlation(
+    derived: (Fact<Background>, Option<u32>),
+    zero_correlated: bool,
+) -> (Fact<Background>, Option<u32>) {
+    if zero_correlated || derived.0.value != Background::Inactive {
+        return derived;
+    }
+    (
+        Fact {
+            value: Background::Unknown,
+            source: FactSource::Unknown,
+            observed_at_ms: None,
+            confidence: Confidence::Unknown,
+        },
+        None,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +262,41 @@ mod tests {
         assert_eq!(f.value, Background::Active);
         assert_eq!(f.source, FactSource::Hook);
         assert_eq!(f.observed_at_ms, Some(42));
+    }
+
+    #[test]
+    fn supervisor_background_uncorrelated_zero_is_unknown() {
+        let derived = derive_background(Some("0"), LIVE, true, Some(7), false, 10);
+        assert_eq!(derived.0.value, Background::Inactive);
+        assert_unknown(require_zero_correlation(derived, false));
+    }
+
+    #[test]
+    fn supervisor_background_correlated_zero_stays_inactive() {
+        let derived = derive_background(Some("0"), LIVE, true, Some(7), false, 10);
+        let (f, n) = require_zero_correlation(derived, true);
+        assert_eq!(n, Some(0));
+        assert_eq!(f.value, Background::Inactive);
+        assert_eq!(f.observed_at_ms, Some(7));
+    }
+
+    #[test]
+    fn supervisor_background_correlation_policy_keeps_active_and_unknown() {
+        let (f, n) = require_zero_correlation(
+            derive_background(Some("2"), NO_TTL, true, Some(7), false, 10),
+            false,
+        );
+        assert_eq!((f.value, n), (Background::Active, Some(2)));
+        let (f, _) = require_zero_correlation(
+            derive_background(Some("0"), LIVE, true, Some(7), true, 10),
+            false,
+        );
+        assert_eq!(f.value, Background::Active);
+        assert_eq!(f.source, FactSource::ManifestRule);
+        assert_unknown(require_zero_correlation(
+            derive_background(Some("0"), EXPIRED, true, Some(7), false, 10),
+            false,
+        ));
     }
 
     fn pid(n: u32) -> PaneId {
