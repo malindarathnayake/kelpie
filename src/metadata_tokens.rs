@@ -12,6 +12,17 @@ pub(crate) struct MetadataTokens {
     entries: HashMap<String, MetadataToken>,
 }
 
+/// Validity of a stored token at a point in time, independent of the expiry sweep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TokenValidity {
+    /// The token was stored without a TTL.
+    NoTtl,
+    /// The token has a TTL and `now` is before its deadline.
+    Live,
+    /// The token's deadline has passed, whether or not the sweep has run.
+    Expired,
+}
+
 pub(crate) const MAX_SEQUENCE_SOURCES: usize = 32;
 
 pub(crate) fn sequence_is_fresh(
@@ -86,6 +97,16 @@ impl MetadataTokens {
             .iter()
             .map(|(key, token)| (key.clone(), token.value.clone()))
             .collect()
+    }
+
+    /// Returns the validity of `key` at `now`, or None when the key is absent.
+    /// Live iff `now < deadline`, matching the sweep in `expire_at`. Pure query.
+    pub(crate) fn validity(&self, key: &str, now: Instant) -> Option<TokenValidity> {
+        self.entries.get(key).map(|token| match token.expires_at {
+            None => TokenValidity::NoTtl,
+            Some(deadline) if now < deadline => TokenValidity::Live,
+            Some(_) => TokenValidity::Expired,
+        })
     }
 
     pub(crate) fn next_expiry(&self) -> Option<Instant> {
@@ -236,6 +257,33 @@ mod tests {
             tokens.values(),
             HashMap::from([("summary".into(), "new".into())])
         );
+    }
+
+    #[test]
+    fn validity_reports_no_ttl_live_expired_and_missing() {
+        let now = Instant::now();
+        let ttl = Duration::from_secs(1);
+        let deadline = now + ttl;
+        let mut tokens = MetadataTokens::default();
+        tokens.patch(patch(&[("persistent", Some("one"))]), None, now);
+        tokens.patch(patch(&[("short", Some("two"))]), Some(ttl), now);
+
+        assert_eq!(
+            tokens.validity("persistent", deadline),
+            Some(TokenValidity::NoTtl)
+        );
+        assert_eq!(tokens.validity("short", now), Some(TokenValidity::Live));
+        assert_eq!(
+            tokens.validity("short", deadline - Duration::from_millis(1)),
+            Some(TokenValidity::Live)
+        );
+        assert_eq!(
+            tokens.validity("short", deadline),
+            Some(TokenValidity::Expired)
+        );
+        assert_eq!(tokens.validity("missing", now), None);
+        // The query does not mutate: the expired token is still stored until the sweep.
+        assert!(tokens.values().contains_key("short"));
     }
 
     #[test]

@@ -209,8 +209,21 @@ impl App {
             }
             None => (false, None, None),
         };
+        // Read-time TTL check on the pane's attached terminal; never sweeps or mutates.
+        let background_validity = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
+            .and_then(|terminal| {
+                terminal
+                    .metadata_tokens
+                    .validity("background_jobs", std::time::Instant::now())
+            });
         let (background, background_jobs) = crate::supervisor::background::derive_background(
             info.tokens.get("background_jobs").map(String::as_str),
+            background_validity,
             self.state.supervisor.background_hook_current(pane_id),
             self.state.supervisor.background_hook_ms(pane_id),
             self.background_rule_hit(ws_idx, pane_id),
@@ -297,29 +310,50 @@ mod tests {
         (app, pane_id)
     }
 
-    fn report_background_token(app: &mut App, pane_id: PaneId, value: Option<String>) {
-        let target = app.public_pane_id(0, pane_id).unwrap();
+    /// TTL long enough to stay live for the duration of a test.
+    const LIVE_TTL_MS: u64 = 600_000;
+
+    fn background_report(
+        app: &App,
+        pane_id: PaneId,
+        value: Option<String>,
+    ) -> crate::api::schema::PaneReportMetadataParams {
         let mut tokens = std::collections::HashMap::new();
         tokens.insert("background_jobs".to_string(), value);
+        crate::api::schema::PaneReportMetadataParams {
+            pane_id: app.public_pane_id(0, pane_id).unwrap(),
+            source: "user:metadata.test-1".into(),
+            agent: None,
+            applies_to_source: None,
+            title: None,
+            display_agent: None,
+            state_labels: std::collections::HashMap::new(),
+            tokens,
+            clear_title: false,
+            clear_display_agent: false,
+            clear_state_labels: false,
+            seq: None,
+            ttl_ms: None,
+        }
+    }
+
+    fn send_report(app: &mut App, params: crate::api::schema::PaneReportMetadataParams) {
         let response = app.handle_api_request(Request {
             id: "bg".into(),
-            method: Method::PaneReportMetadata(crate::api::schema::PaneReportMetadataParams {
-                pane_id: target,
-                source: "user:metadata.test-1".into(),
-                agent: None,
-                applies_to_source: None,
-                title: None,
-                display_agent: None,
-                state_labels: std::collections::HashMap::new(),
-                tokens,
-                clear_title: false,
-                clear_display_agent: false,
-                clear_state_labels: false,
-                seq: None,
-                ttl_ms: None,
-            }),
+            method: Method::PaneReportMetadata(params),
         });
         assert!(response.contains("\"ok\""), "{response}");
+    }
+
+    fn report_background_token(
+        app: &mut App,
+        pane_id: PaneId,
+        value: Option<String>,
+        ttl_ms: Option<u64>,
+    ) {
+        let mut params = background_report(app, pane_id, value);
+        params.ttl_ms = ttl_ms;
+        send_report(app, params);
     }
 
     fn digest_raw(app: &mut App, params: AgentsDigestParams) -> String {
@@ -555,7 +589,7 @@ mod tests {
         app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
         app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
 
-        report_background_token(&mut app, pane_id, Some("1".to_string()));
+        report_background_token(&mut app, pane_id, Some("1".to_string()), None);
         let d = digest(&mut app, empty_params());
         assert_eq!(d.agents.len(), 1);
         let a = &d.agents[0];
@@ -565,11 +599,222 @@ mod tests {
         assert_eq!(a.completion, Completion::Incomplete);
         assert_eq!(a.blocking_reason, Some(BlockingReason::BackgroundActive));
 
-        report_background_token(&mut app, pane_id, Some("0".to_string()));
+        report_background_token(&mut app, pane_id, Some("0".to_string()), Some(LIVE_TTL_MS));
+        let report_ms = app.state.supervisor.background_hook_ms(pane_id);
         let d = digest(&mut app, empty_params());
         let a = &d.agents[0];
         assert_eq!(a.background.value, Background::Inactive);
         assert_eq!(a.background_jobs, Some(0));
+        assert_eq!(a.background.observed_at_ms, report_ms);
+
+        // Re-reporting zero without a TTL removes the validity boundary.
+        report_background_token(&mut app, pane_id, Some("0".to_string()), None);
+        let d = digest(&mut app, empty_params());
+        let a = &d.agents[0];
+        assert_eq!(a.background.value, Background::Unknown);
+        assert_eq!(a.background_jobs, None);
+        assert_ne!(a.completion, Completion::Complete);
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_expired_zero_before_sweep_is_unknown() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, pane_id) = app_with_screen("digest-bg-expired", b"");
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
+        report_background_token(&mut app, pane_id, Some("0".to_string()), Some(1));
+        // Wait past the 1 ms deadline without running the expiry sweep.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5);
+        while std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        let d = digest(&mut app, empty_params());
+        let a = &d.agents[0];
+        assert_eq!(a.background.value, Background::Unknown);
+        assert_ne!(a.completion, Completion::Complete);
+        // The digest is read-only: the expired token is still stored.
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("pane state")
+            .attached_terminal_id
+            .clone();
+        assert!(app.state.terminals[&terminal_id]
+            .metadata_tokens
+            .values()
+            .contains_key("background_jobs"));
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_stale_seq_report_does_not_refresh_hook() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, pane_id) = app_with_screen("digest-bg-seq", b"");
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
+
+        let mut params = background_report(&app, pane_id, Some("1".to_string()));
+        params.seq = Some(5);
+        params.ttl_ms = Some(LIVE_TTL_MS);
+        send_report(&mut app, params);
+        assert!(app.state.supervisor.background_hook_current(pane_id));
+        let (hook_seq, hook_ms) = {
+            let state = app.state.supervisor.pane(pane_id).expect("pane tracked");
+            (state.background_hook_seq, state.background_hook_ms)
+        };
+        assert!(hook_seq.is_some());
+
+        // A new turn makes the report stale; a stale-sequence zero must not refresh it.
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 3));
+        assert!(!app.state.supervisor.background_hook_current(pane_id));
+        let mut params = background_report(&app, pane_id, Some("0".to_string()));
+        params.seq = Some(3);
+        params.ttl_ms = Some(LIVE_TTL_MS);
+        send_report(&mut app, params);
+
+        assert!(!app.state.supervisor.background_hook_current(pane_id));
+        let state = app.state.supervisor.pane(pane_id).expect("pane tracked");
+        assert_eq!(state.background_hook_seq, hook_seq);
+        assert_eq!(state.background_hook_ms, hook_ms);
+        let d = digest(&mut app, empty_params());
+        let a = &d.agents[0];
+        assert_eq!(a.background.value, Background::Unknown);
+        assert_eq!(a.background_jobs, None);
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_first_label_report_keeps_background() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, pane_id) = app_with_screen("digest-bg-label", b"");
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
+
+        // One report that both carries presentation (dispatching HookMetadataReported)
+        // and background_jobs: the hook is noted after the lifecycle change.
+        let mut params = background_report(&app, pane_id, Some("1".to_string()));
+        params.source = "custom:worker".into();
+        params.agent = Some("worker".into());
+        params.title = Some("building".into());
+        send_report(&mut app, params);
+
+        assert!(app.state.supervisor.background_hook_current(pane_id));
+        let d = digest(&mut app, empty_params());
+        assert_eq!(d.agents.len(), 1);
+        let a = &d.agents[0];
+        assert_eq!(a.background.value, Background::Active);
+        assert_eq!(a.background.source, FactSource::Hook);
+        assert_eq!(a.background_jobs, Some(1));
+    }
+
+    fn app_with_two_panes(name: &str, screen: &[u8]) -> (App, PaneId) {
+        let (mut app, _root) = app_with_screen(name, b"");
+        let moved = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(moved)
+            .expect("moved pane state")
+            .attached_terminal_id
+            .clone();
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, screen);
+        app.terminal_runtimes.insert(terminal_id, runtime);
+        (app, moved)
+    }
+
+    fn move_pane_to_new_tab(app: &mut App, pane_id: PaneId) {
+        let public = app.public_pane_id(0, pane_id).expect("pane public id");
+        let response = app.handle_api_request(Request {
+            id: "move".into(),
+            method: Method::PaneMove(crate::api::schema::PaneMoveParams {
+                pane_id: public,
+                destination: crate::api::schema::PaneMoveDestination::NewTab {
+                    workspace_id: None,
+                    label: Some("moved".into()),
+                },
+                focus: true,
+            }),
+        });
+        serde_json::from_str::<SuccessResponse>(&response)
+            .unwrap_or_else(|e| panic!("pane move failed: {e}: {response}"));
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_pane_move_keeps_hook_currency() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, moved) = app_with_two_panes("digest-bg-move", b"");
+        app.handle_internal_event(hook_state(moved, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(moved, AgentState::Idle, 2));
+        report_background_token(&mut app, moved, Some("0".to_string()), Some(LIVE_TTL_MS));
+        let report_ms = app.state.supervisor.background_hook_ms(moved);
+
+        move_pane_to_new_tab(&mut app, moved);
+
+        assert!(app.state.supervisor.background_hook_current(moved));
+        let public = app.public_pane_id(0, moved).expect("moved pane public id");
+        let d = digest(&mut app, empty_params());
+        let a = d
+            .agents
+            .iter()
+            .find(|a| a.target_ref.pane_id == public)
+            .expect("moved agent in digest");
+        assert_eq!(
+            a.lineage.last().map(|l| l.reason),
+            Some(crate::api::schema::supervisor::GenerationReason::PaneMoved)
+        );
+        assert_eq!(a.background.value, Background::Inactive);
+        assert_eq!(a.background.observed_at_ms, report_ms);
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_exited_survives_pane_move() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, moved) = app_with_two_panes("digest-exit-move", b"");
+        app.handle_internal_event(hook_state(moved, AgentState::Working, 1));
+        app.handle_internal_event(AppEvent::HookAgentReleased {
+            pane_id: moved,
+            source: "custom:worker".into(),
+            agent_label: "worker".into(),
+            known_agent: None,
+            seq: Some(2),
+        });
+        assert!(app.state.supervisor.pane(moved).expect("tracked").exited);
+        let generation = app
+            .state
+            .supervisor
+            .pane(moved)
+            .expect("tracked")
+            .generation;
+        // Keep the pane listed as an agent pane after release so the digest reports it.
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(moved)
+            .expect("moved pane state")
+            .attached_terminal_id
+            .clone();
+        if let Some(terminal) = app.state.terminals.get_mut(&terminal_id) {
+            terminal.agent_name = Some("named-worker".into());
+        }
+
+        move_pane_to_new_tab(&mut app, moved);
+
+        let state = app.state.supervisor.pane(moved).expect("tracked");
+        assert!(state.exited);
+        assert_eq!(state.generation, generation + 1);
+        let public = app.public_pane_id(0, moved).expect("moved pane public id");
+        let d = digest(&mut app, empty_params());
+        let a = d
+            .agents
+            .iter()
+            .find(|a| a.target_ref.pane_id == public)
+            .expect("moved agent in digest");
+        assert_eq!(
+            a.connection.value,
+            crate::api::schema::supervisor::Connection::Disconnected
+        );
+        assert_ne!(a.completion, Completion::Complete);
     }
 
     #[tokio::test]
@@ -627,7 +872,7 @@ mod tests {
         serde_json::from_str::<SuccessResponse>(&response)
             .unwrap_or_else(|e| panic!("pane move failed: {e}: {response}"));
 
-        report_background_token(&mut app, moved, Some("0".to_string()));
+        report_background_token(&mut app, moved, Some("0".to_string()), Some(LIVE_TTL_MS));
         let public = app.public_pane_id(0, moved).expect("moved pane public id");
         let d = digest(&mut app, empty_params());
         let a = d

@@ -1858,12 +1858,6 @@ impl App {
             }
             changed
         });
-        if reports_background_jobs {
-            self.state
-                .supervisor
-                .note_background_hook(pane_id, crate::supervisor::now_ms());
-        }
-
         if presentation_requested {
             self.handle_internal_event(crate::events::AppEvent::HookMetadataReported {
                 pane_id,
@@ -1879,6 +1873,13 @@ impl App {
                 seq: None,
                 ttl,
             });
+        }
+        // Noted after the lifecycle change above so an AgentStarted bump caused by this
+        // same report cannot make its own background evidence stale.
+        if reports_background_jobs {
+            self.state
+                .supervisor
+                .note_background_hook(pane_id, crate::supervisor::now_ms());
         }
         if token_changed {
             self.sync_agent_metadata_deadline();

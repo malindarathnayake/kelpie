@@ -77,8 +77,6 @@ pub struct PaneSupervisorState {
     pub idle_since_ms: Option<u64>,
     pub rescanned_this_idle: bool,
     pub last_transition_ms: Option<u64>,
-    /// Positive rule evidence only (Active); None means no evidence.
-    pub background_rule_seen_ms: Option<u64>,
     /// Generation in which a background_jobs token was last reported.
     pub background_hook_generation: Option<u64>,
     /// Event sequence of the last `background_jobs` report.
@@ -109,7 +107,6 @@ impl PaneSupervisorState {
             idle_since_ms: None,
             rescanned_this_idle: false,
             last_transition_ms: None,
-            background_rule_seen_ms: None,
             background_hook_generation: None,
             background_hook_seq: None,
             background_hook_ms: None,
@@ -187,6 +184,7 @@ impl SupervisorState {
     /// epoch is unchanged. Every other reason replaces the conversation.
     pub fn bump_generation(&mut self, pane: PaneId, reason: GenerationReason, now_ms: u64) -> u64 {
         let state = self.pane_mut(pane);
+        let old = state.generation;
         state.generation += 1;
         let new = state.generation;
         state.lineage.push_back(LineageEntry {
@@ -197,10 +195,12 @@ impl SupervisorState {
         while state.lineage.len() > MAX_LINEAGE {
             state.lineage.pop_front();
         }
-        // Rule evidence does not survive a generation change; the hook generation is
-        // left as is and is now stale relative to `generation`.
-        state.background_rule_seen_ms = None;
         if reason == GenerationReason::PaneMoved {
+            // The terminal and its tokens move with the pane, so hook evidence that
+            // was current stays current; turn ordering still applies.
+            if state.background_hook_generation == Some(old) {
+                state.background_hook_generation = Some(new);
+            }
             tracing::debug!(
                 event = "supervisor.generation",
                 subsystem = "supervisor",
@@ -539,11 +539,10 @@ mod tests {
     }
 
     #[test]
-    fn registry_bump_clears_rule_evidence_and_invalidates_hook_generation() {
+    fn registry_bump_invalidates_hook_generation() {
         let mut s = SupervisorState::new();
         {
             let p = s.pane_mut(pid(1));
-            p.background_rule_seen_ms = Some(7);
             p.background_hook_generation = Some(1);
             p.turn_started_ms = Some(3);
             p.idle_since_ms = Some(4);
@@ -551,7 +550,6 @@ mod tests {
         }
         s.bump_generation(pid(1), GenerationReason::AgentExited, 20);
         let p = s.pane(pid(1)).unwrap();
-        assert_eq!(p.background_rule_seen_ms, None);
         assert_ne!(p.background_hook_generation, Some(p.generation));
         assert_eq!(p.turn_started_ms, None);
         assert_eq!(p.idle_since_ms, None);
@@ -953,6 +951,29 @@ mod tests {
         let p = s.pane(pid(1)).unwrap();
         assert!(p.exited);
         assert_eq!(p.generation, 3);
+    }
+
+    #[test]
+    fn registry_pane_move_keeps_hook_currency() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 100);
+        s.note_background_hook(pid(1), 150);
+        assert!(s.background_hook_current(pid(1)));
+        s.bump_generation(pid(1), GenerationReason::PaneMoved, 200);
+        assert!(s.background_hook_current(pid(1)));
+        assert_eq!(s.background_hook_ms(pid(1)), Some(150));
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.background_hook_generation, Some(p.generation));
+    }
+
+    #[test]
+    fn registry_pane_move_keeps_pre_working_hook_stale() {
+        let mut s = SupervisorState::new();
+        s.note_background_hook(pid(1), 50);
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 100);
+        assert!(!s.background_hook_current(pid(1)));
+        s.bump_generation(pid(1), GenerationReason::PaneMoved, 200);
+        assert!(!s.background_hook_current(pid(1)));
     }
 
     #[test]

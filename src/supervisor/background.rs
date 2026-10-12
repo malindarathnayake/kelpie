@@ -1,6 +1,7 @@
 //! Pure background-work evidence derivation. No App access and no I/O.
 
 use crate::api::schema::supervisor::{Background, Confidence, Fact, FactSource};
+use crate::metadata_tokens::TokenValidity;
 
 /// Manifest rules `(agent label, rule id)` whose match is positive evidence of
 /// background work. Consumed on demand; upstream detection is not modified.
@@ -18,10 +19,14 @@ pub fn is_background_rule(agent: &str, rule_id: &str) -> bool {
 /// Derives the background fact plus the job count when a current hook reported one.
 /// A hook token counts only when `hook_current` (reported in the current generation and
 /// after the latest turn start); hook facts are observed at `hook_report_ms`.
+/// `validity` is the token's TTL state at digest time: a positive count needs no TTL
+/// but must not be expired; a zero counts only while its reporter-supplied TTL is live,
+/// because zero is the only background claim that can lead to Complete.
 /// Positive evidence vetoes zero: a rule hit yields Active even when the hook said 0.
-/// An unparseable token is ignored.
+/// Anything else is Unknown, never Inactive. An unparseable token is ignored.
 pub fn derive_background(
     token: Option<&str>,
+    validity: Option<TokenValidity>,
     hook_current: bool,
     hook_report_ms: Option<u64>,
     rule_hit: bool,
@@ -32,7 +37,9 @@ pub fn derive_background(
     } else {
         None
     };
-    if let Some(n) = hook_jobs.filter(|n| *n > 0) {
+    let positive_valid = matches!(validity, Some(TokenValidity::NoTtl | TokenValidity::Live));
+    let zero_valid = validity == Some(TokenValidity::Live);
+    if let Some(n) = hook_jobs.filter(|n| *n > 0 && positive_valid) {
         return (
             Fact {
                 value: Background::Active,
@@ -54,7 +61,7 @@ pub fn derive_background(
             None,
         );
     }
-    if hook_jobs == Some(0) {
+    if hook_jobs == Some(0) && zero_valid {
         return (
             Fact {
                 value: Background::Inactive,
@@ -97,51 +104,126 @@ mod tests {
         ));
     }
 
+    const LIVE: Option<TokenValidity> = Some(TokenValidity::Live);
+    const NO_TTL: Option<TokenValidity> = Some(TokenValidity::NoTtl);
+    const EXPIRED: Option<TokenValidity> = Some(TokenValidity::Expired);
+
     #[test]
     fn supervisor_background_derive_table() {
-        let (f, n) = derive_background(Some("2"), true, Some(7), false, 10);
+        let (f, n) = derive_background(Some("2"), NO_TTL, true, Some(7), false, 10);
         assert_eq!(n, Some(2));
         assert_eq!(f.value, Background::Active);
         assert_eq!(f.source, FactSource::Hook);
         assert_eq!(f.confidence, Confidence::High);
         assert_eq!(f.observed_at_ms, Some(7));
 
-        let (f, n) = derive_background(Some("0"), true, Some(7), false, 10);
+        let (f, n) = derive_background(Some("0"), LIVE, true, Some(7), false, 10);
         assert_eq!(n, Some(0));
         assert_eq!(f.value, Background::Inactive);
         assert_eq!(f.source, FactSource::Hook);
         assert_eq!(f.confidence, Confidence::High);
         assert_eq!(f.observed_at_ms, Some(7));
 
-        let (f, n) = derive_background(Some("x"), true, Some(7), false, 10);
+        let (f, n) = derive_background(Some("x"), LIVE, true, Some(7), false, 10);
         assert_eq!(n, None);
         assert_eq!(f.value, Background::Unknown);
         assert_eq!(f.source, FactSource::Unknown);
 
-        let (f, n) = derive_background(Some("1"), false, Some(7), false, 10);
+        let (f, n) = derive_background(Some("1"), LIVE, false, Some(7), false, 10);
         assert_eq!(n, None);
         assert_eq!(f.value, Background::Unknown);
 
-        let (f, n) = derive_background(None, false, None, true, 10);
+        let (f, n) = derive_background(None, None, false, None, true, 10);
         assert_eq!(n, None);
         assert_eq!(f.value, Background::Active);
         assert_eq!(f.source, FactSource::ManifestRule);
         assert_eq!(f.confidence, Confidence::Medium);
         assert_eq!(f.observed_at_ms, Some(10));
 
-        let (f, _) = derive_background(Some("x"), true, Some(7), true, 10);
+        let (f, _) = derive_background(Some("x"), LIVE, true, Some(7), true, 10);
         assert_eq!(f.source, FactSource::ManifestRule);
 
-        let (f, n) = derive_background(None, false, None, false, 10);
+        let (f, n) = derive_background(None, None, false, None, false, 10);
         assert_eq!(n, None);
         assert_eq!(f.value, Background::Unknown);
         assert_eq!(f.confidence, Confidence::Unknown);
         assert_eq!(f.observed_at_ms, None);
     }
 
+    fn assert_unknown((f, n): (Fact<Background>, Option<u32>)) {
+        assert_eq!(n, None);
+        assert_eq!(f.value, Background::Unknown);
+        assert_eq!(f.source, FactSource::Unknown);
+        assert_eq!(f.observed_at_ms, None);
+    }
+
+    #[test]
+    fn supervisor_background_zero_without_ttl_is_unknown() {
+        assert_unknown(derive_background(
+            Some("0"),
+            NO_TTL,
+            true,
+            Some(7),
+            false,
+            10,
+        ));
+    }
+
+    #[test]
+    fn supervisor_background_zero_with_live_ttl_is_inactive_at_report_ms() {
+        let (f, n) = derive_background(Some("0"), LIVE, true, Some(7), false, 10);
+        assert_eq!(n, Some(0));
+        assert_eq!(f.value, Background::Inactive);
+        assert_eq!(f.source, FactSource::Hook);
+        assert_eq!(f.confidence, Confidence::High);
+        assert_eq!(f.observed_at_ms, Some(7));
+    }
+
+    #[test]
+    fn supervisor_background_zero_with_expired_ttl_is_unknown() {
+        assert_unknown(derive_background(
+            Some("0"),
+            EXPIRED,
+            true,
+            Some(7),
+            false,
+            10,
+        ));
+    }
+
+    #[test]
+    fn supervisor_background_positive_without_ttl_is_active() {
+        let (f, n) = derive_background(Some("4"), NO_TTL, true, Some(7), false, 10);
+        assert_eq!(n, Some(4));
+        assert_eq!(f.value, Background::Active);
+        assert_eq!(f.source, FactSource::Hook);
+        assert_eq!(f.observed_at_ms, Some(7));
+    }
+
+    #[test]
+    fn supervisor_background_positive_expired_is_unknown() {
+        assert_unknown(derive_background(
+            Some("4"),
+            EXPIRED,
+            true,
+            Some(7),
+            false,
+            10,
+        ));
+    }
+
+    #[test]
+    fn supervisor_background_positive_before_working_is_unknown() {
+        let mut s = SupervisorState::new();
+        s.note_background_hook(pid(1), 900);
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 1000);
+        assert_unknown(derive_from(&s, "3", LIVE, 2000));
+        assert_unknown(derive_from(&s, "3", NO_TTL, 2000));
+    }
+
     #[test]
     fn supervisor_background_zero_hook_with_rule_hit_is_active() {
-        let (f, n) = derive_background(Some("0"), true, Some(7), true, 10);
+        let (f, n) = derive_background(Some("0"), LIVE, true, Some(7), true, 10);
         assert_eq!(n, None);
         assert_eq!(f.value, Background::Active);
         assert_eq!(f.source, FactSource::ManifestRule);
@@ -151,7 +233,7 @@ mod tests {
 
     #[test]
     fn supervisor_background_positive_hook_observed_at_report_ms() {
-        let (f, n) = derive_background(Some("3"), true, Some(42), true, 1000);
+        let (f, n) = derive_background(Some("3"), LIVE, true, Some(42), true, 1000);
         assert_eq!(n, Some(3));
         assert_eq!(f.value, Background::Active);
         assert_eq!(f.source, FactSource::Hook);
@@ -165,10 +247,12 @@ mod tests {
     fn derive_from(
         s: &SupervisorState,
         token: &str,
+        validity: Option<TokenValidity>,
         now_ms: u64,
     ) -> (Fact<Background>, Option<u32>) {
         derive_background(
             Some(token),
+            validity,
             s.background_hook_current(pid(1)),
             s.background_hook_ms(pid(1)),
             false,
@@ -184,7 +268,7 @@ mod tests {
         assert!(s.background_hook_current(pid(1)));
         s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 2, 1000);
         assert!(!s.background_hook_current(pid(1)));
-        let (f, n) = derive_from(&s, "0", 1000);
+        let (f, n) = derive_from(&s, "0", LIVE, 1000);
         assert_eq!(n, None);
         assert_eq!(f.value, Background::Unknown);
     }
@@ -196,7 +280,7 @@ mod tests {
         s.note_background_hook(pid(1), 1000);
         assert!(s.background_hook_current(pid(1)));
         assert_eq!(s.background_hook_ms(pid(1)), Some(1000));
-        let (f, n) = derive_from(&s, "0", 5000);
+        let (f, n) = derive_from(&s, "0", LIVE, 5000);
         assert_eq!(n, Some(0));
         assert_eq!(f.value, Background::Inactive);
         assert_eq!(f.source, FactSource::Hook);
@@ -209,23 +293,41 @@ mod tests {
         let now = Instant::now();
         let ttl = Duration::from_millis(100);
         let mut patch = HashMap::new();
-        patch.insert("background_jobs".to_string(), Some("1".to_string()));
+        patch.insert("background_jobs".to_string(), Some("0".to_string()));
         assert!(tokens.patch(patch, Some(ttl), now));
-        assert_eq!(
-            tokens.values().get("background_jobs").map(String::as_str),
-            Some("1")
-        );
-        assert!(tokens.expire_at(now + ttl + Duration::from_millis(1)));
         let values = tokens.values();
-        assert!(!values.contains_key("background_jobs"));
-        let (f, n) = derive_background(
-            values.get("background_jobs").map(String::as_str),
+        let token = values.get("background_jobs").map(String::as_str);
+        assert_eq!(token, Some("0"));
+        // Live before the deadline.
+        let (f, _) = derive_background(
+            token,
+            tokens.validity("background_jobs", now),
             true,
             Some(10),
             false,
             20,
         );
-        assert_eq!(n, None);
-        assert_eq!(f.value, Background::Unknown);
+        assert_eq!(f.value, Background::Inactive);
+        // At the deadline the sweep has not run, but the read-time check says Expired.
+        assert_unknown(derive_background(
+            token,
+            tokens.validity("background_jobs", now + ttl),
+            true,
+            Some(10),
+            false,
+            20,
+        ));
+        // After the sweep the token is gone.
+        assert!(tokens.expire_at(now + ttl + Duration::from_millis(1)));
+        let values = tokens.values();
+        assert!(!values.contains_key("background_jobs"));
+        assert_unknown(derive_background(
+            values.get("background_jobs").map(String::as_str),
+            tokens.validity("background_jobs", now + ttl),
+            true,
+            Some(10),
+            false,
+            20,
+        ));
     }
 }

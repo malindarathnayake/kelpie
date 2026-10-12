@@ -399,7 +399,7 @@ impl Fixture {
         self.seq += 1;
         let seq = self.seq.to_string();
         let token = format!("background_jobs={jobs}");
-        self.cli_json(&[
+        let mut args = vec![
             "pane",
             "report-metadata",
             pane,
@@ -411,7 +411,12 @@ impl Fixture {
             &token,
             "--seq",
             &seq,
-        ]);
+        ];
+        // A zero count counts as Inactive only while its reporter-supplied TTL is live.
+        if jobs == 0 {
+            args.extend(["--ttl-ms", "600000"]);
+        }
+        self.cli_json(&args);
     }
 
     /// Show a prose question followed by a chrome block shaped like the real
