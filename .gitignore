@@ -9,6 +9,9 @@ __pycache__/
 .DS_Store
 
 /docs/*
+# Fork: Kelpie brand kit is tracked.
+!/docs/Brand/
+/docs/Brand/.thumbnail
 !/docs/next/
 !/docs/next/**
 !/docs/preview/

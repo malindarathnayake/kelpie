@@ -1,0 +1,7 @@
+# kelpie mark, Consolas-safe fallback, 5 rows x 8 cols (half blocks only: ▀ ▄ █ ▌ ▐)
+# Approximation of kelpie-mark.txt for fonts without quadrant blocks.
+▐▌ ▐▌     (5)
+▐█▄█▌     (5)
+███▀███▄  (8)
+███████▀  (8)
+▐██▌      (4)

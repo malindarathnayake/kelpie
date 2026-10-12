@@ -1,0 +1,7 @@
+# kelpie mark, 5 rows x 8 cols (widest row 8)
+# Uses quadrant blocks (▗▖▙▟▘), which Consolas lacks; use kelpie-mark-consolas.txt there.
+▗▖ ▗▖     (5)
+▐▙▄▟▌     (5)
+███▘███▄  (8)
+███████▘  (8)
+▐██▌      (4)

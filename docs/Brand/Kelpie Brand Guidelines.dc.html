@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#1a1a24;color:#e4e2dc;font-family:'IBM Plex Sans',Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#d9a066}a:hover{color:#e8b982}
+pre{margin:0;font-family:'JetBrains Mono',monospace}
+h2,h3,p{margin:0}
+</style>
+</helmet>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M1 6A5 5 0 0 1 6 1H18A5 5 0 0 1 23 6V18A5 5 0 0 1 18 23H6A5 5 0 0 1 1 18ZM6 23V15L8 8L10 13H14L16 8L18 15V23Z"></path><rect x="9" y="16" width="2" height="2" fill="currentColor"></rect><rect x="13" y="16" width="2" height="2" fill="currentColor"></rect></symbol>
+  <symbol id="line" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M6 1.75H18A4.25 4.25 0 0 1 22.25 6V18A4.25 4.25 0 0 1 18 22.25H6A4.25 4.25 0 0 1 1.75 18V6A4.25 4.25 0 0 1 6 1.75Z"></path><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M6 22.25V15L8 8L10 13H14L16 8L18 15V22.25"></path><rect x="9" y="16" width="2" height="2" fill="currentColor"></rect><rect x="13" y="16" width="2" height="2" fill="currentColor"></rect></symbol>
+  <symbol id="s-working" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor"></circle></symbol>
+  <symbol id="s-waiting" viewBox="0 0 24 24"><path d="M12 3L22 21H2Z" fill="currentColor"></path></symbol>
+  <symbol id="s-done" viewBox="0 0 24 24"><path d="M4 12.5L9.5 18L20 6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="square"></path></symbol>
+  <symbol id="s-background" viewBox="0 0 24 24"><path d="M12 3A9 9 0 0 1 12 21Z" fill="currentColor"></path><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"></circle></symbol>
+  <symbol id="s-stale" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="3.4 3.4"></circle></symbol>
+  <symbol id="s-unknown" viewBox="0 0 24 24"><text x="12" y="19" text-anchor="middle" font-family="JetBrains Mono, Consolas, monospace" font-weight="700" font-size="20" fill="currentColor">?</text></symbol>
+  <symbol id="s-observe" viewBox="0 0 24 24"><path d="M12 3L21 12L12 21L3 12Z" fill="none" stroke="currentColor" stroke-width="2.4"></path></symbol>
+  <symbol id="s-assist" viewBox="0 0 24 24"><path d="M12 3L21 12L12 21L3 12Z" fill="currentColor"></path></symbol>
+  <symbol id="s-autopilot" viewBox="0 0 24 24"><path d="M12 3L21 12L12 21L3 12Z" fill="currentColor"></path><path d="M12 8L16 12L12 16L8 12Z" fill="#1a1a24"></path></symbol>
+  <symbol id="s-paused" viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" fill="currentColor"></rect><rect x="14" y="4" width="5" height="16" fill="currentColor"></rect></symbol>
+</svg>
+
+<div style="max-width:1320px;margin:0 auto;padding:64px 48px 120px;box-sizing:border-box;display:flex;flex-direction:column;gap:96px">
+
+  <!-- Cover -->
+  <section data-screen-label="Cover" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:48px;align-items:center;min-height:520px">
+    <div style="display:flex;flex-direction:column;gap:28px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#9399b2;letter-spacing:.04em">KELPIE · BRAND GUIDELINES · v1.0 · OCTOBER 2026</div>
+      <div style="display:flex;align-items:center;gap:20px;color:#d9a066"><svg width="88" height="88"><use href="#mark"></use></svg><span style="font-size:88px;font-weight:600;letter-spacing:-.04em;line-height:1;color:#e4e2dc">Kelpie</span></div>
+      <p style="font-size:20px;line-height:1.5;color:#b9b7b0;max-width:520px;text-wrap:pretty">An open-source terminal workspace for running and supervising many AI coding agents at once. One calm, alert helper keeping the flock moving. The developer stays in charge.</p>
+      <nav style="display:flex;flex-wrap:wrap;gap:8px 20px;font-size:14px"><a href="#logo">Logo</a><a href="#icons">App icons</a><a href="#colour">Colour</a><a href="#type">Typography</a><a href="#status">Status glyphs</a><a href="#surfaces">Surfaces</a><a href="#voice">Voice</a><a href="#attrib">Attribution</a><a href="#files">Files</a></nav>
+    </div>
+    <pre style="background:#121219;border:1px solid #2a2a38;border-radius:10px;padding:28px 32px;font-size:18px;line-height:1.25;color:#e4e2dc;overflow:auto"><span style="color:#d9a066">▗▖ ▗▖
+▐▙▄▟▌</span>     Kelpie
+<span style="color:#d9a066">███▘███▄</span>  agent workspace
+<span style="color:#d9a066">███████▘</span>  built on herdr
+<span style="color:#d9a066">▐██▌
+
+</span><span style="color:#9399b2">$</span> kelpie up
+<span style="color:#a6e3a1">✓</span> 12 sessions running
+<span style="color:#f38ba8">▲</span> 1 waiting for you  <span style="color:#9399b2">(api · claude-code)
+</span><span style="color:#cba6f7">◆</span> supervisor: assist</pre>
+  </section>
+
+  <!-- Logo -->
+  <section id="logo" data-screen-label="Logo" style="display:flex;flex-direction:column;gap:36px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">01 · LOGO SYSTEM</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">The Window</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0;text-wrap:pretty">A rounded terminal window with a kelpie cut out of its lower edge: ears up, two eyes on the panes. The dog is negative space, so the mark is one colour by nature and inverts for free. Built on a 24-unit grid with 45° angles only; it rasterises cleanly at 16 px and in a single terminal cell.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+      <div style="background:#22222e;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center"><svg width="112" height="112" style="color:#d9a066"><use href="#mark"></use></svg><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">full colour · dark</span></div>
+      <div style="background:#f3f2ee;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center"><svg width="112" height="112" style="color:#94561d"><use href="#mark"></use></svg><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#5c5f70">full colour · light</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center"><svg width="112" height="112" style="color:#e4e2dc"><use href="#mark"></use></svg><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">single colour</span></div>
+      <div style="background:#d9a066;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center"><svg width="112" height="112" style="color:#1a1a24"><use href="#mark"></use></svg><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#1a1a24">inverted</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center"><svg width="112" height="112" style="color:#e4e2dc"><use href="#line"></use></svg><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">line · mono print</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center"><div style="display:flex;align-items:flex-end;gap:16px;color:#d9a066"><svg width="64" height="64"><use href="#mark"></use></svg><svg width="32" height="32"><use href="#mark"></use></svg><svg width="24" height="24"><use href="#mark"></use></svg><svg width="16" height="16"><use href="#mark"></use></svg></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">64 · 32 · 24 · 16 px</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+      <div style="background:#22222e;border-radius:10px;padding:36px;display:flex;align-items:center;justify-content:center;gap:16px;color:#d9a066"><svg width="56" height="56"><use href="#mark"></use></svg><span style="font-size:56px;font-weight:600;letter-spacing:-.03em;line-height:1;color:#e4e2dc">Kelpie</span></div>
+      <div style="background:#f3f2ee;border-radius:10px;padding:36px;display:flex;align-items:center;justify-content:center;gap:16px;color:#94561d"><svg width="56" height="56"><use href="#mark"></use></svg><span style="font-size:56px;font-weight:600;letter-spacing:-.03em;line-height:1;color:#1f1e24">Kelpie</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;color:#d9a066"><svg width="80" height="80"><use href="#mark"></use></svg><span style="font-size:40px;font-weight:600;letter-spacing:-.03em;line-height:1;color:#e4e2dc">Kelpie</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:28px">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <h3 style="font-size:16px;font-weight:600">Wordmark</h3>
+        <p style="font-size:14px;line-height:1.55;color:#b9b7b0">IBM Plex Sans Semibold, tracking −3%. Title case <b style="color:#e4e2dc;font-weight:500">Kelpie</b> in prose and lockups; always lowercase <code style="font-family:'JetBrains Mono',monospace;color:#d9a066">kelpie</code> as the command and in code contexts.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <h3 style="font-size:16px;font-weight:600">Clear space and minimum size</h3>
+        <p style="font-size:14px;line-height:1.55;color:#b9b7b0">Clear space on every side equals the height of one ear (¼ of the mark). Minimum 16 px on screen, 5 mm in print. Below 24 px use the mark alone, never the lockup.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <h3 style="font-size:16px;font-weight:600">Terminal versions</h3>
+        <p style="font-size:14px;line-height:1.55;color:#b9b7b0">Multi-line mark is 5 rows × 8 cols; the splash header with text is 5 × 24. One-line is 9 cols: <code style="font-family:'JetBrains Mono',monospace;color:#e4e2dc">▟▙ kelpie</code>. Block characters only; no emoji.</p>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <h3 style="font-size:16px;font-weight:600">Misuse</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+        <sc-for list="{{ misuse }}" as="m" hint-placeholder-count="6">
+          <div style="background:#22222e;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center">
+            <div style="height:72px;display:flex;align-items:center;justify-content:center;color:#e4e2dc;filter:{{ m.filter }};transform:{{ m.transform }};opacity:.9"><svg width="56" height="56" style="color:{{ m.color }}"><use href="#mark"></use></svg></div>
+            <span style="font-size:12px;line-height:1.4;color:#9399b2"><span style="color:#f38ba8">✕</span> {{ m.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <!-- Icons -->
+  <section id="icons" data-screen-label="App icons" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">02 · APP ICONS</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">Ground square, ochre mark</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0;text-wrap:pretty">All platform icons are the mark on a Ground-dark rounded square. Windows gets the full-bleed square; macOS keeps the 3-unit inset Apple expects. Favicon is the bare mark and follows the system colour scheme.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:stretch">
+      <div style="background:#22222e;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px;align-items:center"><img src="assets/icons/windows/kelpie-256.png" width="128" height="128" alt="Windows icon" style="display:block"><div style="display:flex;align-items:flex-end;gap:10px"><img src="assets/icons/windows/kelpie-64.png" width="64" height="64" alt=""><img src="assets/icons/windows/kelpie-48.png" width="48" height="48" alt=""><img src="assets/icons/windows/kelpie-32.png" width="32" height="32" alt=""><img src="assets/icons/windows/kelpie-24.png" width="24" height="24" alt=""><img src="assets/icons/windows/kelpie-16.png" width="16" height="16" alt=""></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2;text-align:center">Windows · kelpie.ico<br>16 24 32 48 64 128 256</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center"><img src="assets/icons/macos/kelpie-1024.png" width="128" height="128" alt="macOS icon" style="display:block"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2;text-align:center">macOS · 1024 px<br>inset for the squircle mask</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center"><img src="assets/icons/linux/kelpie-512.png" width="128" height="128" alt="Linux icon" style="display:block"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2;text-align:center">Linux · 256 / 512 PNG</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center"><div style="display:flex;gap:16px;align-items:center"><div style="background:#121219;border-radius:6px;padding:14px"><img src="assets/icons/favicon-32-dark.png" width="32" height="32" alt="" style="display:block"></div><div style="background:#f3f2ee;border-radius:6px;padding:14px"><img src="assets/icons/favicon-32.png" width="32" height="32" alt="" style="display:block"></div></div><div style="display:flex;align-items:center;gap:8px;background:#121219;border-radius:6px;padding:8px 14px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#e4e2dc"><svg width="14" height="14" style="color:#d9a066"><use href="#mark"></use></svg>kelpie · api · 12 sessions</div><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2;text-align:center">favicon.svg + 32 px PNG<br>tab / window-title glyph</span></div>
+    </div>
+  </section>
+
+  <!-- Colour -->
+  <section id="colour" data-screen-label="Colour" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">03 · COLOUR</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">One ochre, warm neutrals, fixed status tokens</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0;text-wrap:pretty">The brand accent is <b style="color:#e4e2dc;font-weight:500">Red Kelpie</b>, the coat colour. It is used for the mark, links, the active row and nothing else; status colours carry meaning and the accent never competes with them. In 16-colour ANSI it falls back to yellow, which is why status is always paired with a glyph.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+      <sc-for list="{{ brand }}" as="c" hint-placeholder-count="10">
+        <div style="border-radius:10px;overflow:hidden;border:1px solid #2a2a38;font-family:'JetBrains Mono',monospace;font-size:12px"><div style="height:72px;background:{{ c.hex }}"></div><div style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;line-height:1.45;background:#22222e"><b style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:600;color:#e4e2dc">{{ c.name }}</b><span style="color:#e4e2dc">{{ c.hex }} · {{ c.rgb }}</span><span style="color:#9399b2">xterm {{ c.xterm }} · ANSI {{ c.ansi }}</span><span style="color:#9399b2">{{ c.note }}</span></div></div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <h3 style="font-size:16px;font-weight:600">Status tokens</h3>
+      <p style="font-size:14px;line-height:1.55;color:#b9b7b0;max-width:760px">Dark uses Catppuccin Mocha hexes unchanged so the brand matches the shipping theme. Latte's yellow, green and peach fail 4.5:1 as text on a light ground, so light mode has a <i>fill</i> value (Latte, for glyphs and swatches) and a darker <i>text</i> value. Contrast ratios are against Ground.</p>
+      <div style="display:flex;flex-direction:column;border:1px solid #2a2a38;border-radius:10px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12px">
+        <div style="display:grid;grid-template-columns:150px 1fr 1fr 110px;padding:10px 16px;color:#9399b2;background:#15151d;font-size:11px;letter-spacing:.04em;gap:12px"><span>TOKEN</span><span>DARK</span><span>LIGHT FILL / TEXT</span><span>ANSI 16</span></div>
+        <sc-for list="{{ tokens }}" as="t" hint-placeholder-count="7">
+          <div style="display:grid;grid-template-columns:150px 1fr 1fr 110px;align-items:center;padding:10px 16px;border-top:1px solid #2a2a38;gap:12px">
+            <span style="font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;color:#e4e2dc">{{ t.name }}</span>
+            <span style="display:flex;align-items:center;gap:10px;background:#121219;padding:7px 10px;border-radius:5px;color:{{ t.dark }}"><span style="font-size:14px;width:16px;text-align:center">{{ t.glyph }}</span><span>{{ t.dark }}</span><span style="color:#9399b2;margin-left:auto">{{ t.darkCr }}</span></span>
+            <span style="display:flex;align-items:center;gap:10px;background:#f3f2ee;padding:7px 10px;border-radius:5px;color:{{ t.lightText }}"><span style="font-size:14px;width:16px;text-align:center;color:{{ t.light }}">{{ t.glyph }}</span><span>{{ t.light }} / {{ t.lightText }}</span><span style="color:#5c5f70;margin-left:auto">{{ t.lightCr }}</span></span>
+            <span style="color:#9399b2">{{ t.ansi }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+      <div style="background:#121219;border:1px solid #2a2a38;border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2"><span>kelpie-theme.toml</span><a href="assets/tokens/kelpie-theme.toml">download</a></div><pre style="font-size:13px;line-height:1.55;color:#e4e2dc"><span style="color:#9399b2">[theme.custom]</span>
+accent   = <span style="color:#d9a066">"#d9a066"</span>
+panel_bg = <span style="color:#d9a066">"#22222e"</span>
+text     = <span style="color:#d9a066">"#e4e2dc"</span>
+green    = <span style="color:#d9a066">"#a6e3a1"</span>
+yellow   = <span style="color:#d9a066">"#f9e2af"</span>
+red      = <span style="color:#d9a066">"#f38ba8"</span>
+blue     = <span style="color:#d9a066">"#89b4fa"</span>
+teal     = <span style="color:#d9a066">"#94e2d5"</span>
+peach    = <span style="color:#d9a066">"#fab387"</span>
+mauve    = <span style="color:#d9a066">"#cba6f7"</span></pre></div>
+      <div style="background:#121219;border:1px solid #2a2a38;border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2"><span>kelpie.css</span><a href="assets/tokens/kelpie.css">download</a></div><pre style="font-size:13px;line-height:1.55;color:#e4e2dc"><span style="color:#9399b2">:root {</span>
+  --kelpie-accent: <span style="color:#d9a066">#d9a066</span>;
+  --kelpie-ground: <span style="color:#d9a066">#1a1a24</span>;
+  --kelpie-panel:  <span style="color:#d9a066">#22222e</span>;
+  --kelpie-ink:    <span style="color:#d9a066">#e4e2dc</span>;
+  --kelpie-status-waiting: <span style="color:#d9a066">#f38ba8</span>;
+  …
+<span style="color:#9399b2">}
+[data-theme="light"] { … }</span></pre></div>
+      <div style="background:#121219;border:1px solid #2a2a38;border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2"><span>kelpie.tokens.json</span><a href="assets/tokens/kelpie.tokens.json">download</a></div><pre style="font-size:13px;line-height:1.55;color:#e4e2dc"><span style="color:#9399b2">{</span> "kelpie": { "brand": { "accent": {
+  "dark": { "$type": "color",
+            "$value": <span style="color:#d9a066">"#d9a066"</span>,
+            "$extensions": { "dev.kelpie":
+              { "xterm256": 180,
+                "ansi16": "93" } } },
+  "light": { … } } }, "status": { … }
+<span style="color:#9399b2">}</span></pre></div>
+    </div>
+  </section>
+
+  <!-- Type -->
+  <section id="type" data-screen-label="Typography" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">04 · TYPOGRAPHY</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">JetBrains Mono and IBM Plex Sans</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0;text-wrap:pretty">Both OFL-licensed and self-hostable. JetBrains Mono for every product, code and terminal surface; it ships the box-drawing and geometric glyphs the brand relies on. IBM Plex Sans for headings, wordmark, website and README. In a user's terminal the mono family is whatever they run; the glyph set is tested in Cascadia Mono, Consolas, JetBrains Mono and Menlo.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">
+      <div style="background:#22222e;border-radius:10px;padding:28px;display:flex;flex-direction:column;gap:18px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">IBM PLEX SANS · DISPLAY</span>
+        <div style="display:flex;flex-direction:column;gap:14px;color:#e4e2dc">
+          <div style="display:flex;align-items:baseline;gap:16px"><span style="font-size:56px;font-weight:600;letter-spacing:-.03em;line-height:1">Display 56</span></div>
+          <div style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">Heading 36</div>
+          <div style="font-size:24px;font-weight:600;letter-spacing:-.01em;line-height:1.2">Subheading 24</div>
+          <div style="font-size:16px;line-height:1.55;color:#b9b7b0">Body 16 / 1.55. Plain, specific sentences. The human is in charge.</div>
+          <div style="font-size:13px;line-height:1.5;color:#9399b2">Caption 13</div>
+        </div>
+      </div>
+      <div style="background:#22222e;border-radius:10px;padding:28px;display:flex;flex-direction:column;gap:18px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">JETBRAINS MONO · PRODUCT</span>
+        <div style="display:flex;flex-direction:column;gap:14px;font-family:'JetBrains Mono',monospace;color:#e4e2dc">
+          <div style="font-size:28px;font-weight:700;line-height:1.1">TUI title 28</div>
+          <div style="font-size:18px;font-weight:500;line-height:1.3">Panel header 18</div>
+          <div style="font-size:14px;line-height:1.6">Terminal 14 / 1.6 · <span style="color:#a6e3a1">✓</span> done <span style="color:#f38ba8">▲</span> waiting <span style="color:#f9e2af">●</span> working</div>
+          <div style="font-size:12px;line-height:1.5;color:#9399b2">Status bar 12 · ◆ supervisor: assist · 12 sessions</div>
+          <div style="font-size:11px;letter-spacing:.06em;color:#9399b2">LABEL 11 · TRACKED +6%</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status -->
+  <section id="status" data-screen-label="Status glyphs" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">05 · STATUS ICONOGRAPHY</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">Glyph first, colour second</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0;text-wrap:pretty">Every state has a Unicode glyph and an SVG twin with the same silhouette. Shapes are chosen to stay distinct in monochrome: filled vs outlined, round vs angular, one mark vs two. Waiting-for-you is the only triangle and the only state allowed to blink or bold.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+      <sc-for list="{{ glyphs }}" as="g" hint-placeholder-count="10">
+        <div style="background:#22222e;border-radius:10px;padding:18px;display:flex;align-items:center;gap:16px">
+          <svg width="40" height="40" style="color:{{ g.color }};flex:none"><use href="{{ g.href }}"></use></svg>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:26px;width:44px;text-align:center;color:{{ g.color }};flex:none">{{ g.glyph }}</span>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font-size:14px;font-weight:500;color:#e4e2dc">{{ g.name }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9399b2">{{ g.code }} · {{ g.token }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;align-items:center;gap:20px;background:#121219;border:1px solid #2a2a38;border-radius:10px;padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:20px;color:#e4e2dc;flex-wrap:wrap"><span style="font-size:11px;color:#9399b2;letter-spacing:.04em;font-family:'JetBrains Mono',monospace">MONOCHROME CHECK</span><span>●</span><span>▲</span><span>✓</span><span>◐</span><span>◌</span><span>?</span><span>◇</span><span>◆</span><span>◈</span><span>▮▮</span></div>
+  </section>
+
+  <!-- Surfaces -->
+  <section id="surfaces" data-screen-label="Surfaces" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">06 · MARKETING SURFACES</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">README banner, social preview, docs header, TUI</h2>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">README HERO · 1280 × 320 · dark</span>
+    <div id="banner-dark" style="width:1280px;max-width:100%;aspect-ratio:4/1;background:#1a1a24;border:1px solid #2a2a38;border-radius:8px;display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:0 64px;box-sizing:border-box;overflow:hidden">
+      <div style="display:flex;flex-direction:column;gap:18px"><div style="display:flex;align-items:center;gap:16px;color:#d9a066"><svg width="64" height="64"><use href="#mark"></use></svg><span style="font-size:64px;font-weight:600;letter-spacing:-.04em;line-height:1;color:#e4e2dc">Kelpie</span></div><span style="font-size:22px;color:#b9b7b0;line-height:1.3">Many agents. One calm shepherd's dog.</span></div>
+      <pre style="justify-self:end;font-size:15px;line-height:1.5;color:#e4e2dc;background:#121219;border:1px solid #2a2a38;border-radius:8px;padding:18px 22px"><span style="color:#9399b2">$</span> kelpie up
+<span style="color:#a6e3a1">✓</span> 12 sessions running
+<span style="color:#f38ba8">▲</span> 1 waiting for you
+<span style="color:#cba6f7">◆</span> supervisor: assist   <span style="color:#9399b2">human wins</span></pre>
+    </div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">README HERO · 1280 × 320 · light</span>
+    <div id="banner-light" style="width:1280px;max-width:100%;aspect-ratio:4/1;background:#f3f2ee;border-radius:8px;display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:0 64px;box-sizing:border-box;overflow:hidden">
+      <div style="display:flex;flex-direction:column;gap:18px"><div style="display:flex;align-items:center;gap:16px;color:#94561d"><svg width="64" height="64"><use href="#mark"></use></svg><span style="font-size:64px;font-weight:600;letter-spacing:-.04em;line-height:1;color:#1f1e24">Kelpie</span></div><span style="font-size:22px;color:#4a4950;line-height:1.3">Many agents. One calm shepherd's dog.</span></div>
+      <pre style="justify-self:end;font-size:15px;line-height:1.5;color:#1f1e24;background:#ffffff;border:1px solid #dcdad3;border-radius:8px;padding:18px 22px"><span style="color:#5c5f70">$</span> kelpie up
+<span style="color:#2b6b1d">✓</span> 12 sessions running
+<span style="color:#cb0e37">▲</span> 1 waiting for you
+<span style="color:#8432ee">◆</span> supervisor: assist   <span style="color:#5c5f70">human wins</span></pre>
+    </div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">GITHUB SOCIAL PREVIEW · 1280 × 640</span>
+    <div id="social" style="width:1280px;max-width:100%;aspect-ratio:2/1;background:#1a1a24;border:1px solid #2a2a38;border-radius:8px;display:flex;flex-direction:column;justify-content:space-between;padding:56px 72px;box-sizing:border-box;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:16px;color:#9399b2">github.com/kelpie-dev/kelpie</span><span style="font-family:'JetBrains Mono',monospace;font-size:16px;color:#9399b2">Windows 11 · PowerShell 7 · Linux · macOS</span></div>
+      <div style="display:flex;align-items:center;gap:28px;color:#d9a066"><svg width="144" height="144"><use href="#mark"></use></svg><div style="display:flex;flex-direction:column;gap:12px"><span style="font-size:112px;font-weight:600;letter-spacing:-.045em;line-height:.95;color:#e4e2dc">Kelpie</span><span style="font-size:30px;color:#b9b7b0;line-height:1.3">A terminal workspace for running and supervising many AI coding agents at once.</span></div></div>
+      <div style="display:flex;gap:32px;font-family:'JetBrains Mono',monospace;font-size:17px;color:#e4e2dc"><span><span style="color:#f9e2af">●</span> working</span><span><span style="color:#f38ba8">▲</span> waiting for you</span><span><span style="color:#a6e3a1">✓</span> done</span><span><span style="color:#cba6f7">◆</span> supervisor</span><span style="margin-left:auto;color:#9399b2">built on herdr</span></div>
+    </div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">DOCS / LANDING HEADER</span>
+    <div style="background:#1a1a24;border:1px solid #2a2a38;border-radius:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:28px;padding:14px 24px;border-bottom:1px solid #2a2a38"><div style="display:flex;align-items:center;gap:10px;color:#d9a066"><svg width="24" height="24"><use href="#mark"></use></svg><span style="font-size:18px;font-weight:600;letter-spacing:-.02em;color:#e4e2dc">Kelpie</span></div><nav style="display:flex;gap:22px;font-size:14px;color:#b9b7b0"><span>Docs</span><span>Plugins</span><span>SDK</span><span>Changelog</span></nav><div style="margin-left:auto;display:flex;align-items:center;gap:12px"><code style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#e4e2dc;background:#22222e;padding:7px 12px;border-radius:6px">winget install kelpie</code><span style="font-size:14px;color:#9399b2">GitHub</span></div></div>
+      <div style="padding:56px 24px;display:flex;flex-direction:column;gap:14px;max-width:720px"><h3 style="font-size:44px;font-weight:600;letter-spacing:-.03em;line-height:1.05">Run ten agents. Read one screen.</h3><p style="font-size:18px;color:#b9b7b0;line-height:1.5">Each agent keeps its native terminal UI. Kelpie keeps track of who is working, who is waiting, and who has wandered off.</p></div>
+    </div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9399b2">TUI FRAME · brand applied</span>
+    <div style="background:#1a1a24;border:1px solid #2a2a38;border-radius:8px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.6;color:#e4e2dc;display:grid;grid-template-columns:260px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;min-height:440px">
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid #2a2a38;color:#9399b2"><span style="color:#d9a066">▟▙</span><span style="color:#e4e2dc">kelpie</span><span>·</span><span>workspace: api</span><span style="margin-left:auto">⌃k palette · ? help</span></div>
+      <div style="border-right:1px solid #2a2a38;padding:10px 0;display:flex;flex-direction:column">
+        <div style="padding:2px 14px;color:#9399b2;font-size:11px;letter-spacing:.06em">SESSIONS 12</div>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+          <div style="display:flex;align-items:center;gap:10px;padding:3px 14px;background:{{ r.bg }};color:{{ r.textColor }}"><span style="color:{{ r.color }};width:14px;text-align:center">{{ r.glyph }}</span><span style="flex:1">{{ r.name }}</span><span style="color:#9399b2;font-size:12px">{{ r.meta }}</span></div>
+        </sc-for>
+      </div>
+      <div style="padding:14px 18px;display:flex;flex-direction:column;gap:2px;color:#b9b7b0;min-width:0;overflow:hidden">
+        <div style="color:#9399b2;display:flex;gap:14px;margin-bottom:8px"><span style="color:#e4e2dc">claude-code · payments</span><span style="color:#f38ba8">▲ waiting for you</span></div>
+        <div>I've updated <span style="color:#e4e2dc">src/billing/refund.ts</span> to retry on 429.</div>
+        <div>Before I run the migration I need confirmation:</div>
+        <div style="margin:8px 0;padding:10px 14px;background:#22222e;border-radius:6px;color:#e4e2dc">Run <span style="color:#d9a066">prisma migrate deploy</span> against staging? <span style="color:#9399b2">[y/N]</span></div>
+        <div style="margin-top:auto;color:#9399b2;border-top:1px solid #2a2a38;padding-top:8px;display:flex;gap:18px"><span><span style="color:#e4e2dc">y</span> approve</span><span><span style="color:#e4e2dc">n</span> decline</span><span><span style="color:#e4e2dc">⏎</span> reply</span><span><span style="color:#e4e2dc">p</span> pause agent</span></div>
+      </div>
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:7px 14px;border-top:1px solid #2a2a38;font-size:12.5px;color:#9399b2"><span style="display:inline-flex;align-items:center;gap:6px;background:#2a2538;color:#cba6f7;padding:2px 9px;border-radius:4px">◆ supervisor: assist · hermes</span><span><span style="color:#f9e2af">●</span> 7</span><span><span style="color:#f38ba8">▲</span> 1</span><span><span style="color:#a6e3a1">✓</span> 3</span><span><span style="color:#fab387">◌</span> 1</span><span style="margin-left:auto">PowerShell 7.5 · win11 · v0.4.0</span></div>
+    </div></div>
+  </section>
+
+  <!-- Voice -->
+  <section id="voice" data-screen-label="Voice" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">07 · VOICE AND TONE</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">Alert, capable, calm</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:28px">
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3 style="font-size:16px;font-weight:600">Taglines</h3>
+        <ol style="margin:0;padding-left:20px;font-size:17px;line-height:1.7;color:#e4e2dc"><li>Many agents. One calm shepherd's dog.</li><li>Run ten agents. Read one screen.</li><li>Every agent in view. You still decide.</li><li>Keeps the flock moving. Brings the strays back.</li><li>Supervision for AI coding agents, in your terminal.</li></ol>
+        <p style="font-size:13px;color:#9399b2;line-height:1.5">1 and 4 use the dog; 2, 3 and 5 do not. Use 1 on the README, 5 wherever the audience may not know the name yet.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3 style="font-size:16px;font-weight:600">Descriptions</h3>
+        <p style="font-size:15px;line-height:1.55;color:#e4e2dc"><b style="font-weight:600;color:#9399b2">One sentence.</b> Kelpie is an open-source terminal workspace that runs many AI coding agents side by side and keeps you in charge of all of them.</p>
+        <p style="font-size:15px;line-height:1.55;color:#b9b7b0"><b style="font-weight:600;color:#9399b2">One paragraph.</b> Kelpie is a terminal multiplexer and runtime for AI coding agents such as Claude Code, Codex and pi. Run ten or more sessions side by side, each with its own native terminal UI, backed by a server-owned runtime with a local JSON API. A supervisor agent can watch every session and nudge it forward, with per-project permissions for observe, assist and autopilot. The human always wins. First-class on Windows 11 and PowerShell 7, and at home on Linux and macOS. Kelpie is a community fork built on herdr.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3 style="font-size:16px;font-weight:600">Writing rules</h3>
+        <ul style="margin:0;padding-left:20px;font-size:15px;line-height:1.7;color:#b9b7b0"><li>Plain and specific. Name the file, the count, the command.</li><li>No hype. Never "revolutionary", "supercharge", "magic", "AI-powered".</li><li>The human is in charge. Kelpie asks, reports and waits; it does not "take over".</li><li>Short sentences in the product. Full sentences in docs.</li><li>Dog metaphors sparingly: one per surface, never in error messages.</li><li>"kelpie" lowercase in code and commands, "Kelpie" in prose.</li></ul>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3 style="font-size:16px;font-weight:600">CLI messages</h3>
+        <pre style="background:#121219;border:1px solid #2a2a38;border-radius:8px;padding:16px 18px;font-size:13.5px;line-height:1.65;color:#e4e2dc"><span style="color:#a6e3a1">✓</span> session <span style="color:#d9a066">payments</span> finished · 14 files changed · 6m 12s
+
+<span style="color:#f38ba8">▲</span> <span style="color:#d9a066">payments</span> is waiting for you
+  claude-code asks: run prisma migrate deploy on staging?
+  <span style="color:#9399b2">kelpie attach payments  ·  kelpie reply payments y
+
+</span><span style="color:#f38ba8">✕</span> could not start <span style="color:#d9a066">search</span>
+  codex: command not found. Install it or set agents.codex.path
+  in kelpie.toml. <span style="color:#9399b2">Other sessions are unaffected.</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Attribution + do/don't -->
+  <section id="attrib" data-screen-label="Attribution" style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">08 · ATTRIBUTION AND USAGE</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">Built on herdr</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0;text-wrap:pretty">Kelpie is a community fork. The attribution line appears in the README, the About screen, the <code style="font-family:'JetBrains Mono',monospace;color:#e4e2dc">--version</code> output and the website footer. Set it in Muted, never in the accent, and never place herdr's logo next to Kelpie's.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
+      <div style="background:#22222e;border-radius:10px;padding:22px;display:flex;flex-direction:column;gap:12px"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9399b2;letter-spacing:.06em">ATTRIBUTION LINE</span><p style="font-size:15px;line-height:1.55;color:#e4e2dc">Kelpie is a community fork built on <a href="#attrib">herdr</a>, an open-source project by its original authors. Kelpie is independently maintained and is not endorsed by or affiliated with the herdr project.</p><span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#9399b2">kelpie 0.4.0 · built on herdr 1.8 · MIT</span></div>
+      <div style="background:#22222e;border-radius:10px;padding:22px;display:flex;flex-direction:column;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9399b2;letter-spacing:.06em">DO</span><ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;color:#b9b7b0"><li>Keep the mark one colour: accent, ink, or inverted</li><li>Pair every status colour with its glyph</li><li>Use the text mark in any terminal output over 24 columns wide</li><li>Credit herdr in Muted, once per surface</li><li>Show the human's controls next to any supervisor badge</li></ul></div>
+      <div style="background:#22222e;border-radius:10px;padding:22px;display:flex;flex-direction:column;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9399b2;letter-spacing:.06em">DON'T</span><ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;color:#b9b7b0"><li>Add gradients, glows, sparkles or a "brain" to anything</li><li>Draw a full dog, a puppy, or a horse of any kind</li><li>Use the accent for status, warnings or success</li><li>Imply herdr endorsement, or combine the two names ("herdr Kelpie")</li><li>Use emoji in the product or README headings</li></ul></div>
+    </div>
+  </section>
+
+  <!-- Files -->
+  <section id="files" data-screen-label="Files" style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d9a066;letter-spacing:.06em">09 · FILES</div>
+      <h2 style="font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1">Asset index</h2>
+      <p style="font-size:16px;line-height:1.55;color:#b9b7b0">Everything lives under <code style="font-family:'JetBrains Mono',monospace;color:#e4e2dc">assets/</code>. Wordmark and lockup SVGs reference IBM Plex Sans by name; outline the text before shipping to contexts without the font.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.8">
+      <sc-for list="{{ files }}" as="f" hint-placeholder-count="6">
+        <div style="background:#22222e;border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:4px"><span style="color:#d9a066;margin-bottom:4px">{{ f.dir }}</span><sc-for list="{{ f.items }}" as="i" hint-placeholder-count="4"><a href="{{ i.href }}" style="color:#e4e2dc;text-decoration:none">{{ i.name }}</a></sc-for></div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const statusDir = ['working','waiting','done','background','stale','unknown','supervisor-observe','supervisor-assist','supervisor-autopilot','human-paused'];
+    const dir = (d, names) => ({ dir: d, items: names.map(n => ({ name: n, href: d + '/' + n })) });
+    return {
+      misuse: [
+        { label: 'No gradients or glows', color: '#d9a066', filter: 'drop-shadow(0 0 10px #cba6f7)', transform: 'none' },
+        { label: 'No rotation', color: '#d9a066', filter: 'none', transform: 'rotate(-18deg)' },
+        { label: 'No stretching', color: '#d9a066', filter: 'none', transform: 'scaleX(1.5)' },
+        { label: 'No off-palette colour', color: '#4fc1b5', filter: 'none', transform: 'none' },
+        { label: 'No status colours as brand', color: '#f38ba8', filter: 'none', transform: 'none' },
+        { label: 'No blur, no shadows', color: '#d9a066', filter: 'blur(1.5px)', transform: 'none' },
+      ],
+      brand: [
+        { name: 'Red Kelpie · dark', hex: '#d9a066', rgb: '217 160 102', xterm: 180, ansi: '93 bryellow', note: '7.5:1 on Ground dark' },
+        { name: 'Red Kelpie · light', hex: '#94561d', rgb: '154 90 30', xterm: 130, ansi: '33 yellow', note: '4.9:1 on Ground light' },
+        { name: 'Ground · dark', hex: '#1a1a24', rgb: '26 26 36', xterm: 234, ansi: '40 black', note: 'page / terminal bg' },
+        { name: 'Ground · light', hex: '#f3f2ee', rgb: '243 242 238', xterm: 255, ansi: '107 brwhite', note: 'page / terminal bg' },
+        { name: 'Panel · dark', hex: '#22222e', rgb: '34 34 46', xterm: 235, ansi: '40 black', note: 'sidebar, cards' },
+        { name: 'Panel · light', hex: '#e9e7e1', rgb: '233 231 225', xterm: 254, ansi: '107 brwhite', note: 'sidebar, cards' },
+        { name: 'Ink · dark', hex: '#e4e2dc', rgb: '228 226 220', xterm: 254, ansi: '97 brwhite', note: '13.6:1' },
+        { name: 'Ink · light', hex: '#1f1e24', rgb: '31 30 36', xterm: 234, ansi: '30 black', note: '15.1:1' },
+        { name: 'Muted · dark', hex: '#9399b2', rgb: '147 153 178', xterm: 103, ansi: '90 brblack', note: '5.8:1' },
+        { name: 'Muted · light', hex: '#5c5f70', rgb: '92 95 112', xterm: 59, ansi: '90 brblack', note: '5.6:1' },
+      ],
+      tokens: [
+        { name: 'working', glyph: '●', dark: '#f9e2af', darkCr: '12.9:1', light: '#df8e1d', lightText: '#6e4a00', lightCr: '7.2:1', ansi: '33 yellow' },
+        { name: 'waiting for you', glyph: '▲', dark: '#f38ba8', darkCr: '7.1:1', light: '#cb0e37', lightText: '#cb0e37', lightCr: '4.8:1', ansi: '31 red + bold' },
+        { name: 'done / idle', glyph: '✓', dark: '#a6e3a1', darkCr: '11.0:1', light: '#40a02b', lightText: '#2b6b1d', lightCr: '5.8:1', ansi: '32 green' },
+        { name: 'background job', glyph: '◐', dark: '#f9e2af', darkCr: '12.9:1', light: '#df8e1d', lightText: '#6e4a00', lightCr: '7.2:1', ansi: '33 yellow' },
+        { name: 'stale', glyph: '◌', dark: '#fab387', darkCr: '9.3:1', light: '#fe640b', lightText: '#9a3c00', lightCr: '6.1:1', ansi: '33 + dim' },
+        { name: 'unknown', glyph: '?', dark: '#9399b2', darkCr: '5.8:1', light: '#8c8fa1', lightText: '#5c5f70', lightCr: '5.6:1', ansi: '90 brblack' },
+        { name: 'supervisor', glyph: '◆', dark: '#cba6f7', darkCr: '8.1:1', light: '#8432ee', lightText: '#8432ee', lightCr: '4.8:1', ansi: '35 magenta' },
+      ],
+      glyphs: [
+        { name: 'working', glyph: '●', code: 'U+25CF', token: 'status.working', color: '#f9e2af', href: '#s-working' },
+        { name: 'waiting for you', glyph: '▲', code: 'U+25B2', token: 'status.waiting', color: '#f38ba8', href: '#s-waiting' },
+        { name: 'done / idle', glyph: '✓', code: 'U+2713', token: 'status.done', color: '#a6e3a1', href: '#s-done' },
+        { name: 'background job', glyph: '◐', code: 'U+25D0', token: 'status.background', color: '#f9e2af', href: '#s-background' },
+        { name: 'stale', glyph: '◌', code: 'U+25CC', token: 'status.stale', color: '#fab387', href: '#s-stale' },
+        { name: 'unknown', glyph: '?', code: 'U+003F', token: 'status.unknown', color: '#9399b2', href: '#s-unknown' },
+        { name: 'supervisor · observe', glyph: '◇', code: 'U+25C7', token: 'status.supervisor', color: '#cba6f7', href: '#s-observe' },
+        { name: 'supervisor · assist', glyph: '◆', code: 'U+25C6', token: 'status.supervisor', color: '#cba6f7', href: '#s-assist' },
+        { name: 'supervisor · autopilot', glyph: '◈', code: 'U+25C8', token: 'status.supervisor', color: '#cba6f7', href: '#s-autopilot' },
+        { name: 'human override / paused', glyph: '▮▮', code: 'U+25AE ×2', token: 'ink', color: '#e4e2dc', href: '#s-paused' },
+      ],
+      rows: [
+        { glyph: '●', color: '#f9e2af', name: 'gateway', meta: 'claude', bg: 'transparent', textColor: '#e4e2dc' },
+        { glyph: '▲', color: '#f38ba8', name: 'payments', meta: 'claude', bg: '#2e2622', textColor: '#e4e2dc' },
+        { glyph: '●', color: '#f9e2af', name: 'search', meta: 'codex', bg: 'transparent', textColor: '#e4e2dc' },
+        { glyph: '◐', color: '#f9e2af', name: 'migrations', meta: 'pi', bg: 'transparent', textColor: '#e4e2dc' },
+        { glyph: '✓', color: '#a6e3a1', name: 'docs', meta: 'claude', bg: 'transparent', textColor: '#e4e2dc' },
+        { glyph: '◌', color: '#fab387', name: 'e2e-tests', meta: 'grok · 42m', bg: 'transparent', textColor: '#9399b2' },
+        { glyph: '▮▮', color: '#e4e2dc', name: 'infra', meta: 'paused', bg: 'transparent', textColor: '#e4e2dc' },
+        { glyph: '?', color: '#9399b2', name: 'legacy', meta: '—', bg: 'transparent', textColor: '#9399b2' },
+      ],
+      files: [
+        dir('assets/svg', ['kelpie-mark-dark.svg','kelpie-mark-light.svg','kelpie-mark-mono-white.svg','kelpie-mark-mono-black.svg','kelpie-mark-line-dark.svg','kelpie-mark-line-light.svg','kelpie-mark-inverted.svg','kelpie-wordmark-dark.svg','kelpie-wordmark-light.svg','kelpie-lockup-horizontal-dark.svg','kelpie-lockup-horizontal-light.svg','kelpie-lockup-stacked-dark.svg','kelpie-lockup-stacked-light.svg']),
+        dir('assets/png', ['kelpie-mark-dark-1x.png','kelpie-mark-dark-2x.png','kelpie-mark-light-1x.png','kelpie-mark-light-2x.png','kelpie-mark-mono-white-2x.png','kelpie-mark-mono-black-2x.png','kelpie-mark-line-dark-2x.png','kelpie-mark-line-light-2x.png','kelpie-mark-inverted-2x.png']),
+        dir('assets/icons', ['kelpie-app-icon.svg','kelpie-app-icon-macos.svg','favicon.svg','favicon-32.png','favicon-32-dark.png','kelpie-tab-glyph.svg','windows/kelpie.ico','windows/kelpie-16.png … kelpie-256.png','macos/kelpie-1024.png','linux/kelpie-256.png','linux/kelpie-512.png']),
+        dir('assets/status', statusDir.map(s => 'status-' + s + '.svg')),
+        dir('assets/tokens', ['kelpie.tokens.json','kelpie.css','kelpie-theme.toml']),
+        dir('assets/text', ['kelpie-mark.txt','kelpie-oneline.txt','kelpie-splash.txt','kelpie-status-glyphs.txt']),
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

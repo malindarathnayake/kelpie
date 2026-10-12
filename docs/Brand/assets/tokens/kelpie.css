@@ -1,0 +1,23 @@
+/* Kelpie design tokens. Dark first; [data-theme="light"] overrides. */
+:root{
+  --kelpie-accent:#d9a066;--kelpie-ground:#1a1a24;--kelpie-panel:#22222e;--kelpie-ink:#e4e2dc;--kelpie-muted:#9399b2;
+  --kelpie-status-working:#f9e2af;--kelpie-status-working-text:#f9e2af;
+  --kelpie-status-waiting:#f38ba8;--kelpie-status-waiting-text:#f38ba8;
+  --kelpie-status-done:#a6e3a1;--kelpie-status-done-text:#a6e3a1;
+  --kelpie-status-background:#f9e2af;--kelpie-status-background-text:#f9e2af;
+  --kelpie-status-stale:#fab387;--kelpie-status-stale-text:#fab387;
+  --kelpie-status-unknown:#9399b2;--kelpie-status-unknown-text:#9399b2;
+  --kelpie-status-supervisor:#cba6f7;--kelpie-status-supervisor-text:#cba6f7;
+  --kelpie-font-mono:"JetBrains Mono","Cascadia Mono",Consolas,Menlo,monospace;
+  --kelpie-font-sans:"IBM Plex Sans",Helvetica,Arial,sans-serif;
+}
+[data-theme="light"]{
+  --kelpie-accent:#94561d;--kelpie-ground:#f3f2ee;--kelpie-panel:#e9e7e1;--kelpie-ink:#1f1e24;--kelpie-muted:#5c5f70;
+  --kelpie-status-working:#df8e1d;--kelpie-status-working-text:#6e4a00;
+  --kelpie-status-waiting:#cb0e37;--kelpie-status-waiting-text:#cb0e37;
+  --kelpie-status-done:#40a02b;--kelpie-status-done-text:#2b6b1d;
+  --kelpie-status-background:#df8e1d;--kelpie-status-background-text:#6e4a00;
+  --kelpie-status-stale:#fe640b;--kelpie-status-stale-text:#9a3c00;
+  --kelpie-status-unknown:#8c8fa1;--kelpie-status-unknown-text:#5c5f70;
+  --kelpie-status-supervisor:#8432ee;--kelpie-status-supervisor-text:#8432ee;
+}

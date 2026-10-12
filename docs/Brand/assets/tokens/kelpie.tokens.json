@@ -1,0 +1,259 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "kelpie": {
+    "brand": {
+      "accent": {
+        "dark": {
+          "$type": "color",
+          "$value": "#d9a066",
+          "$extensions": {
+            "dev.kelpie": {
+              "xterm256": 180,
+              "ansi16": "93 bright yellow"
+            }
+          }
+        },
+        "light": {
+          "$type": "color",
+          "$value": "#94561d",
+          "$extensions": {
+            "dev.kelpie": {
+              "xterm256": 130,
+              "ansi16": "33 yellow"
+            }
+          }
+        }
+      }
+    },
+    "ground": {
+      "dark": {
+        "$type": "color",
+        "$value": "#1a1a24",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 234,
+            "ansi16": "40 black"
+          }
+        }
+      },
+      "light": {
+        "$type": "color",
+        "$value": "#f3f2ee",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 255,
+            "ansi16": "107 bright white"
+          }
+        }
+      }
+    },
+    "panel": {
+      "dark": {
+        "$type": "color",
+        "$value": "#22222e",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 235,
+            "ansi16": "40 black"
+          }
+        }
+      },
+      "light": {
+        "$type": "color",
+        "$value": "#e9e7e1",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 254,
+            "ansi16": "107 bright white"
+          }
+        }
+      }
+    },
+    "ink": {
+      "dark": {
+        "$type": "color",
+        "$value": "#e4e2dc",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 254,
+            "ansi16": "97 bright white"
+          }
+        }
+      },
+      "light": {
+        "$type": "color",
+        "$value": "#1f1e24",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 234,
+            "ansi16": "30 black"
+          }
+        }
+      }
+    },
+    "muted": {
+      "dark": {
+        "$type": "color",
+        "$value": "#9399b2",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 103,
+            "ansi16": "90 bright black"
+          }
+        }
+      },
+      "light": {
+        "$type": "color",
+        "$value": "#5c5f70",
+        "$extensions": {
+          "dev.kelpie": {
+            "xterm256": 59,
+            "ansi16": "90 bright black"
+          }
+        }
+      }
+    },
+    "status": {
+      "working": {
+        "dark": {
+          "$type": "color",
+          "$value": "#f9e2af"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#df8e1d"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#6e4a00"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "●"
+        }
+      },
+      "waiting": {
+        "dark": {
+          "$type": "color",
+          "$value": "#f38ba8"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#cb0e37"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#cb0e37"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "▲"
+        }
+      },
+      "done": {
+        "dark": {
+          "$type": "color",
+          "$value": "#a6e3a1"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#40a02b"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#2b6b1d"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "✓"
+        }
+      },
+      "background": {
+        "dark": {
+          "$type": "color",
+          "$value": "#f9e2af"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#df8e1d"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#6e4a00"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "◐"
+        }
+      },
+      "stale": {
+        "dark": {
+          "$type": "color",
+          "$value": "#fab387"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#fe640b"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#9a3c00"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "◌"
+        }
+      },
+      "unknown": {
+        "dark": {
+          "$type": "color",
+          "$value": "#9399b2"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#8c8fa1"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#5c5f70"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "?"
+        }
+      },
+      "supervisor": {
+        "dark": {
+          "$type": "color",
+          "$value": "#cba6f7"
+        },
+        "light": {
+          "fill": {
+            "$type": "color",
+            "$value": "#8432ee"
+          },
+          "text": {
+            "$type": "color",
+            "$value": "#8432ee"
+          }
+        },
+        "glyph": {
+          "$type": "string",
+          "$value": "◆"
+        }
+      }
+    }
+  }
+}

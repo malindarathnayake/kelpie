@@ -1,0 +1,7 @@
+# splash / --help header, 5 rows x 24 cols
+# Uses quadrant blocks, which Consolas lacks; with Consolas, pair kelpie-mark-consolas.txt with the same text column.
+▗▖ ▗▖                     (5)
+▐▙▄▟▌     Kelpie          (16)
+███▘███▄  agent workspace (24)
+███████▘  built on herdr  (23)
+▐██▌                      (4)

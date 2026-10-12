@@ -1,0 +1,2 @@
+# one-line, Consolas-safe fallback, 9 cols
+▄█ kelpie

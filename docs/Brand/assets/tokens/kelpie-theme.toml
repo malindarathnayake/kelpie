@@ -1,0 +1,28 @@
+# Kelpie terminal theme.
+# Paste into the Kelpie/herdr config. Base keys are the dark theme;
+# [theme.custom.light] applies when theme.auto_switch selects a light appearance.
+# Light text colours meet WCAG AA (>= 4.5:1) on #e9e7e1 and Catppuccin Latte #eff1f5.
+
+[theme.custom]
+accent = "#d9a066"
+panel_bg = "#22222e"
+text = "#e4e2dc"
+green = "#a6e3a1"
+yellow = "#f9e2af"
+red = "#f38ba8"
+blue = "#89b4fa"
+teal = "#94e2d5"
+peach = "#fab387"
+mauve = "#cba6f7"
+
+[theme.custom.light]
+accent = "#94561d"
+panel_bg = "#e9e7e1"
+text = "#1f1e24"
+green = "#2b6b1d"
+yellow = "#6e4a00"
+red = "#cb0e37"
+blue = "#0b58f1"
+teal = "#127076"
+peach = "#9a3c00"
+mauve = "#8432ee"

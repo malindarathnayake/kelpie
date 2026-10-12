@@ -1,0 +1,12 @@
+# status glyphs (primary set)
+# Needs Cascadia Mono, JetBrains Mono or Menlo. Consolas/Lucida Console lack ✓ ◐ ◇ ◆ ◈ ▮; use kelpie-status-glyphs-consolas.txt there.
+● working        U+25CF
+▲ waiting for you U+25B2
+✓ done / idle    U+2713
+◐ background job U+25D0
+◌ stale          U+25CC
+? unknown        U+003F
+◇ supervisor: observe U+25C7
+◆ supervisor: assist  U+25C6
+◈ supervisor: autopilot U+25C8
+▮▮ human override / paused U+25AE

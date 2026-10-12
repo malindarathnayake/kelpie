@@ -1,0 +1,14 @@
+# status glyphs, Consolas-safe fallback set
+# Use when the terminal font is Consolas or Lucida Console (classic Windows console).
+# The primary set in kelpie-status-glyphs.txt needs Cascadia Mono, JetBrains Mono or Menlo.
+# Every glyph below was checked present in consola.ttf on Windows 11.
+● working                 U+25CF
+▲ waiting for you         U+25B2
+√ done / idle             U+221A
+◘ background job          U+25D8
+◌ stale                   U+25CC
+? unknown                 U+003F
+◊ supervisor: observe     U+25CA
+♦ supervisor: assist      U+2666
+► supervisor: autopilot   U+25BA
+‖ human override / paused U+2016
