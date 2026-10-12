@@ -7,14 +7,21 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::api::schema::supervisor::{
-    GenerationReason, LineageEntry, PendingQuestion, QuestionResolution, ResolutionBy, TargetRef,
+    Confidence, FactSource, GenerationReason, LineageEntry, PendingQuestion, QuestionKind,
+    QuestionResolution, ResolutionBy, TargetRef,
 };
+use crate::detect::AgentState;
 use crate::layout::PaneId;
+use crate::supervisor::question::{
+    content_rows, detect_prose_question, normalize, question_id, sanitize_excerpt,
+};
 
 pub const MAX_OPEN_QUESTIONS: usize = 16;
 pub const MAX_RESOLVED_QUESTIONS: usize = 8;
 pub const MAX_LINEAGE: usize = 8;
 pub const MAX_EXCERPT_CHARS: usize = 200;
+/// Minimum Idle dwell before the one-shot quiescence rescan may be requested.
+pub const QUIESCENCE_RESCAN_MS: u64 = 1500;
 
 /// Serde wire name of a generation reason.
 fn reason_name(reason: GenerationReason) -> &'static str {
@@ -70,6 +77,13 @@ pub struct PaneSupervisorState {
     /// Generation in which a background_jobs token was last reported.
     pub background_hook_generation: Option<u64>,
     pub exited: bool,
+    /// Structured-approval scan for the Blocked transition with this sequence;
+    /// independent of `pending_prose`. Cleared on generation change.
+    pub pending_blocked: Option<u64>,
+    /// Prose-question scan requested by an Idle transition or quiescence rescan.
+    pub pending_prose: bool,
+    /// State set by the most recent `on_transition`; None after a generation change.
+    pub last_state: Option<AgentState>,
 }
 
 impl PaneSupervisorState {
@@ -87,6 +101,9 @@ impl PaneSupervisorState {
             background_rule_seen_ms: None,
             background_hook_generation: None,
             exited: false,
+            pending_blocked: None,
+            pending_prose: false,
+            last_state: None,
         }
     }
 
@@ -171,6 +188,9 @@ impl SupervisorState {
         state.turn_started_ms = None;
         state.idle_since_ms = None;
         state.rescanned_this_idle = false;
+        state.pending_blocked = None;
+        state.pending_prose = false;
+        state.last_state = None;
         state.enforce_caps();
         tracing::debug!(
             event = "supervisor.generation",
@@ -244,8 +264,145 @@ impl SupervisorState {
         true
     }
 
+    /// Records that a `background_jobs` token was reported in the current generation.
+    pub fn note_background_hook(&mut self, pane: PaneId) {
+        let state = self.pane_mut(pane);
+        state.background_hook_generation = Some(state.generation);
+    }
+
+    /// True when a `background_jobs` token was reported in the pane's current generation.
+    pub fn background_hook_current(&self, pane: PaneId) -> bool {
+        self.panes
+            .get(&pane)
+            .is_some_and(|s| s.background_hook_generation == Some(s.generation))
+    }
+
     pub fn remove_pane(&mut self, pane: PaneId) {
         self.panes.remove(&pane);
+    }
+
+    /// Records an agent state transition and marks the scan App performs after the event.
+    /// Never reads the grid and never changes question resolution.
+    pub fn on_transition(
+        &mut self,
+        pane: PaneId,
+        _previous: AgentState,
+        new: AgentState,
+        state_change_seq: u64,
+        now_ms: u64,
+    ) {
+        let state = self.pane_mut(pane);
+        state.last_transition_ms = Some(now_ms);
+        state.last_state = Some(new);
+        if !matches!(new, AgentState::Idle) {
+            // Leaving (or never entering) Idle: no quiescence rescan, no stale prose scan.
+            state.idle_since_ms = None;
+            state.rescanned_this_idle = false;
+            state.pending_prose = false;
+        }
+        match new {
+            AgentState::Working => {
+                state.turn_started_ms = Some(now_ms);
+            }
+            AgentState::Idle => {
+                state.idle_since_ms = Some(now_ms);
+                state.rescanned_this_idle = false;
+                state.pending_prose = true;
+            }
+            AgentState::Blocked => {
+                state.pending_blocked = Some(state_change_seq);
+            }
+            AgentState::Unknown => {}
+        }
+    }
+
+    /// Consumes the pending scan for `pane` against the given grid text.
+    pub fn apply_scan(&mut self, pane: PaneId, text: &str, now_ms: u64) {
+        let state = self.pane_mut(pane);
+        let blocked = state.pending_blocked.take();
+        let prose = std::mem::take(&mut state.pending_prose);
+        if blocked.is_none() && !prose {
+            return;
+        }
+        let generation = state.generation;
+        let still_blocked = matches!(state.last_state, Some(AgentState::Blocked));
+        let rows = content_rows(text);
+        if let Some(state_change_seq) = blocked {
+            let question = PendingQuestion {
+                question_id: question_id(
+                    pane.raw(),
+                    generation,
+                    "blocked",
+                    &state_change_seq.to_string(),
+                ),
+                kind: QuestionKind::StructuredApproval,
+                // If the pane left Blocked before the scan ran, the screen no longer
+                // shows the approval prompt; do not copy it into the excerpt.
+                excerpt: if still_blocked {
+                    rows.last()
+                        .map(|r| sanitize_excerpt(r.trim()))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                },
+                asked_at_ms: now_ms,
+                source: FactSource::ManifestRule,
+                confidence: Confidence::High,
+                possible_response_at_ms: None,
+                resolution: None,
+            };
+            self.insert_question(pane, question);
+        }
+        if prose {
+            if let Some(excerpt) = detect_prose_question(&rows) {
+                let question = PendingQuestion {
+                    question_id: question_id(pane.raw(), generation, "prose", &normalize(&excerpt)),
+                    kind: QuestionKind::ProseQuestion,
+                    excerpt,
+                    asked_at_ms: now_ms,
+                    source: FactSource::ScreenHeuristic,
+                    confidence: Confidence::Low,
+                    possible_response_at_ms: None,
+                    resolution: None,
+                };
+                self.insert_question(pane, question);
+            }
+        }
+    }
+
+    pub fn panes_pending_scan(&self) -> Vec<PaneId> {
+        self.panes
+            .iter()
+            .filter(|(_, s)| s.pending_blocked.is_some() || s.pending_prose)
+            .map(|(p, _)| *p)
+            .collect()
+    }
+
+    pub fn clear_pending_scan(&mut self, pane: PaneId) {
+        if let Some(state) = self.panes.get_mut(&pane) {
+            state.pending_blocked = None;
+            state.pending_prose = false;
+        }
+    }
+
+    /// Marks a one-shot prose rescan once the pane has been Idle for at least
+    /// `QUIESCENCE_RESCAN_MS`. Only marks; App performs the scan.
+    pub fn request_quiescence_rescan(&mut self, pane: PaneId, now_ms: u64) -> bool {
+        let Some(state) = self.panes.get_mut(&pane) else {
+            return false;
+        };
+        let Some(idle_since) = state.idle_since_ms else {
+            return false;
+        };
+        if !matches!(state.last_state, Some(AgentState::Idle))
+            || state.rescanned_this_idle
+            || now_ms.saturating_sub(idle_since) < QUIESCENCE_RESCAN_MS
+        {
+            return false;
+        }
+        state.rescanned_this_idle = true;
+        state.pending_prose = true;
+        true
     }
 }
 
@@ -344,6 +501,16 @@ mod tests {
         assert_eq!(p.turn_started_ms, None);
         assert_eq!(p.idle_since_ms, None);
         assert!(!p.rescanned_this_idle);
+    }
+
+    #[test]
+    fn supervisor_background_hook_generation_goes_stale_on_bump() {
+        let mut s = SupervisorState::new();
+        assert!(!s.background_hook_current(pid(1)));
+        s.note_background_hook(pid(1));
+        assert!(s.background_hook_current(pid(1)));
+        s.bump_generation(pid(1), GenerationReason::AgentStarted, 5);
+        assert!(!s.background_hook_current(pid(1)));
     }
 
     #[test]
@@ -465,5 +632,195 @@ mod tests {
         let stored = &s.pane(pid(1)).unwrap().questions[0].excerpt;
         assert_eq!(stored.chars().count(), 200);
         assert!(std::str::from_utf8(stored.as_bytes()).is_ok());
+    }
+
+    const TITLED: &str = include_str!("testdata/claude_idle_question_titled.txt");
+
+    fn open_questions(s: &SupervisorState, pane: PaneId) -> Vec<&PendingQuestion> {
+        s.pane(pane)
+            .map(|p| {
+                p.questions
+                    .iter()
+                    .filter(|q| q.resolution.is_none())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn supervisor_transition_idle_scan_records_one_prose_question_and_dedupes() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Unknown, AgentState::Working, 1, 100);
+        assert!(!s.pane(pid(1)).unwrap().pending_prose);
+        assert_eq!(s.pane(pid(1)).unwrap().pending_blocked, None);
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 2, 200);
+        assert_eq!(s.panes_pending_scan(), vec![pid(1)]);
+        s.apply_scan(pid(1), TITLED, 210);
+        assert!(s.panes_pending_scan().is_empty());
+        let open = open_questions(&s, pid(1));
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].kind, QuestionKind::ProseQuestion);
+        assert_eq!(open[0].confidence, Confidence::Low);
+        assert_eq!(open[0].source, FactSource::ScreenHeuristic);
+        assert_eq!(open[0].excerpt, "Should I start the brief?");
+
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 3, 300);
+        s.apply_scan(pid(1), TITLED, 310);
+        assert_eq!(s.pane(pid(1)).unwrap().questions.len(), 1);
+    }
+
+    #[test]
+    fn supervisor_transition_cross_turn_question_stays_unresolved() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.apply_scan(pid(1), TITLED, 110);
+        assert_eq!(open_questions(&s, pid(1)).len(), 1);
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 2, 200);
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 3, 300);
+        s.apply_scan(pid(1), "Done. All tests pass.\n", 310);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.questions.len(), 1);
+        assert_eq!(p.questions[0].resolution, None);
+    }
+
+    #[test]
+    fn supervisor_transition_blocked_then_working_keeps_structured_question_open() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Blocked, 7, 100);
+        assert_eq!(s.pane(pid(1)).unwrap().pending_blocked, Some(7));
+        assert!(!s.pane(pid(1)).unwrap().pending_prose);
+        s.apply_scan(pid(1), "Allow edit to foo.rs?\n  1. Yes\n  2. No\n", 110);
+        s.on_transition(pid(1), AgentState::Blocked, AgentState::Working, 8, 200);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.questions.len(), 1);
+        let q = &p.questions[0];
+        assert_eq!(q.kind, QuestionKind::StructuredApproval);
+        assert_eq!(q.source, FactSource::ManifestRule);
+        assert_eq!(q.confidence, Confidence::High);
+        assert_eq!(q.excerpt, "2. No");
+        assert_eq!(q.question_id, question_id(1, 1, "blocked", "7"));
+        assert_eq!(q.resolution, None);
+    }
+
+    #[test]
+    fn supervisor_transition_working_leaves_possible_response_unset() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.apply_scan(pid(1), TITLED, 110);
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 2, 200);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.turn_started_ms, Some(200));
+        assert_eq!(p.questions[0].possible_response_at_ms, None);
+        assert!(!p.pending_prose);
+        assert_eq!(p.pending_blocked, None);
+    }
+
+    #[test]
+    fn supervisor_transition_quiescence_rescan_once_after_1500ms() {
+        let mut s = SupervisorState::new();
+        assert!(!s.request_quiescence_rescan(pid(1), 10_000));
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 500);
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 2, 1000);
+        s.apply_scan(pid(1), "", 1000);
+        assert!(!s.request_quiescence_rescan(pid(1), 2499));
+        assert!(!s.pane(pid(1)).unwrap().pending_prose);
+        assert!(s.request_quiescence_rescan(pid(1), 2500));
+        assert!(s.pane(pid(1)).unwrap().pending_prose);
+        assert_eq!(s.pane(pid(1)).unwrap().pending_blocked, None);
+        assert!(!s.request_quiescence_rescan(pid(1), 9000));
+        // A new turn makes the idle stale.
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 3, 9500);
+        assert!(!s.request_quiescence_rescan(pid(1), 20_000));
+    }
+
+    #[test]
+    fn supervisor_transition_same_ms_working_then_idle_is_rescan_eligible() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 1000);
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 2, 1000);
+        assert!(!s.request_quiescence_rescan(pid(1), 2499));
+        assert!(s.request_quiescence_rescan(pid(1), 2500));
+    }
+
+    #[test]
+    fn supervisor_transition_same_ms_idle_then_blocked_or_unknown_not_eligible() {
+        for next in [AgentState::Blocked, AgentState::Unknown] {
+            let mut s = SupervisorState::new();
+            s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 1000);
+            s.on_transition(pid(1), AgentState::Idle, next, 2, 1000);
+            assert!(!s.request_quiescence_rescan(pid(1), 6000));
+        }
+    }
+
+    #[test]
+    fn supervisor_transition_stale_prose_scan_dropped_by_working() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 1000);
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 2, 1001);
+        assert!(!s.pane(pid(1)).unwrap().pending_prose);
+        s.apply_scan(pid(1), TITLED, 1010);
+        assert!(s.pane(pid(1)).unwrap().questions.is_empty());
+    }
+
+    #[test]
+    fn supervisor_transition_blocked_scan_after_leaving_blocked_has_empty_excerpt() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Blocked, 7, 1000);
+        s.on_transition(pid(1), AgentState::Blocked, AgentState::Working, 8, 1001);
+        s.apply_scan(pid(1), TITLED, 1010);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.questions.len(), 1);
+        assert_eq!(p.questions[0].kind, QuestionKind::StructuredApproval);
+        assert_eq!(p.questions[0].excerpt, "");
+    }
+
+    #[test]
+    fn supervisor_transition_generation_bump_clears_pending_scan() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.bump_generation(pid(1), GenerationReason::AgentStarted, 150);
+        assert!(s.panes_pending_scan().is_empty());
+        s.on_transition(pid(1), AgentState::Working, AgentState::Blocked, 2, 200);
+        s.bump_generation(pid(1), GenerationReason::AgentStarted, 250);
+        assert!(s.panes_pending_scan().is_empty());
+    }
+
+    #[test]
+    fn supervisor_transition_blocked_then_idle_keeps_structured_question() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Blocked, 7, 100);
+        s.on_transition(pid(1), AgentState::Blocked, AgentState::Idle, 8, 101);
+        s.apply_scan(pid(1), "Work\n  Done.\n", 110);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.questions.len(), 1);
+        assert_eq!(p.questions[0].kind, QuestionKind::StructuredApproval);
+        assert_eq!(p.questions[0].excerpt, "");
+        assert_eq!(p.pending_blocked, None);
+        assert!(!p.pending_prose);
+        assert!(s.panes_pending_scan().is_empty());
+    }
+
+    #[test]
+    fn supervisor_transition_blocked_then_idle_with_prose_records_both() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Blocked, 7, 100);
+        s.on_transition(pid(1), AgentState::Blocked, AgentState::Idle, 8, 101);
+        s.apply_scan(pid(1), "Work\n  Should I start the brief?\n", 110);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.questions.len(), 2);
+        let structured: Vec<_> = p
+            .questions
+            .iter()
+            .filter(|q| q.kind == QuestionKind::StructuredApproval)
+            .collect();
+        assert_eq!(structured.len(), 1);
+        assert_eq!(structured[0].excerpt, "");
+        let prose: Vec<_> = p
+            .questions
+            .iter()
+            .filter(|q| q.kind == QuestionKind::ProseQuestion)
+            .collect();
+        assert_eq!(prose.len(), 1);
+        assert_eq!(prose[0].excerpt, "Should I start the brief?");
     }
 }

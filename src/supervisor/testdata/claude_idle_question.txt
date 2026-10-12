@@ -1,0 +1,12 @@
+● I have the outline for the telemetry brief ready.
+  It covers ingest latency, the 3 failing probes and the retention change.
+
+  Should I start the brief?
+
+────────────────────────────────────────
+❯ 
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ← 2 agents · ↓ to manage
+
+  ● main
+  ◯ general-purpose  Adding supervisor config tests to io.rs     43s · ↓ 58.8k tokens

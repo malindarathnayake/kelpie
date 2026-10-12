@@ -23,6 +23,7 @@ mod popup;
 mod runtime;
 mod session;
 pub mod state;
+mod supervisor_scan;
 mod tab_bar_status;
 mod terminal_targets;
 mod terminal_titles;

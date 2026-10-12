@@ -220,6 +220,9 @@ impl App {
             if worktree_restore_failed {
                 worktree_restore_updates
                     .extend(self.publish_worktree_runtime_agent_release(*pane_id));
+                if crate::supervisor::enabled() {
+                    self.run_supervisor_scans();
+                }
             } else {
                 let expected_exit = self
                     .pending_worktree_remove_runtime_exits
@@ -238,6 +241,9 @@ impl App {
                         if restore_requested {
                             worktree_restore_updates
                                 .extend(self.publish_worktree_runtime_agent_release(*pane_id));
+                            if crate::supervisor::enabled() {
+                                self.run_supervisor_scans();
+                            }
                         }
                         restore_requested && !self.respawn_shell_for_launch_pane(*pane_id, false)
                     } else {
@@ -256,12 +262,18 @@ impl App {
                     self.refresh_new_herdr_toast_context_for_update(&update, &previous_toast);
                     self.emit_pane_state_update(&update);
                 }
+                if crate::supervisor::enabled() {
+                    self.run_supervisor_scans();
+                }
                 if self.runtime_exit_action(*pane_id) == RuntimeExitAction::RespawnShell
                     && self.respawn_shell_for_launch_pane(*pane_id, true)
                 {
                     self.overlay_panes.remove(pane_id);
                     self.render_dirty.request_generic();
                     self.render_notify.notify_one();
+                    if crate::supervisor::enabled() {
+                        self.run_supervisor_scans();
+                    }
                     return worktree_restore_updates;
                 }
             }
@@ -352,6 +364,9 @@ impl App {
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
         let previous_toast = self.state.toast.clone();
         let mut pane_updates = self.state.handle_app_event(ev);
+        if crate::supervisor::enabled() {
+            self.run_supervisor_scans();
+        }
         if update_ready.is_some() {
             self.state.latest_release_notes = crate::release_notes::load_latest();
         }

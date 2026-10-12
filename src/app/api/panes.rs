@@ -1845,6 +1845,10 @@ impl App {
                 );
             }
         }
+        let reports_background_jobs = crate::supervisor::enabled()
+            && tokens
+                .as_ref()
+                .is_some_and(|tokens| matches!(tokens.get("background_jobs"), Some(Some(_))));
         let token_changed = tokens.is_some_and(|tokens| {
             let changed = terminal
                 .metadata_tokens
@@ -1854,6 +1858,9 @@ impl App {
             }
             changed
         });
+        if reports_background_jobs {
+            self.state.supervisor.note_background_hook(pane_id);
+        }
 
         if presentation_requested {
             self.handle_internal_event(crate::events::AppEvent::HookMetadataReported {

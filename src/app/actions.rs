@@ -1772,6 +1772,15 @@ impl AppState {
             || (change.state == AgentState::Idle && suppress_acquisition_completion);
         if change.previous_state != change.state {
             self.next_agent_state_change_seq += 1;
+            if crate::supervisor::enabled() {
+                self.supervisor.on_transition(
+                    pane_id,
+                    change.previous_state,
+                    change.state,
+                    self.next_agent_state_change_seq,
+                    crate::supervisor::now_ms(),
+                );
+            }
             if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
                 terminal.last_agent_state_change_seq = Some(self.next_agent_state_change_seq);
                 terminal.last_agent_completion_seq = (!suppress_completion

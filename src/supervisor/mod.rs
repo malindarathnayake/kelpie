@@ -1,6 +1,8 @@
 //! Fork-only supervisor facts surface (read-only in step 2). Agent-neutral: any supervisor
 //! (Dot, Hermes, OpenClaw, scripts) uses the same methods. Disabled unless `[supervisor] enabled`.
 
+pub mod background;
+pub mod question;
 pub mod registry;
 // Later units consume the re-export.
 #[allow(unused_imports)]
