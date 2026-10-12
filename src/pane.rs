@@ -1859,14 +1859,43 @@ fn default_pane_shell() -> String {
 /// inbox shell when none is found. An explicit `default_shell` still wins.
 #[cfg(any(windows, test))]
 fn default_windows_pane_shell(path: Option<std::ffi::OsString>) -> String {
+    default_windows_pane_shell_with(path, app_exec_alias_target)
+}
+
+/// Microsoft Store installs (PowerShell 7 among them) put a zero-byte App
+/// Execution Alias on `PATH`. `CreateProcessW` launches it, but it cannot be
+/// opened for reading, so a candidate also qualifies when its alias target is a
+/// launchable image. This is a launchability check, not an identity check: the
+/// pane launches the alias path, which Windows resolves through the package.
+#[cfg(any(windows, test))]
+fn default_windows_pane_shell_with(
+    path: Option<std::ffi::OsString>,
+    alias_target: impl Fn(&std::path::Path) -> Option<std::path::PathBuf>,
+) -> String {
     path.as_deref()
         .into_iter()
         .flat_map(std::env::split_paths)
         .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join("pwsh.exe"))
-        .find(|candidate| is_windows_executable_file(candidate))
+        .find(|candidate| {
+            is_windows_executable_file(candidate)
+                || alias_target(candidate).is_some_and(|target| is_windows_executable_file(&target))
+        })
         .and_then(|path| path.into_os_string().into_string().ok())
         .unwrap_or_else(|| "powershell.exe".into())
+}
+
+#[cfg(any(windows, test))]
+fn app_exec_alias_target(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        crate::platform::app_exec_link_target(path)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        None
+    }
 }
 
 /// Validate that `path` looks like a Windows executable image the current
@@ -4689,6 +4718,62 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(dir);
         assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn windows_default_pane_shell_accepts_alias_only_with_launchable_target() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-windows-default-shell-alias-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The alias stub itself is not a readable image.
+        let alias = dir.join("pwsh.exe");
+        std::fs::write(&alias, b"").unwrap();
+        let good_target = dir.join("target-good.exe");
+        std::fs::write(
+            &good_target,
+            windows_test_pe(TEST_MACHINE_AMD64, TEST_EXECUTABLE_IMAGE, 1),
+        )
+        .unwrap();
+        let bad_target = dir.join("target-bad.exe");
+        std::fs::write(&bad_target, b"not a PE image").unwrap();
+        let path = || std::env::join_paths([&dir]).unwrap();
+        let resolve_to = |target: std::path::PathBuf| {
+            let alias = alias.clone();
+            move |candidate: &std::path::Path| (candidate == alias).then(|| target.clone())
+        };
+
+        let accepted = default_windows_pane_shell_with(Some(path()), resolve_to(good_target));
+        let rejected = default_windows_pane_shell_with(Some(path()), resolve_to(bad_target));
+        let missing = default_windows_pane_shell_with(Some(path()), |_| None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(accepted, alias.into_os_string().into_string().unwrap());
+        assert_eq!(rejected, "powershell.exe");
+        assert_eq!(missing, "powershell.exe");
+    }
+
+    /// Store-installed PowerShell is only reachable through a zero-byte App
+    /// Execution Alias; it must be chosen, and launched by its alias path.
+    #[cfg(windows)]
+    #[test]
+    fn windows_default_pane_shell_accepts_store_app_exec_alias() {
+        let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+            return;
+        };
+        let apps = std::path::PathBuf::from(local).join(r"Microsoft\WindowsApps");
+        let alias = apps.join("pwsh.exe");
+        if crate::platform::app_exec_link_target(&alias).is_none() {
+            return;
+        }
+        let path = std::env::join_paths([&apps]).unwrap();
+
+        let resolved = default_windows_pane_shell(Some(path));
+
+        // portable-pty gates the launch on `Path::exists`.
+        assert!(alias.exists());
+        assert_eq!(resolved, alias.into_os_string().into_string().unwrap());
     }
 
     #[test]

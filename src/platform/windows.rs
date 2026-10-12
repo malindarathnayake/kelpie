@@ -13,9 +13,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod app_exec_link;
 mod clipboard_image;
 mod config_backup;
 mod notifications;
+pub(crate) use app_exec_link::app_exec_link_target;
 pub(crate) use notifications::{
     foreground_desktop_notification_host, maybe_activate_desktop_notification,
     show_actionable_desktop_notification, show_desktop_notification,
