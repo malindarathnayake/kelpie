@@ -1336,6 +1336,18 @@ impl TerminalState {
         })
     }
 
+    /// Read-only view of the current session identity (source, agent, kind, value).
+    pub(crate) fn current_session_identity(
+        &self,
+    ) -> Option<(
+        String,
+        String,
+        crate::agent_resume::AgentSessionRefKind,
+        String,
+    )> {
+        self.current_session_identity_for_persistence()
+    }
+
     fn current_session_owner_conflicts(&self, source: &str, agent_label: &str) -> bool {
         self.current_session_identity_for_persistence().is_some_and(
             |(current_source, current_agent, _, _)| {

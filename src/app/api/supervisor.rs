@@ -6,7 +6,8 @@ use crate::api::schema::{AgentInfo, ResponseResult};
 use crate::app::App;
 use crate::layout::PaneId;
 use crate::supervisor::digest::{
-    build_agent_facts, build_page, parse_cursor, AgentFactInputs, MAX_PAGE_BYTES,
+    build_agent_facts, build_page, membership_fingerprint, parse_cursor, AgentFactInputs,
+    CursorError, MAX_PAGE_BYTES,
 };
 
 use super::responses::{encode_error, encode_success};
@@ -100,12 +101,19 @@ impl App {
         // Snapshot first: every fact below is at least as new as this sequence.
         let as_of_seq = self.event_hub.current_sequence();
         let panes = self.digest_agent_panes(&params);
+        let fingerprint =
+            membership_fingerprint(panes.iter().map(|(_, _, info)| info.pane_id.as_str()));
 
-        // Validate the cursor before any rescan or fact building.
-        let offset = match parse_cursor(params.page_cursor.as_deref(), panes.len()) {
+        // Validate the cursor before any rescan or fact building. A stale cursor means
+        // the membership changed between pages; the client restarts paging.
+        let offset = match parse_cursor(params.page_cursor.as_deref(), panes.len(), &fingerprint) {
             Ok(offset) => offset,
-            Err(()) => {
-                let response = encode_error(id, "invalid_request", "invalid page_cursor");
+            Err(error) => {
+                let message = match error {
+                    CursorError::Stale => "stale page_cursor",
+                    CursorError::Invalid => "invalid page_cursor",
+                };
+                let response = encode_error(id, "invalid_request", message);
                 log.error("invalid_request", &response);
                 return response;
             }
@@ -126,7 +134,7 @@ impl App {
                 build_agent_facts(self.digest_agent_inputs(*ws_idx, *pane_id, info, now))
             })
             .collect();
-        let page = build_page(facts, offset, MAX_PAGE_BYTES);
+        let page = build_page(facts, offset, MAX_PAGE_BYTES, &fingerprint);
         let mut truncated = DigestTruncation {
             questions: page.truncated_questions,
             resolved_history: false,
@@ -185,15 +193,16 @@ impl App {
         now: u64,
     ) -> AgentFactInputs {
         let target_ref = self.state.supervisor.target_ref(pane_id, &info.pane_id);
-        let (questions, lineage, last_transition_ms, exited) =
+        let (questions, lineage, last_transition_ms, exited, unresolved_overflow) =
             match self.state.supervisor.pane(pane_id) {
                 Some(state) => (
                     state.questions.clone(),
                     state.lineage.iter().cloned().collect(),
                     state.last_transition_ms,
                     state.exited,
+                    state.unresolved_overflow,
                 ),
-                None => (Vec::new(), Vec::new(), None, false),
+                None => (Vec::new(), Vec::new(), None, false, 0),
             };
         let (runtime_present, last_output_ms, last_owner_input_ms) = match self
             .state
@@ -247,6 +256,7 @@ impl App {
             // AgentInfo reports None before the first completion; the wire field uses 0,
             // matching how `state_change_seq` is defaulted.
             completion_seq: info.completion_seq.unwrap_or(0),
+            unresolved_overflow,
             now_ms: now,
         }
     }
@@ -894,5 +904,195 @@ mod tests {
         assert_eq!(open_after, open_before);
         assert_eq!(a.background.value, Background::Inactive);
         assert_eq!(a.completion, Completion::Incomplete);
+    }
+
+    fn cursor_error(app: &mut App, cursor: &str) -> String {
+        let mut params = empty_params();
+        params.page_cursor = Some(cursor.to_string());
+        let raw = digest_raw(app, params);
+        let response: crate::api::schema::ErrorResponse = serde_json::from_str(&raw).expect(&raw);
+        assert_eq!(response.error.code, "invalid_request");
+        response.error.message
+    }
+
+    fn with_cursor(cursor: String) -> AgentsDigestParams {
+        let mut params = empty_params();
+        params.page_cursor = Some(cursor);
+        params
+    }
+
+    fn digest_fingerprint(d: &AgentsDigest) -> String {
+        membership_fingerprint(d.agents.iter().map(|a| a.target_ref.pane_id.as_str()))
+    }
+
+    /// Two agent panes: the root and a split.
+    fn app_with_two_agents(name: &str) -> (App, PaneId, PaneId) {
+        let (mut app, split) = app_with_two_panes(name, b"");
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        app.handle_internal_event(hook_state(root, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(split, AgentState::Working, 1));
+        (app, root, split)
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_cursor_pages_with_unchanged_membership() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, _root, _split) = app_with_two_agents("digest-page-ok");
+        let first = digest(&mut app, empty_params());
+        assert_eq!(first.agents.len(), 2);
+        let fp = digest_fingerprint(&first);
+
+        let second = digest(&mut app, with_cursor(format!("o:1:{fp}")));
+        assert_eq!(second.agents.len(), 1);
+        assert_eq!(
+            second.agents[0].target_ref.pane_id,
+            first.agents[1].target_ref.pane_id
+        );
+        assert_eq!(second.next_page, None);
+        // Offset 0 with a matching fingerprint is the first page.
+        assert_eq!(
+            digest(&mut app, with_cursor(format!("o:0:{fp}")))
+                .agents
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_cursor_stale_after_agent_pane_closed() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, _root, split) = app_with_two_agents("digest-page-closed");
+        let first = digest(&mut app, empty_params());
+        assert_eq!(first.agents.len(), 2);
+        let fp = digest_fingerprint(&first);
+
+        let public = app.public_pane_id(0, split).expect("split public id");
+        let response = app.handle_api_request(Request {
+            id: "close".into(),
+            method: Method::PaneClose(crate::api::schema::PaneTarget { pane_id: public }),
+        });
+        serde_json::from_str::<SuccessResponse>(&response)
+            .unwrap_or_else(|e| panic!("pane close failed: {e}: {response}"));
+
+        assert_eq!(
+            cursor_error(&mut app, &format!("o:1:{fp}")),
+            "stale page_cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_cursor_stale_after_agent_pane_added() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, split) = app_with_two_panes("digest-page-added", b"");
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        app.handle_internal_event(hook_state(root, AgentState::Working, 1));
+        let first = digest(&mut app, empty_params());
+        assert_eq!(first.agents.len(), 1);
+        let fp = digest_fingerprint(&first);
+
+        // The split pane's terminal becomes a real agent terminal.
+        app.handle_internal_event(hook_state(split, AgentState::Working, 1));
+        assert_eq!(digest(&mut app, empty_params()).agents.len(), 2);
+
+        assert_eq!(
+            cursor_error(&mut app, &format!("o:0:{fp}")),
+            "stale page_cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn supervisor_digest_cursor_malformed_is_invalid() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, _root, _split) = app_with_two_agents("digest-page-bad");
+        let fp = digest_fingerprint(&digest(&mut app, empty_params()));
+        // Legacy cursor without a fingerprint.
+        assert_eq!(cursor_error(&mut app, "o:1"), "invalid page_cursor");
+        // Empty fingerprint segment.
+        assert_eq!(cursor_error(&mut app, "o:1:"), "invalid page_cursor");
+        // Over-long cursor.
+        let long = format!("o:{}:{fp}", "0".repeat(60));
+        assert_eq!(cursor_error(&mut app, &long), "invalid page_cursor");
+        // Matching fingerprint but out of range.
+        assert_eq!(
+            cursor_error(&mut app, &format!("o:2:{fp}")),
+            "invalid page_cursor"
+        );
+        // First page needs no cursor.
+        assert_eq!(digest(&mut app, empty_params()).agents.len(), 2);
+    }
+
+    /// A zero count reported during Working goes stale on a later Working report even
+    /// without a state edge; a zero reported after the last Working report counts.
+    #[tokio::test]
+    async fn supervisor_digest_working_report_without_edge_stales_zero() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, pane_id) = app_with_screen("digest-bg-rework", b"");
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
+        report_background_token(&mut app, pane_id, Some("0".to_string()), Some(LIVE_TTL_MS));
+        assert!(app.state.supervisor.background_hook_current(pane_id));
+        let turn_started = app
+            .state
+            .supervisor
+            .pane(pane_id)
+            .expect("pane tracked")
+            .turn_started_ms;
+
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 2));
+        assert!(!app.state.supervisor.background_hook_current(pane_id));
+        assert_eq!(
+            app.state
+                .supervisor
+                .pane(pane_id)
+                .expect("pane tracked")
+                .turn_started_ms,
+            turn_started
+        );
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 3));
+        let d = digest(&mut app, empty_params());
+        let a = &d.agents[0];
+        assert_eq!(a.background.value, Background::Unknown);
+        assert_ne!(a.completion, Completion::Complete);
+
+        report_background_token(&mut app, pane_id, Some("0".to_string()), Some(LIVE_TTL_MS));
+        let d = digest(&mut app, empty_params());
+        assert_eq!(d.agents[0].background.value, Background::Inactive);
+    }
+
+    /// A detection state report without an edge does not start a new turn.
+    #[tokio::test]
+    async fn supervisor_digest_detection_without_edge_keeps_turn() {
+        let _reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (mut app, pane_id) = app_with_screen("digest-detect-rework", b"");
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("pane state")
+            .attached_terminal_id
+            .clone();
+        if let Some(terminal) = app.state.terminals.get_mut(&terminal_id) {
+            terminal.detected_agent = Some(crate::detect::Agent::Claude);
+        }
+        let detect = |state: AgentState| AppEvent::StateChanged {
+            pane_id,
+            agent: Some(crate::detect::Agent::Claude),
+            state,
+            visible_blocker: false,
+            visible_working: state == AgentState::Working,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        };
+        app.handle_internal_event(detect(AgentState::Working));
+        let turn = app.state.supervisor.pane(pane_id).and_then(|s| s.turn_seq);
+        assert!(turn.is_some());
+        app.handle_internal_event(detect(AgentState::Working));
+        assert_eq!(
+            app.state.supervisor.pane(pane_id).and_then(|s| s.turn_seq),
+            turn
+        );
     }
 }

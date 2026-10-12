@@ -6,6 +6,9 @@ use super::App;
 impl App {
     /// Performs pending supervisor scans right after an event is handled.
     ///
+    /// Reads logical (unwrapped) lines so a reflow does not change the last content line
+    /// or the question id.
+    ///
     /// Perf (tier hot): at most one 24-row text snapshot per transition to Idle/Blocked
     /// (plus the one-shot quiescence rescan); never on the PTY byte path. The scan itself
     /// is O(24 rows) and takes no locks beyond the runtime's own snapshot.
@@ -15,7 +18,7 @@ impl App {
             let text = self.find_pane(pane).and_then(|(ws_idx, _)| {
                 self.state
                     .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane)
-                    .map(|runtime| runtime.recent_text_snapshot(24).text)
+                    .map(|runtime| runtime.recent_unwrapped_text_snapshot(24).text)
             });
             match text {
                 Some(text) => {
@@ -307,5 +310,103 @@ mod tests {
         app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
         app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
         assert!(app.state.supervisor.pane(pane_id).is_none());
+    }
+
+    fn open_question_ids(app: &App, pane_id: crate::layout::PaneId) -> Vec<(String, String)> {
+        app.state
+            .supervisor
+            .pane(pane_id)
+            .map(|state| {
+                state
+                    .questions
+                    .iter()
+                    .filter(|q| q.resolution.is_none())
+                    .map(|q| (q.question_id.clone(), q.excerpt.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// A session replacement while Idle, with no state edge, re-arms the prose scan
+    /// so the question still on screen is recorded in the new conversation.
+    #[tokio::test]
+    async fn supervisor_transition_idle_session_replacement_rescans() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, pane_id) = app_with_screen(
+            "supervisor-idle-replace",
+            b"Plan ready.\r\n  Should I start the brief?\r\n",
+        );
+        let session = |seq: u64, id: &str, reason: &str| AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(seq),
+            session_ref: crate::agent_resume::AgentSessionRef::id(id),
+            session_start_source: Some(reason.into()),
+        };
+        app.handle_internal_event(session(1, "old-session", "startup"));
+        for state in [AgentState::Working, AgentState::Idle] {
+            app.handle_internal_event(AppEvent::StateChanged {
+                pane_id,
+                agent: Some(crate::detect::Agent::Claude),
+                state,
+                visible_blocker: false,
+                visible_working: state == AgentState::Working,
+                process_exited: false,
+                observed_at: std::time::Instant::now(),
+            });
+        }
+        let before = open_question_ids(&app, pane_id);
+        assert_eq!(before.len(), 1, "question recorded before the replacement");
+        let generation = app
+            .state
+            .supervisor
+            .pane(pane_id)
+            .expect("tracked")
+            .generation;
+
+        app.handle_internal_event(session(2, "new-session", "clear"));
+
+        let state = app.state.supervisor.pane(pane_id).expect("tracked");
+        assert_eq!(state.generation, generation + 1);
+        assert_eq!(
+            state.lineage.back().map(|l| l.reason),
+            Some(crate::api::schema::supervisor::GenerationReason::SessionChanged)
+        );
+        assert_eq!(state.last_state, Some(AgentState::Idle));
+        let after = open_question_ids(&app, pane_id);
+        assert_eq!(after.len(), 1, "question re-detected after the replacement");
+        assert_ne!(after[0].0, before[0].0);
+        assert_eq!(after[0].1, "Should I start the brief?");
+        assert!(!app.state.supervisor.panes_pending_scan().contains(&pane_id));
+    }
+
+    /// A question line wider than the pane is read as one logical line, so a reflow to
+    /// another width yields the same question id.
+    #[tokio::test]
+    async fn supervisor_transition_wrapped_question_same_id_across_widths() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let question = format!("Should I {}deploy now?", "really ".repeat(14));
+        assert!(question.chars().count() > 80);
+        let screen = format!("Plan ready.\r\n{question}");
+        let (mut app, pane_id) = app_with_screen("supervisor-wrap", screen.as_bytes());
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 1));
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 2));
+        let first = open_question_ids(&app, pane_id);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].1, question);
+
+        app.state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+            .expect("runtime")
+            .resize(24, 120, 0, 0);
+        app.handle_internal_event(hook_state(pane_id, AgentState::Working, 3));
+        app.handle_internal_event(hook_state(pane_id, AgentState::Idle, 4));
+
+        let state = app.state.supervisor.pane(pane_id).expect("tracked");
+        assert_eq!(state.questions.len(), 1, "registry state: {state:?}");
+        assert_eq!(open_question_ids(&app, pane_id), first);
     }
 }

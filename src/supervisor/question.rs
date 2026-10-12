@@ -75,12 +75,14 @@ pub fn content_rows(text: &str) -> Vec<&str> {
     non_empty[skip..].to_vec()
 }
 
+/// Returns the full sanitized question text, uncapped, so the question id can hash all
+/// of it; the stored display excerpt is capped by the registry.
 pub fn detect_prose_question(content: &[&str]) -> Option<String> {
     let row = content.last()?;
     let t = row.trim();
     let body = t.strip_suffix('?').or_else(|| t.strip_suffix('？'))?;
     if body.chars().filter(|c| !c.is_whitespace()).count() >= 2 {
-        Some(sanitize_excerpt(t))
+        Some(sanitize_text(t))
     } else {
         None
     }
@@ -114,9 +116,17 @@ fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
 
 /// Strip escape sequences, control, bidi and zero-width characters, cap at 200 chars. [CWE-150]
 pub fn sanitize_excerpt(s: &str) -> String {
-    let mut out = String::with_capacity(s.len().min(MAX_EXCERPT_CHARS * 4));
+    let mut out = sanitize_text(s);
+    if let Some((cut, _)) = out.char_indices().nth(MAX_EXCERPT_CHARS) {
+        out.truncate(cut);
+    }
+    out
+}
+
+/// Strip escape sequences, control, bidi and zero-width characters, uncapped. [CWE-150]
+pub fn sanitize_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
-    let mut count = 0usize;
     while let Some(c) = chars.next() {
         match c {
             '\x1b' => match chars.next() {
@@ -142,17 +152,15 @@ pub fn sanitize_excerpt(s: &str) -> String {
         if drop {
             continue;
         }
-        if count >= MAX_EXCERPT_CHARS {
-            break;
-        }
         out.push(c);
-        count += 1;
     }
     out
 }
 
+/// Sanitized, whitespace-collapsed, lowercased text; uncapped so the question id
+/// covers the whole question.
 pub fn normalize(s: &str) -> String {
-    let clean = sanitize_excerpt(s);
+    let clean = sanitize_text(s);
     let mut out = String::with_capacity(clean.len());
     for word in clean.split_whitespace() {
         if !out.is_empty() {
@@ -332,5 +340,14 @@ mod tests {
     fn question_sanitize_caps_at_200_chars() {
         let s = "é".repeat(300);
         assert_eq!(sanitize_excerpt(&s).chars().count(), 200);
+    }
+
+    #[test]
+    fn question_detection_and_normalize_are_uncapped() {
+        let line = format!("{}{}?", "x".repeat(200), "a".repeat(49));
+        let detected = detect(&format!("{line}\n")).expect("question detected");
+        assert_eq!(detected.chars().count(), 250);
+        assert_eq!(normalize(&line).chars().count(), 250);
+        assert_eq!(sanitize_text(&"é".repeat(300)).chars().count(), 300);
     }
 }

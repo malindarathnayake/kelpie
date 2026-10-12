@@ -1505,18 +1505,34 @@ impl AppState {
                     .into_iter()
                     .collect()
                 } else {
-                    self.update_terminal_state(pane_id, |terminal| {
-                        terminal.set_hook_authority_with_session_ref(
-                            source,
-                            agent_label,
-                            state,
-                            message,
-                            session_ref,
-                            seq,
-                        )
-                    })
-                    .into_iter()
-                    .collect()
+                    let mut accepted = false;
+                    let updates = self
+                        .update_terminal_state(pane_id, |terminal| {
+                            let mutation = terminal.set_hook_authority_with_session_ref(
+                                source,
+                                agent_label,
+                                state,
+                                message,
+                                session_ref,
+                                seq,
+                            );
+                            accepted = mutation.is_some();
+                            mutation
+                        })
+                        .into_iter()
+                        .collect();
+                    if accepted && crate::supervisor::enabled() {
+                        let working = self
+                            .workspaces
+                            .iter()
+                            .find_map(|ws| ws.pane_state(pane_id))
+                            .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
+                            .is_some_and(|terminal| terminal.state == AgentState::Working);
+                        if working {
+                            self.supervisor.note_working_report(pane_id);
+                        }
+                    }
+                    updates
                 }
             }
             AppEvent::AgentResumeReported {
@@ -1699,6 +1715,7 @@ impl AppState {
             .clone();
         let previous_seen = self.workspaces[ws_idx].pane_state(pane_id)?.seen;
         let now = Instant::now();
+        let supervisor_on = crate::supervisor::enabled();
         let (
             mutation,
             managed_changed,
@@ -1706,11 +1723,18 @@ impl AppState {
             unchanged_change,
             suppress_acquisition_completion,
             completion_reset,
+            supervisor_view,
         ) = {
             let terminal = self.terminals.get_mut(&terminal_id)?;
             let previous_agent_name = terminal.agent_name.clone();
             let had_completion = terminal.last_agent_completion_seq.is_some() || !previous_seen;
             let resume_revision = terminal.reported_resume_revision();
+            let session_ref = |terminal: &crate::terminal::TerminalState| {
+                terminal
+                    .current_session_identity()
+                    .map(|(_, _, kind, value)| crate::agent_resume::AgentSessionRef { kind, value })
+            };
+            let session_before = supervisor_on.then(|| session_ref(&*terminal)).flatten();
             let mutation = update(terminal);
             terminal.reconcile_reported_resume();
             // Resume-only changes return no mutation but must still be saved.
@@ -1733,6 +1757,8 @@ impl AppState {
                 || agent_name_changed
                 || (completion_reset && had_completion))
                 .then(|| terminal.unchanged_effective_state_change_at(now));
+            let supervisor_view =
+                supervisor_on.then(|| (session_before, session_ref(&*terminal), terminal.state));
             (
                 mutation,
                 managed_changed,
@@ -1740,28 +1766,29 @@ impl AppState {
                 unchanged_change,
                 suppress_acquisition_completion,
                 completion_reset,
+                supervisor_view,
             )
         };
         if completion_reset {
             self.pending_agent_notifications.remove(&pane_id);
             self.workspaces[ws_idx].pane_state_mut(pane_id)?.seen = true;
         }
-        if crate::supervisor::enabled() {
+        if let Some((session_before, session_after, final_state)) = supervisor_view {
             let started = mutation
                 .effective_state_change
                 .as_ref()
                 .is_some_and(|c| c.previous_agent_label.is_none() && c.agent_label.is_some());
-            if let Some(reason) = crate::supervisor::registry::generation_reason(
-                mutation.session_ref_changed,
-                mutation.agent_released,
-                started,
-            ) {
-                self.supervisor.record_generation_change(
-                    pane_id,
-                    reason,
-                    crate::supervisor::now_ms(),
-                );
-            }
+            self.supervisor.on_terminal_mutation(
+                pane_id,
+                crate::supervisor::registry::TerminalMutationFacts {
+                    session_before,
+                    session_after,
+                    agent_released: mutation.agent_released,
+                    agent_started: started,
+                    final_state,
+                },
+                crate::supervisor::now_ms(),
+            );
         }
         if mutation.session_ref_changed || managed_changed || agent_name_changed {
             self.mark_session_dirty();

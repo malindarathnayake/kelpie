@@ -8,11 +8,16 @@ use crate::api::schema::supervisor::{
 };
 use crate::api::schema::{AgentSessionInfo, AgentStatus};
 use crate::supervisor::activity::last_activity_ms;
+use sha2::{Digest, Sha256};
 
 /// Maximum serialized digest page size in bytes.
 pub const MAX_PAGE_BYTES: usize = 262_144;
 /// Bytes reserved for the response envelope around the agents array.
 const ENVELOPE_RESERVE: usize = 4096;
+/// Longest accepted page cursor, in bytes (CWE-20).
+const MAX_CURSOR_LEN: usize = 64;
+/// Hex chars of the membership fingerprint carried in a page cursor.
+const FINGERPRINT_HEX_CHARS: usize = 16;
 
 /// Derives the foreground fact from the legacy status and the pane's open questions.
 pub fn derive_foreground(
@@ -123,6 +128,9 @@ pub struct AgentFactInputs {
     pub agent_session: Option<AgentSessionInfo>,
     pub state_change_seq: u64,
     pub completion_seq: u64,
+    /// Unresolved questions dropped at the registry cap; counts as an open question
+    /// for completion only.
+    pub unresolved_overflow: u32,
     pub now_ms: u64,
 }
 
@@ -144,6 +152,7 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
         agent_session,
         state_change_seq,
         completion_seq,
+        unresolved_overflow,
         now_ms,
     } = inputs;
 
@@ -179,10 +188,13 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
         .filter(|q| q.resolution.is_none())
         .collect();
     let foreground = derive_foreground(status, &open, now_ms);
+    // A question dropped at the cap was never resolved: completion stays Incomplete
+    // (OpenQuestion) even when no open question is left to list.
+    let has_open_question = !open.is_empty() || unresolved_overflow > 0;
     let (completion, blocking_reason) = derive_completion(
         foreground.value,
         background.value,
-        !open.is_empty(),
+        has_open_question,
         connection.value,
     );
 
@@ -215,20 +227,73 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
     }
 }
 
-/// Parses a `o:<n>` page cursor against `count` agents. None means the first page.
-pub fn parse_cursor(cursor: Option<&str>, count: usize) -> Result<usize, ()> {
+/// Why a page cursor was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorError {
+    /// Malformed, too long, out of range, or a non-first page without a fingerprint.
+    Invalid,
+    /// Well formed, but the agent membership changed since the cursor was issued.
+    Stale,
+}
+
+/// First 16 lowercase hex chars of SHA-256 over the ordered public pane ids of the
+/// full filtered membership, each id terminated by `\n` (never part of an id).
+pub fn membership_fingerprint<'a>(pane_ids: impl IntoIterator<Item = &'a str>) -> String {
+    let mut h = Sha256::new();
+    for id in pane_ids {
+        h.update(id.as_bytes());
+        h.update(b"\n");
+    }
+    let digest = h.finalize();
+    let mut hex = String::with_capacity(FINGERPRINT_HEX_CHARS);
+    for b in &digest[..FINGERPRINT_HEX_CHARS / 2] {
+        hex.push_str(&format!("{b:02x}"));
+    }
+    hex
+}
+
+/// Parses an opaque `o:<n>:<fp>` page cursor against `count` agents whose membership
+/// fingerprint is `fingerprint`. None means the first page; a bare `o:0` is also the
+/// first page. A fingerprint, when present, must match the current membership.
+pub fn parse_cursor(
+    cursor: Option<&str>,
+    count: usize,
+    fingerprint: &str,
+) -> Result<usize, CursorError> {
     let Some(cursor) = cursor else {
         return Ok(0);
     };
-    let digits = cursor.strip_prefix("o:").ok_or(())?;
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(());
+    if cursor.len() > MAX_CURSOR_LEN {
+        return Err(CursorError::Invalid);
     }
-    let n: usize = digits.parse().map_err(|_| ())?;
+    let rest = cursor.strip_prefix("o:").ok_or(CursorError::Invalid)?;
+    let (digits, fp) = match rest.split_once(':') {
+        Some((digits, fp)) => (digits, Some(fp)),
+        None => (rest, None),
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(CursorError::Invalid);
+    }
+    let n: usize = digits.parse().map_err(|_| CursorError::Invalid)?;
+    match fp {
+        Some(fp) => {
+            let well_formed = fp.len() == FINGERPRINT_HEX_CHARS
+                && fp.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+            if !well_formed {
+                return Err(CursorError::Invalid);
+            }
+            // Checked before the range so a shrunken membership reads as stale.
+            if fp != fingerprint {
+                return Err(CursorError::Stale);
+            }
+        }
+        None if n > 0 => return Err(CursorError::Invalid),
+        None => {}
+    }
     if n < count || (count == 0 && n == 0) {
         Ok(n)
     } else {
-        Err(())
+        Err(CursorError::Invalid)
     }
 }
 
@@ -266,11 +331,17 @@ fn trim_questions(agent: &mut AgentFacts, budget: usize) -> bool {
 
 /// Builds one page from `remaining`, the agents from absolute position `offset` onward,
 /// bounded by `max_bytes` (CWE-770). Always includes at least one agent when any remain;
-/// `next_page` carries the absolute offset of the first agent left off the page.
+/// `next_page` carries the absolute offset of the first agent left off the page and the
+/// membership `fingerprint` it was computed against.
 ///
 /// Perf (tier standard): one serialization per agent on the page, plus one per dropped
 /// question when a single oversized agent must be trimmed.
-pub fn build_page(remaining: Vec<AgentFacts>, offset: usize, max_bytes: usize) -> Page {
+pub fn build_page(
+    remaining: Vec<AgentFacts>,
+    offset: usize,
+    max_bytes: usize,
+    fingerprint: &str,
+) -> Page {
     let total = remaining.len();
     let budget = max_bytes.saturating_sub(ENVELOPE_RESERVE);
     let mut agents = Vec::new();
@@ -293,7 +364,8 @@ pub fn build_page(remaining: Vec<AgentFacts>, offset: usize, max_bytes: usize) -
         agents.push(agent);
     }
     let taken = agents.len();
-    let next_page = (taken < total).then(|| format!("o:{}", offset.saturating_add(taken)));
+    let next_page =
+        (taken < total).then(|| format!("o:{}:{fingerprint}", offset.saturating_add(taken)));
     Page {
         agents,
         next_page,
@@ -355,6 +427,7 @@ mod tests {
             agent_session: None,
             state_change_seq: 0,
             completion_seq: 0,
+            unresolved_overflow: 0,
             now_ms: 100,
         }
     }
@@ -589,16 +662,100 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_digest_overflow_keeps_completion_incomplete() {
+        let mut i = inputs(AgentStatus::Idle, vec![]);
+        i.unresolved_overflow = 1;
+        let facts = build_agent_facts(i);
+        assert_eq!(facts.foreground.value, Foreground::Idle);
+        assert_eq!(facts.completion, Completion::Incomplete);
+        assert_eq!(facts.blocking_reason, Some(BlockingReason::OpenQuestion));
+        assert!(facts.pending_questions.is_empty());
+
+        // Retained questions all resolved, but one unresolved was dropped earlier.
+        let mut i = inputs(
+            AgentStatus::Idle,
+            vec![question("r", QuestionKind::ProseQuestion, 1, true)],
+        );
+        i.unresolved_overflow = 1;
+        assert_eq!(build_agent_facts(i).completion, Completion::Incomplete);
+    }
+
+    #[test]
     fn supervisor_digest_cursor() {
-        assert_eq!(parse_cursor(None, 3), Ok(0));
-        assert_eq!(parse_cursor(Some("o:0"), 3), Ok(0));
-        assert_eq!(parse_cursor(Some("o:2"), 3), Ok(2));
-        assert_eq!(parse_cursor(Some("o:3"), 3), Err(()));
-        for bad in ["o:x", "x", "o:-1", "", "o:", "o:+1"] {
-            assert_eq!(parse_cursor(Some(bad), 3), Err(()), "{bad}");
+        let fp = membership_fingerprint(["p0", "p1", "p2"]);
+        assert_eq!(fp.len(), 16);
+        assert!(fp.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+        let at = |n: usize| format!("o:{n}:{fp}");
+        assert_eq!(parse_cursor(None, 3, &fp), Ok(0));
+        assert_eq!(parse_cursor(Some("o:0"), 3, &fp), Ok(0));
+        assert_eq!(parse_cursor(Some(&at(0)), 3, &fp), Ok(0));
+        assert_eq!(parse_cursor(Some(&at(2)), 3, &fp), Ok(2));
+        assert_eq!(
+            parse_cursor(Some(&at(3)), 3, &fp),
+            Err(CursorError::Invalid)
+        );
+        // Legacy cursor without a fingerprint.
+        assert_eq!(parse_cursor(Some("o:2"), 3, &fp), Err(CursorError::Invalid));
+        // Empty or malformed fingerprint segment.
+        for bad in [
+            "o:1:".to_string(),
+            "o:0:".to_string(),
+            format!("o:1:{}", fp.to_uppercase()),
+            format!("o:1:{fp}0"),
+            format!("o:1:{fp}:x"),
+        ] {
+            assert_eq!(
+                parse_cursor(Some(&bad), 3, &fp),
+                Err(CursorError::Invalid),
+                "{bad}"
+            );
         }
-        assert_eq!(parse_cursor(Some("o:0"), 0), Ok(0));
-        assert_eq!(parse_cursor(Some("o:1"), 0), Err(()));
+        for bad in ["o:x", "x", "o:-1", "", "o:", "o:+1"] {
+            assert_eq!(
+                parse_cursor(Some(bad), 3, &fp),
+                Err(CursorError::Invalid),
+                "{bad}"
+            );
+        }
+        let long = format!("o:{}:{fp}", "0".repeat(60));
+        assert_eq!(parse_cursor(Some(&long), 3, &fp), Err(CursorError::Invalid));
+        // Membership changed: stale at any offset, also when now out of range.
+        let other = membership_fingerprint(["p0", "p2"]);
+        assert_ne!(other, fp);
+        assert_eq!(
+            parse_cursor(Some(&at(1)), 2, &other),
+            Err(CursorError::Stale)
+        );
+        assert_eq!(
+            parse_cursor(Some(&at(2)), 2, &other),
+            Err(CursorError::Stale)
+        );
+        assert_eq!(
+            parse_cursor(Some(&at(0)), 2, &other),
+            Err(CursorError::Stale)
+        );
+        let empty = membership_fingerprint(std::iter::empty::<&str>());
+        assert_eq!(parse_cursor(Some("o:0"), 0, &empty), Ok(0));
+        assert_eq!(
+            parse_cursor(Some("o:1"), 0, &empty),
+            Err(CursorError::Invalid)
+        );
+    }
+
+    #[test]
+    fn supervisor_digest_fingerprint_order_and_boundaries() {
+        assert_ne!(
+            membership_fingerprint(["a", "b"]),
+            membership_fingerprint(["b", "a"])
+        );
+        assert_ne!(
+            membership_fingerprint(["ab", "c"]),
+            membership_fingerprint(["a", "bc"])
+        );
+        assert_eq!(
+            membership_fingerprint(["a", "b"]),
+            membership_fingerprint(["a", "b"])
+        );
     }
 
     fn full_agent(n: usize) -> AgentFacts {
@@ -642,7 +799,7 @@ mod tests {
     #[test]
     fn supervisor_digest_t5e_fifteen_agents_fit_one_page() {
         let facts: Vec<AgentFacts> = (0..15).map(full_agent).collect();
-        let page = build_page(facts, 0, MAX_PAGE_BYTES);
+        let page = build_page(facts, 0, MAX_PAGE_BYTES, "0123456789abcdef");
         assert_eq!(page.agents.len(), 15);
         assert_eq!(page.next_page, None);
         assert!(!page.truncated_questions);
@@ -698,27 +855,32 @@ mod tests {
             build_agent_facts(i)
         };
         let facts: Vec<AgentFacts> = (0..5).map(small).collect();
+        let fp = membership_fingerprint(facts.iter().map(|a| a.target_ref.pane_id.as_str()));
         let one = serialized_len(&facts[0]);
         let max = ENVELOPE_RESERVE + 2 * one + one / 2;
-        let page = build_page(facts.clone(), 0, max);
+        let page = build_page(facts.clone(), 0, max, &fp);
         assert_eq!(page.agents.len(), 2);
-        assert_eq!(page.next_page.as_deref(), Some("o:2"));
+        let next = format!("o:2:{fp}");
+        assert_eq!(page.next_page.as_deref(), Some(next.as_str()));
+        assert_eq!(parse_cursor(Some(&next), 5, &fp), Ok(2));
         assert!(!page.truncated_questions);
-        let page = build_page(facts[2..].to_vec(), 2, max);
+        let page = build_page(facts[2..].to_vec(), 2, max, &fp);
         assert_eq!(page.agents.len(), 2);
-        assert_eq!(page.next_page.as_deref(), Some("o:4"));
+        let next = format!("o:4:{fp}");
+        assert_eq!(page.next_page.as_deref(), Some(next.as_str()));
         assert_eq!(page.agents[0].target_ref.pane_id, "p2");
-        let page = build_page(facts[4..].to_vec(), 4, max);
+        let page = build_page(facts[4..].to_vec(), 4, max, &fp);
         assert_eq!(page.agents.len(), 1);
         assert_eq!(page.next_page, None);
 
         let big = full_agent(0);
         let big_len = serialized_len(&big);
         let max = ENVELOPE_RESERVE + big_len - 3000;
-        let page = build_page(vec![big, small(1)], 0, max);
+        let page = build_page(vec![big, small(1)], 0, max, &fp);
         assert_eq!(page.agents.len(), 1);
         assert!(page.truncated_questions);
-        assert_eq!(page.next_page.as_deref(), Some("o:1"));
+        let next = format!("o:1:{fp}");
+        assert_eq!(page.next_page.as_deref(), Some(next.as_str()));
         let kept = &page.agents[0].pending_questions;
         assert!(kept.len() < 24);
         // Resolved questions go first, oldest first; all 16 open questions remain.

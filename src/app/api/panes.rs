@@ -2472,29 +2472,105 @@ mod tests {
         assert!(app.state.supervisor.pane(pane_id).is_none());
     }
 
+    fn report_claude_session(app: &mut App, pane_id: PaneId, seq: u64, id: &str, reason: &str) {
+        app.state
+            .handle_app_event(crate::events::AppEvent::AgentSessionReported {
+                pane_id,
+                source: "herdr:claude".into(),
+                agent_label: "claude".into(),
+                seq: Some(seq),
+                session_ref: crate::agent_resume::AgentSessionRef::id(id),
+                session_start_source: Some(reason.into()),
+            });
+    }
+
+    fn persisted_session_value(app: &App, pane_id: PaneId) -> Option<String> {
+        let terminal_id = &app.state.workspaces[0]
+            .pane_state(pane_id)?
+            .attached_terminal_id;
+        app.state.terminals[terminal_id]
+            .persisted_agent_session
+            .as_ref()
+            .map(|session| session.session_ref.value.clone())
+    }
+
+    fn session_changed_bumps(app: &App, pane_id: PaneId) -> usize {
+        app.state
+            .supervisor
+            .pane(pane_id)
+            .expect("pane tracked")
+            .lineage
+            .iter()
+            .filter(|entry| {
+                entry.reason == crate::api::schema::supervisor::GenerationReason::SessionChanged
+            })
+            .count()
+    }
+
     #[test]
-    fn supervisor_generation_bumps_on_session_change() {
+    fn supervisor_generation_initial_session_ref_is_enrichment() {
         crate::supervisor::set_enabled_for_test(Some(true));
         let _reset = ResetOverride;
         let (mut app, _) = app_with_test_workspace();
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        for (seq, session) in [(1, "session-a"), (2, "session-b")] {
-            app.state
-                .handle_app_event(crate::events::AppEvent::AgentSessionReported {
-                    pane_id,
-                    source: "herdr:claude".into(),
-                    agent_label: "claude".into(),
-                    seq: Some(seq),
-                    session_ref: crate::agent_resume::AgentSessionRef::id(session),
-                    session_start_source: Some("startup".into()),
-                });
-        }
+        report_claude_session(&mut app, pane_id, 1, "session-a", "startup");
+        assert_eq!(
+            persisted_session_value(&app, pane_id).as_deref(),
+            Some("session-a")
+        );
+        assert_eq!(session_changed_bumps(&app, pane_id), 0);
+    }
+
+    #[test]
+    fn supervisor_generation_bumps_on_allowed_session_replacement() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        report_claude_session(&mut app, pane_id, 1, "session-a", "startup");
+        let generation = app
+            .state
+            .supervisor
+            .pane(pane_id)
+            .expect("pane tracked")
+            .generation;
+        report_claude_session(&mut app, pane_id, 2, "session-b", "clear");
+        assert_eq!(
+            persisted_session_value(&app, pane_id).as_deref(),
+            Some("session-b")
+        );
         let state = app.state.supervisor.pane(pane_id).expect("pane tracked");
-        assert!(state.generation >= 2);
+        assert_eq!(state.generation, generation + 1);
         assert_eq!(
             state.lineage.back().unwrap().reason,
             crate::api::schema::supervisor::GenerationReason::SessionChanged
         );
+        assert_eq!(session_changed_bumps(&app, pane_id), 1);
+    }
+
+    #[test]
+    fn supervisor_generation_conflicting_startup_is_not_replacement() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let _reset = ResetOverride;
+        let (mut app, _) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        report_claude_session(&mut app, pane_id, 1, "session-a", "startup");
+        let generation = app
+            .state
+            .supervisor
+            .pane(pane_id)
+            .expect("pane tracked")
+            .generation;
+        // Claude replaces a session only on clear/resume/compact; a conflicting
+        // startup report is rejected by the terminal.
+        report_claude_session(&mut app, pane_id, 2, "session-b", "startup");
+        assert_eq!(
+            persisted_session_value(&app, pane_id).as_deref(),
+            Some("session-a")
+        );
+        let state = app.state.supervisor.pane(pane_id).expect("pane tracked");
+        assert_eq!(state.generation, generation);
+        assert_eq!(session_changed_bumps(&app, pane_id), 0);
     }
 
     #[test]

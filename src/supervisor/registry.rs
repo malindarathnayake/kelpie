@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::agent_resume::AgentSessionRef;
 use crate::api::schema::supervisor::{
     Confidence, FactSource, GenerationReason, LineageEntry, PendingQuestion, QuestionKind,
     QuestionResolution, ResolutionBy, TargetRef,
@@ -48,6 +49,19 @@ pub fn generation_reason(
     }
 }
 
+/// Terminal facts App captures around one accepted terminal-state mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalMutationFacts {
+    /// Session identity (kind and value) before the mutation.
+    pub session_before: Option<AgentSessionRef>,
+    /// Session identity (kind and value) after the mutation.
+    pub session_after: Option<AgentSessionRef>,
+    pub agent_released: bool,
+    pub agent_started: bool,
+    /// Effective terminal state after the mutation.
+    pub final_state: AgentState,
+}
+
 #[derive(Debug, Default)]
 pub struct SupervisorState {
     panes: HashMap<PaneId, PaneSupervisorState>,
@@ -67,8 +81,15 @@ pub struct PaneSupervisorState {
     pub lineage: VecDeque<LineageEntry>,
     /// Open and resolved questions in insertion order.
     pub questions: Vec<PendingQuestion>,
-    /// Set when an open question was dropped for the cap.
+    /// Set when an open question was dropped for the cap. Sticky for the pane.
     pub truncated_questions: bool,
+    /// Unresolved questions dropped at the open cap (drop events, saturating). A
+    /// dropped question was never resolved, so it still counts as open for
+    /// completion. Reset only by a conversation-replacing generation change.
+    pub unresolved_overflow: u32,
+    /// Last known session identity of the pane's terminal (kind and value only).
+    /// Kept across loss (some to none) so a later different identity is a replacement.
+    pub last_session_ref: Option<AgentSessionRef>,
     /// Set when a resolved question was dropped for the cap.
     pub truncated_resolved: bool,
     pub turn_started_ms: Option<u64>,
@@ -101,6 +122,8 @@ impl PaneSupervisorState {
             lineage: VecDeque::new(),
             questions: Vec::new(),
             truncated_questions: false,
+            unresolved_overflow: 0,
+            last_session_ref: None,
             truncated_resolved: false,
             turn_started_ms: None,
             turn_seq: None,
@@ -128,6 +151,7 @@ impl PaneSupervisorState {
             if let Some(i) = self.questions.iter().position(|q| q.resolution.is_none()) {
                 self.questions.remove(i);
                 self.truncated_questions = true;
+                self.unresolved_overflow = self.unresolved_overflow.saturating_add(1);
             } else {
                 break;
             }
@@ -228,6 +252,7 @@ impl SupervisorState {
         state.pending_blocked = None;
         state.pending_prose = false;
         state.last_state = None;
+        state.unresolved_overflow = 0;
         state.enforce_caps();
         tracing::debug!(
             event = "supervisor.generation",
@@ -237,6 +262,64 @@ impl SupervisorState {
             reason = reason_name(reason)
         );
         new
+    }
+
+    /// Classifies a session identity observation and records the last known identity.
+    /// Only a known identity replaced by a different one is a replacement: none to
+    /// some is enrichment and some to none is loss. `before` seeds the last known
+    /// identity when the registry has none (first sight or restart).
+    pub fn observe_session_ref(
+        &mut self,
+        pane: PaneId,
+        before: Option<AgentSessionRef>,
+        after: Option<AgentSessionRef>,
+    ) -> bool {
+        if before.is_none() && after.is_none() && !self.panes.contains_key(&pane) {
+            return false;
+        }
+        let state = self.pane_mut(pane);
+        let last_known = state.last_session_ref.take().or(before);
+        let replaced = matches!((&last_known, &after), (Some(known), Some(now)) if known != now);
+        state.last_session_ref = after.or(last_known);
+        replaced
+    }
+
+    /// Records one accepted terminal-state mutation: classifies the session identity,
+    /// bumps the generation when the conversation was replaced, and re-arms the Idle
+    /// prose scan when the pane is Idle after the bump (a replacement without a
+    /// state edge would otherwise never be scanned). Returns the bump reason.
+    pub fn on_terminal_mutation(
+        &mut self,
+        pane: PaneId,
+        facts: TerminalMutationFacts,
+        now_ms: u64,
+    ) -> Option<GenerationReason> {
+        let session_changed =
+            self.observe_session_ref(pane, facts.session_before, facts.session_after.clone());
+        let reason = generation_reason(session_changed, facts.agent_released, facts.agent_started)?;
+        self.record_generation_change(pane, reason, now_ms);
+        if reason == GenerationReason::AgentStarted {
+            // A new agent's first session ref is enrichment, not a replacement of the
+            // previous agent's session. Kept across AgentExited so a session-only new
+            // conversation after an exit still classifies as a replacement.
+            self.pane_mut(pane).last_session_ref = facts.session_after;
+        }
+        if facts.final_state == AgentState::Idle {
+            let state = self.pane_mut(pane);
+            state.last_state = Some(AgentState::Idle);
+            state.idle_since_ms = Some(now_ms);
+            state.rescanned_this_idle = false;
+            state.pending_prose = true;
+        }
+        Some(reason)
+    }
+
+    /// An accepted hook report whose final state is Working starts a new turn for
+    /// background-evidence ordering, with or without a state edge, so earlier zero
+    /// counts stop being current. `turn_started_ms` is unchanged.
+    pub fn note_working_report(&mut self, pane: PaneId) {
+        let seq = self.next_event_seq();
+        self.pane_mut(pane).turn_seq = Some(seq);
     }
 
     /// Bumps the generation and records whether the new generation is an exit.
@@ -409,11 +492,12 @@ impl SupervisorState {
             self.insert_question(pane, question);
         }
         if prose {
-            if let Some(excerpt) = detect_prose_question(&rows) {
+            // The id hashes the full question; `insert_question` caps the excerpt.
+            if let Some(text) = detect_prose_question(&rows) {
                 let question = PendingQuestion {
-                    question_id: question_id(pane.raw(), epoch, "prose", &normalize(&excerpt)),
+                    question_id: question_id(pane.raw(), epoch, "prose", &normalize(&text)),
                     kind: QuestionKind::ProseQuestion,
-                    excerpt,
+                    excerpt: text,
                     asked_at_ms: now_ms,
                     source: FactSource::ScreenHeuristic,
                     confidence: Confidence::Low,
@@ -994,5 +1078,233 @@ mod tests {
             })
         );
         assert!(open_questions(&s, pid(1)).is_empty());
+    }
+
+    #[test]
+    fn registry_overflow_counts_dropped_unresolved_questions() {
+        let mut s = SupervisorState::new();
+        for i in 0..17 {
+            s.insert_question(pid(1), q(&format!("o{i}"), None));
+        }
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(open_questions(&s, pid(1)).len(), 16);
+        assert_eq!(p.unresolved_overflow, 1);
+        assert!(p.truncated_questions);
+
+        // Resolved drops do not count.
+        for i in 0..9 {
+            s.insert_question(
+                pid(2),
+                q(&format!("r{i}"), resolved(ResolutionBy::OwnerAnswer)),
+            );
+        }
+        assert_eq!(s.pane(pid(2)).unwrap().unresolved_overflow, 0);
+    }
+
+    #[test]
+    fn registry_overflow_kept_on_move_reset_on_replacement() {
+        let mut s = SupervisorState::new();
+        for i in 0..18 {
+            s.insert_question(pid(1), q(&format!("o{i}"), None));
+        }
+        assert_eq!(s.pane(pid(1)).unwrap().unresolved_overflow, 2);
+        s.bump_generation(pid(1), GenerationReason::PaneMoved, 10);
+        assert_eq!(s.pane(pid(1)).unwrap().unresolved_overflow, 2);
+        s.bump_generation(pid(1), GenerationReason::SessionChanged, 20);
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.unresolved_overflow, 0);
+        // The truncation flag stays sticky for the pane.
+        assert!(p.truncated_questions);
+    }
+
+    fn sref(value: &str) -> Option<AgentSessionRef> {
+        Some(AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Id,
+            value: value.to_string(),
+        })
+    }
+
+    #[test]
+    fn registry_session_enrichment_and_loss_are_not_replacements() {
+        let mut s = SupervisorState::new();
+        assert!(!s.observe_session_ref(pid(1), None, None));
+        assert!(s.pane(pid(1)).is_none());
+        // None to some: enrichment.
+        assert!(!s.observe_session_ref(pid(1), None, sref("a")));
+        assert_eq!(s.pane(pid(1)).unwrap().last_session_ref, sref("a"));
+        // Some to none: loss keeps the last known identity.
+        assert!(!s.observe_session_ref(pid(1), sref("a"), None));
+        assert_eq!(s.pane(pid(1)).unwrap().last_session_ref, sref("a"));
+        // Same identity again.
+        assert!(!s.observe_session_ref(pid(1), None, sref("a")));
+    }
+
+    #[test]
+    fn registry_session_replacement_detected_through_loss() {
+        let mut s = SupervisorState::new();
+        assert!(!s.observe_session_ref(pid(1), None, sref("a")));
+        assert!(s.observe_session_ref(pid(1), sref("a"), sref("b")));
+        assert_eq!(s.pane(pid(1)).unwrap().last_session_ref, sref("b"));
+
+        // a, then none, then b: the replacement is seen at b.
+        let mut s = SupervisorState::new();
+        assert!(!s.observe_session_ref(pid(1), None, sref("a")));
+        assert!(!s.observe_session_ref(pid(1), sref("a"), None));
+        assert!(s.observe_session_ref(pid(1), None, sref("b")));
+
+        // Kind is part of the identity.
+        let mut s = SupervisorState::new();
+        assert!(!s.observe_session_ref(pid(1), None, sref("a")));
+        let path = AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: "a".to_string(),
+        };
+        assert!(s.observe_session_ref(pid(1), None, Some(path)));
+    }
+
+    #[test]
+    fn registry_session_seeded_from_terminal_before() {
+        // Registry first sees the pane while the terminal already has `a`.
+        let mut s = SupervisorState::new();
+        assert!(s.observe_session_ref(pid(1), sref("a"), sref("b")));
+        let mut s = SupervisorState::new();
+        assert!(!s.observe_session_ref(pid(1), sref("a"), sref("a")));
+    }
+
+    fn facts(
+        before: Option<AgentSessionRef>,
+        after: Option<AgentSessionRef>,
+        final_state: AgentState,
+    ) -> TerminalMutationFacts {
+        TerminalMutationFacts {
+            session_before: before,
+            session_after: after,
+            agent_released: false,
+            agent_started: false,
+            final_state,
+        }
+    }
+
+    #[test]
+    fn registry_terminal_mutation_bumps_only_on_replacement() {
+        let mut s = SupervisorState::new();
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), facts(None, sref("a"), AgentState::Working), 1),
+            None
+        );
+        assert_eq!(s.pane(pid(1)).unwrap().generation, 1);
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), facts(sref("a"), None, AgentState::Working), 2),
+            None
+        );
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), facts(None, sref("b"), AgentState::Working), 3),
+            Some(GenerationReason::SessionChanged)
+        );
+        assert_eq!(s.pane(pid(1)).unwrap().generation, 2);
+        let mut released = facts(sref("b"), sref("c"), AgentState::Unknown);
+        released.agent_released = true;
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), released, 4),
+            Some(GenerationReason::AgentExited)
+        );
+        assert!(s.pane(pid(1)).unwrap().exited);
+    }
+
+    #[test]
+    fn registry_replacement_while_idle_rearms_prose_scan() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.observe_session_ref(pid(1), None, sref("a"));
+        s.apply_scan(pid(1), TITLED, 110);
+        let first = open_questions(&s, pid(1))[0].question_id.clone();
+        assert!(s.panes_pending_scan().is_empty());
+
+        s.on_terminal_mutation(pid(1), facts(sref("a"), sref("b"), AgentState::Idle), 200);
+        let p = s.pane(pid(1)).unwrap();
+        assert!(p.pending_prose);
+        assert_eq!(p.last_state, Some(AgentState::Idle));
+        assert_eq!(p.idle_since_ms, Some(200));
+        assert!(!p.rescanned_this_idle);
+        s.apply_scan(pid(1), TITLED, 210);
+        let open = open_questions(&s, pid(1));
+        assert_eq!(open.len(), 1);
+        assert_ne!(open[0].question_id, first);
+
+        // Not Idle after the replacement: no re-arm.
+        s.on_terminal_mutation(
+            pid(1),
+            facts(sref("b"), sref("c"), AgentState::Working),
+            300,
+        );
+        assert!(!s.pane(pid(1)).unwrap().pending_prose);
+    }
+
+    #[test]
+    fn registry_working_report_advances_turn_without_start_time() {
+        let mut s = SupervisorState::new();
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 100);
+        s.note_background_hook(pid(1), 150);
+        assert!(s.background_hook_current(pid(1)));
+        s.note_working_report(pid(1));
+        assert!(!s.background_hook_current(pid(1)));
+        assert_eq!(s.pane(pid(1)).unwrap().turn_started_ms, Some(100));
+        s.note_background_hook(pid(1), 250);
+        assert!(s.background_hook_current(pid(1)));
+    }
+
+    #[test]
+    fn registry_long_questions_sharing_200_chars_get_distinct_ids() {
+        let mut s = SupervisorState::new();
+        let prefix = "x".repeat(200);
+        let first = format!("{prefix}{}?", "a".repeat(49));
+        let second = format!("{prefix}{}?", "b".repeat(49));
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 100);
+        s.apply_scan(pid(1), &format!("{first}\n"), 110);
+        s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 2, 200);
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 3, 300);
+        s.apply_scan(pid(1), &format!("{second}\n"), 310);
+        let open = open_questions(&s, pid(1));
+        assert_eq!(open.len(), 2);
+        assert_ne!(open[0].question_id, open[1].question_id);
+        assert!(open.iter().all(|q| q.excerpt.chars().count() <= 200));
+        assert_eq!(open[0].excerpt, prefix);
+    }
+
+    #[test]
+    fn registry_new_agent_first_ref_is_enrichment() {
+        let mut s = SupervisorState::new();
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), facts(None, sref("a"), AgentState::Working), 1),
+            None
+        );
+        let mut exited = facts(sref("a"), None, AgentState::Idle);
+        exited.agent_released = true;
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), exited, 2),
+            Some(GenerationReason::AgentExited)
+        );
+        assert_eq!(s.pane(pid(1)).unwrap().last_session_ref, sref("a"));
+        let mut started = facts(None, None, AgentState::Working);
+        started.agent_started = true;
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), started, 3),
+            Some(GenerationReason::AgentStarted)
+        );
+        assert_eq!(s.pane(pid(1)).unwrap().last_session_ref, None);
+
+        s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 4, 400);
+        s.apply_scan(pid(1), TITLED, 410);
+        assert_eq!(open_questions(&s, pid(1)).len(), 1);
+        let generation = s.pane(pid(1)).unwrap().generation;
+
+        assert_eq!(
+            s.on_terminal_mutation(pid(1), facts(None, sref("b"), AgentState::Idle), 500),
+            None
+        );
+        let p = s.pane(pid(1)).unwrap();
+        assert_eq!(p.generation, generation);
+        assert_eq!(p.last_session_ref, sref("b"));
+        assert_eq!(open_questions(&s, pid(1)).len(), 1);
     }
 }
