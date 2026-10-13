@@ -30,6 +30,9 @@ pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
     if let Ok(executable) = crate::platform::launch_executable() {
         cmd.env("HERDR_BIN_PATH", executable);
     }
+    if let Some(path) = crate::host_facts::pane_env_path() {
+        cmd.env(crate::host_facts::HOST_FACTS_ENV_VAR, path);
+    }
 }
 
 pub(crate) fn pi_extension_dir() -> io::Result<PathBuf> {

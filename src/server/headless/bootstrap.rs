@@ -29,6 +29,8 @@ pub fn run_server() -> io::Result<()> {
 
     let loaded_config = config::Config::load();
     crate::supervisor::set_enabled(loaded_config.config.supervisor.enabled);
+    // Probes run on their own thread; the worker stops when this guard drops.
+    let _host_facts = crate::host_facts::start(&loaded_config.config.host_facts);
     #[cfg(windows)]
     if loaded_config.config.server.allow_unelevated_clients {
         crate::platform::allow_unelevated_clients();
@@ -135,6 +137,7 @@ fn take_startup_cwd() -> Option<PathBuf> {
 fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> {
     let loaded_config = config::Config::load();
     crate::supervisor::set_enabled(loaded_config.config.supervisor.enabled);
+    let _host_facts = crate::host_facts::start(&loaded_config.config.host_facts);
     let mut received = crate::server::handoff::receive(socket_path, token)?;
     crate::server::handoff::log_import_result(received.manifest.panes.len());
 

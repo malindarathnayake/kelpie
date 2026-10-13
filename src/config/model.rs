@@ -324,6 +324,7 @@ pub struct Config {
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
     pub supervisor: SupervisorConfig,
+    pub host_facts: HostFactsConfig,
 }
 
 #[derive(Debug)]
@@ -1057,6 +1058,26 @@ impl ImeCursorShape {
 pub struct SupervisorConfig {
     /// Advertise `supervisor_v1` and serve `agents.digest`. Default: false.
     pub enabled: bool,
+}
+
+/// Host facts worker (`host-facts.json`, `HERDR_HOST_FACTS`, `host.facts`).
+/// Changing it requires a server restart.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct HostFactsConfig {
+    /// Run the background host facts worker. Default: true.
+    pub enabled: bool,
+    /// Base refresh beat in seconds; values below 30 are raised to 30. Default: 60.
+    pub interval_secs: u64,
+}
+
+impl Default for HostFactsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_secs: crate::host_facts::DEFAULT_INTERVAL_SECS,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -599,6 +599,13 @@ fn handle_request(
         );
     }
 
+    if let Method::HostFacts(params) = &request.method {
+        // Served from the host facts worker's snapshot on this connection
+        // thread; the App thread never runs or waits for host probes.
+        let refresh = params.refresh;
+        return crate::host_facts::api_response(request.id, refresh);
+    }
+
     dispatch_to_app(request, api_tx, None, response_write_complete, None)
 }
 
@@ -611,6 +618,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::ServerSshAgentRegister(_) => "server.ssh_agent.register",
         Method::ServerAgentManifests(_) => "server.agent_manifests",
         Method::ServerReloadAgentManifests(_) => "server.reload_agent_manifests",
+        Method::HostFacts(_) => "host.facts",
         Method::NotificationShow(_) => "notification.show",
         Method::ProductAnnouncementDismiss(_) => "product_announcement.dismiss",
         Method::ReleaseNotesDismiss(_) => "release_notes.dismiss",

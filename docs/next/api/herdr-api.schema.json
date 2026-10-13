@@ -2295,6 +2295,16 @@
           ],
           "type": "object"
         },
+        "HostFactsParams": {
+          "description": "Parameters for `host.facts`.",
+          "properties": {
+            "refresh": {
+              "description": "Run every probe tier now and answer with the refreshed snapshot.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
         "IntegrationInstallParams": {
           "properties": {
             "target": {
@@ -4951,6 +4961,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "host.facts",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/HostFactsParams"
             }
           },
           "required": [
@@ -8124,6 +8150,444 @@
           ],
           "type": "string"
         },
+        "HostBucketFact": {
+          "properties": {
+            "bucket": {
+              "description": "Coarse range such as `16-32 GB`; absent when the value could not be read.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostDockerFacts": {
+          "properties": {
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/HostDockerStatus"
+            }
+          },
+          "required": [
+            "status",
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostDockerStatus": {
+          "oneOf": [
+            {
+              "enum": [
+                "running",
+                "not_running"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "missing",
+              "description": "No docker CLI on PATH and no engine endpoint.",
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "description": "The engine endpoint exists but `_ping` failed or timed out.",
+              "type": "string"
+            }
+          ]
+        },
+        "HostFacts": {
+          "description": "Point-in-time host facts. `*_checked_at_ms` values are Unix epoch milliseconds.",
+          "properties": {
+            "disk": {
+              "$ref": "#/schemas/success_response/$defs/HostBucketFact",
+              "description": "Free space bucket of the volume holding the herdr state directory."
+            },
+            "docker": {
+              "$ref": "#/schemas/success_response/$defs/HostDockerFacts"
+            },
+            "git": {
+              "$ref": "#/schemas/success_response/$defs/HostGitFacts"
+            },
+            "gpu": {
+              "$ref": "#/schemas/success_response/$defs/HostGpuFacts"
+            },
+            "interval_secs": {
+              "description": "Base refresh beat in seconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "memory": {
+              "$ref": "#/schemas/success_response/$defs/HostBucketFact",
+              "description": "Total physical memory bucket."
+            },
+            "os": {
+              "$ref": "#/schemas/success_response/$defs/HostOsFacts"
+            },
+            "refreshed_at_ms": {
+              "description": "When the worker last finished a refresh.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "shells": {
+              "$ref": "#/schemas/success_response/$defs/HostShellFacts"
+            },
+            "tools": {
+              "description": "Detect-only toolpack. Nothing is downloaded and PATH is never changed.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/HostToolFact"
+              },
+              "type": "array"
+            },
+            "tools_checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "wsl": {
+              "$ref": "#/schemas/success_response/$defs/HostWslFacts"
+            }
+          },
+          "required": [
+            "schema_version",
+            "refreshed_at_ms",
+            "interval_secs",
+            "os",
+            "memory",
+            "disk",
+            "shells",
+            "git",
+            "gpu",
+            "docker",
+            "wsl",
+            "tools",
+            "tools_checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostGitFacts": {
+          "properties": {
+            "bash_path": {
+              "description": "Git Bash `bash.exe` (never the WSL launcher in System32).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "git_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostGpuFacts": {
+          "properties": {
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "driver_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "names": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "nvidia_smi": {
+              "$ref": "#/schemas/success_response/$defs/HostProbeStatus"
+            }
+          },
+          "required": [
+            "nvidia_smi",
+            "names",
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostOsFacts": {
+          "properties": {
+            "arch": {
+              "description": "Native machine architecture (`x86_64`, `aarch64`, `x86`).",
+              "type": "string"
+            },
+            "build": {
+              "description": "For example `26100.4061`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "description": "For example `Windows 11`.",
+              "type": "string"
+            },
+            "process_arch": {
+              "description": "Architecture of the herdr binary; differs from `arch` under emulation.",
+              "type": "string"
+            },
+            "version": {
+              "description": "For example `24H2`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "arch",
+            "process_arch",
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostProbeStatus": {
+          "oneOf": [
+            {
+              "enum": [
+                "ok",
+                "missing"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "description": "Present but the probe failed or hit its timeout.",
+              "type": "string"
+            }
+          ]
+        },
+        "HostShellFacts": {
+          "properties": {
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "constrained_language_mode": {
+              "description": "Constrained Language Mode in the preferred shell; absent when unknown.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "preferred": {
+              "description": "`pwsh` when PowerShell 7 is present, else `powershell` (5.1), else absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "psreadline_version": {
+              "description": "PSReadLine version seen by the preferred shell.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pwsh": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/HostShellInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "windows_powershell": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/HostShellInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
+        "HostShellInfo": {
+          "properties": {
+            "language_mode": {
+              "description": "`FullLanguage`, `ConstrainedLanguage`, ...",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "psreadline_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/HostProbeStatus"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "path",
+            "status"
+          ],
+          "type": "object"
+        },
+        "HostToolFact": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "description": "Where the real tool lives. With status `missing` this is an installed copy\nthat a plain invocation from a pane does not reach (not on PATH).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "shadowed_by": {
+              "description": "What a plain invocation reaches instead: a System32 binary or a PowerShell alias.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/HostToolSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/HostToolStatus"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "status"
+          ],
+          "type": "object"
+        },
+        "HostToolSource": {
+          "enum": [
+            "git-for-windows",
+            "scoop",
+            "winget",
+            "chocolatey",
+            "system",
+            "other"
+          ],
+          "type": "string"
+        },
+        "HostToolStatus": {
+          "oneOf": [
+            {
+              "enum": [
+                "ok",
+                "missing"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "description": "On PATH but `--version` failed or timed out.",
+              "type": "string"
+            },
+            {
+              "const": "shadowed",
+              "description": "On PATH, but a System32 binary or a PowerShell alias wins a plain invocation.",
+              "type": "string"
+            }
+          ]
+        },
+        "HostWslFacts": {
+          "properties": {
+            "checked_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "distros": {
+              "description": "Registered distribution names, read from the registry without starting WSL.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "present": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "present",
+            "distros",
+            "checked_at_ms"
+          ],
+          "type": "object"
+        },
         "InstalledPluginInfo": {
           "properties": {
             "actions": {
@@ -10359,6 +10823,19 @@
               "properties": {
                 "type": {
                   "const": "agents_digest",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "$ref": "#/schemas/success_response/$defs/HostFacts",
+              "properties": {
+                "type": {
+                  "const": "host_facts",
                   "type": "string"
                 }
               },

@@ -451,6 +451,14 @@ pub(crate) use unix_common::{
 mod client_state;
 pub(crate) use client_state::{create_private_state_file, replace_file, sync_parent_directory};
 
+mod host_probe;
+#[cfg(windows)]
+pub(crate) use host_probe::classify_docker_ping_response;
+pub(crate) use host_probe::{
+    docker_engine_ping, host_disk_free_bytes, host_os_info, host_total_memory_bytes,
+    host_wsl_distros, DockerEnginePing, HostOsInfo,
+};
+
 #[cfg(not(unix))]
 pub(crate) fn begin_cli_output() {}
 

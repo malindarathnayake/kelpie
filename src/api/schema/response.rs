@@ -108,6 +108,7 @@ pub enum ResponseResult {
         agents: Vec<AgentInfo>,
     },
     AgentsDigest(Box<super::supervisor::AgentsDigest>),
+    HostFacts(Box<super::host::HostFacts>),
     AgentSubmitReceipt {
         receipt: super::supervisor::SubmitReceipt,
     },

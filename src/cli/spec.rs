@@ -35,6 +35,7 @@ pub(super) fn command() -> Command {
         .subcommand(config_command())
         .subcommand(channel_command())
         .subcommand(theme_command())
+        .subcommand(host_command())
         .subcommand(machine::command())
         .subcommand(server_command())
         .subcommand(api_command())
@@ -172,6 +173,17 @@ fn theme_command() -> Command {
                             crate::config::THEME_NAMES,
                         )),
                 ),
+        )
+}
+
+fn host_command() -> Command {
+    Command::new("host")
+        .about("Show facts about this machine collected by the server")
+        .subcommand(
+            Command::new("facts")
+                .about("Show OS, shells, GPU, Docker, WSL and toolpack facts")
+                .arg(flag("json").help("Print JSON instead of a table"))
+                .arg(flag("refresh").help("Ask the running server to refresh first")),
         )
 }
 

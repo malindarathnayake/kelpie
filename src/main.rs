@@ -25,6 +25,7 @@ mod detect;
 mod events;
 use ghostty_vt as ghostty;
 mod handoff_runtime;
+mod host_facts;
 mod input;
 mod integration;
 mod ipc;
@@ -416,6 +417,15 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Set false to run plain ssh against your ssh config unchanged — this does not
 # force keepalive or multiplexing off, it only stops herdr from adding its own.
 # manage_ssh_config = true
+
+[host_facts]
+# Background worker that writes host-facts.json in the state directory (OS,
+# shells, GPU, Docker, WSL, coarse memory/disk and a detect-only toolpack) and
+# sets HERDR_HOST_FACTS in panes. Read it with `herdr host facts [--json]`.
+# Changes apply after a server restart.
+# enabled = true
+# Base refresh beat in seconds (minimum 30). nvidia-smi runs every 300 s.
+# interval_secs = 60
 
 [experimental]
 # Allow launching herdr from inside a herdr-managed pane.

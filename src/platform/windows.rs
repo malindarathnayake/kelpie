@@ -16,6 +16,7 @@ use std::{
 mod app_exec_link;
 mod clipboard_image;
 mod config_backup;
+pub(crate) mod host_probe;
 mod notifications;
 pub(crate) use app_exec_link::app_exec_link_target;
 pub(crate) use notifications::{

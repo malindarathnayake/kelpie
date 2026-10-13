@@ -7,6 +7,7 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
     "experimental",
+    "host_facts",
     "keys",
     "onboarding",
     "remote",
@@ -758,6 +759,28 @@ mod tests {
         let (config, ignored) =
             deserialize_with_ignored::<Config, _>(toml::Deserializer::new(content)).unwrap();
         assert!(config.supervisor.enabled);
+        assert!(ignored.is_empty());
+        let (unknown, diagnostics) = unknown_top_level_sections_from_str(content);
+        assert!(unknown.is_empty());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn host_facts_config_defaults_on_and_parses() {
+        let (config, ignored) =
+            deserialize_with_ignored::<Config, _>(toml::Deserializer::new("")).unwrap();
+        assert!(config.host_facts.enabled);
+        assert_eq!(config.host_facts.interval_secs, 60);
+        assert!(ignored.is_empty());
+
+        let content = "[host_facts]
+enabled = false
+interval_secs = 120
+";
+        let (config, ignored) =
+            deserialize_with_ignored::<Config, _>(toml::Deserializer::new(content)).unwrap();
+        assert!(!config.host_facts.enabled);
+        assert_eq!(config.host_facts.interval_secs, 120);
         assert!(ignored.is_empty());
         let (unknown, diagnostics) = unknown_top_level_sections_from_str(content);
         assert!(unknown.is_empty());
