@@ -2511,12 +2511,26 @@ fn supervisor_shell_server(
     String,
     tokio::sync::mpsc::Receiver<Bytes>,
 ) {
+    supervisor_shell_server_with(name, b"")
+}
+
+/// `supervisor_shell_server` whose pane first parsed `initial` (e.g. a keyboard mode).
+fn supervisor_shell_server_with(
+    name: &str,
+    initial: &[u8],
+) -> (
+    HeadlessServer,
+    crate::layout::PaneId,
+    String,
+    tokio::sync::mpsc::Receiver<Bytes>,
+) {
     crate::supervisor::set_enabled_for_test(Some(true));
     let mut server = test_headless_server();
     let mut workspace = crate::workspace::Workspace::test_new(name);
     let pane = workspace.tabs[0].root_pane;
-    let (runtime, input) =
-        crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"", 4);
+    let (runtime, input) = crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+        80, 24, 0, initial, 4,
+    );
     workspace.insert_test_runtime(pane, runtime);
     server.app.state.workspaces = vec![workspace];
     server.app.state.active = Some(0);
@@ -2552,6 +2566,35 @@ async fn supervisor_paste_records_owner_input_and_latches() {
         .supervisor_activity()
         .clone();
     assert!(activity.last_owner_input_ms().is_some());
+    assert!(activity.draft_latched());
+    assert_eq!(
+        fence.close().reason,
+        Some(crate::supervisor::fence::FenceReason::OwnerInput)
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn supervisor_clipboard_image_paste_trips_and_latches() {
+    let _reset = SupervisorOverrideReset;
+    let (mut server, pane, pane_id, mut input) = supervisor_shell_server("supervisor-image");
+    let fence = crate::supervisor::fence::SubmitFence::new();
+    server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .arm_submit_fence(fence.clone());
+    assert!(server.paste_client_clipboard_image_path(
+        91,
+        crate::protocol::ClientClipboardImageTarget::Pane(pane_id),
+        "/tmp/owner-image.png".into(),
+    ));
+    let forwarded = input.try_recv().expect("image path forwarded");
+    assert!(
+        forwarded.windows(9).any(|w| w == b"owner-ima"),
+        "{forwarded:?}"
+    );
+    let activity = server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .clone();
     assert!(activity.draft_latched());
     assert_eq!(
         fence.close().reason,
@@ -2614,6 +2657,256 @@ async fn supervisor_handoff_control_arms_without_input_or_latch() {
         .valid_handoff(generation, crate::supervisor::now_ms())
         .is_none());
     shutdown_test_runtimes(&mut server);
+}
+
+fn supervisor_key(
+    code: crate::protocol::ClientKeyCode,
+    kind: crate::protocol::ClientKeyKind,
+) -> crate::protocol::ClientPaneInputEvent {
+    crate::protocol::ClientPaneInputEvent::Key {
+        code,
+        modifiers: 0,
+        kind,
+        repeat_count: 1,
+        shifted_codepoint: None,
+        generated_text: None,
+        tracks_release: true,
+        physical_key_id: Some(0x2d),
+        windows_record: None,
+    }
+}
+
+/// Armed fence plus the pane's activity for a `supervisor_shell_server` pane.
+fn arm_supervisor_fence(
+    server: &HeadlessServer,
+    pane: crate::layout::PaneId,
+) -> (
+    crate::supervisor::fence::SubmitFence,
+    std::sync::Arc<crate::supervisor::activity::PaneActivity>,
+) {
+    let activity = server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .clone();
+    let fence = crate::supervisor::fence::SubmitFence::new();
+    activity.arm_submit_fence(fence.clone());
+    (fence, activity)
+}
+
+#[tokio::test]
+async fn supervisor_shell_input_without_pty_bytes_never_trips_or_latches() {
+    use crate::protocol::{ClientKeyCode, ClientKeyKind};
+    let _reset = SupervisorOverrideReset;
+    let (mut server, pane, pane_id, mut input) = supervisor_shell_server("supervisor-no-bytes");
+    let (fence, activity) = arm_supervisor_fence(&server, pane);
+    for events in [
+        // Legacy keyboard mode: a release encodes to nothing.
+        vec![supervisor_key(
+            ClientKeyCode::Char('x'),
+            ClientKeyKind::Release,
+        )],
+        vec![supervisor_key(ClientKeyCode::Enter, ClientKeyKind::Release)],
+        // Plain page keys scroll herdr's host scrollback and never reach the PTY.
+        vec![supervisor_key(ClientKeyCode::PageUp, ClientKeyKind::Press)],
+        vec![supervisor_key(
+            ClientKeyCode::PageUp,
+            ClientKeyKind::Release,
+        )],
+        vec![supervisor_key(
+            ClientKeyCode::PageDown,
+            ClientKeyKind::Press,
+        )],
+        vec![supervisor_key(
+            ClientKeyCode::PageDown,
+            ClientKeyKind::Repeat,
+        )],
+    ] {
+        server.handle_server_event(ServerEvent::ClientShellPaneInput {
+            client_id: 91,
+            pane_id: pane_id.clone(),
+            events: events.clone(),
+        });
+        assert!(input.try_recv().is_err(), "{events:?} reached the PTY");
+        assert!(!fence.is_tripped(), "{events:?} tripped the fence");
+        assert!(!activity.draft_latched(), "{events:?} set the latch");
+        assert_eq!(activity.last_owner_input_ms(), None, "{events:?}");
+    }
+    assert!(fence.try_commit(), "the submission can still write");
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn supervisor_shell_owner_bytes_trip_and_latch() {
+    use crate::protocol::{ClientKeyCode, ClientKeyKind, ClientPaneInputEvent};
+    for (name, event) in [
+        (
+            "key",
+            supervisor_key(ClientKeyCode::Char('x'), ClientKeyKind::Press),
+        ),
+        (
+            "repeat",
+            supervisor_key(ClientKeyCode::Char('x'), ClientKeyKind::Repeat),
+        ),
+        (
+            "enter",
+            supervisor_key(ClientKeyCode::Enter, ClientKeyKind::Press),
+        ),
+        ("text", ClientPaneInputEvent::TextCommit("k".into())),
+        ("ime", ClientPaneInputEvent::TextCommit("\u{65e5}".into())),
+        ("paste", ClientPaneInputEvent::Paste("pasted".into())),
+    ] {
+        let _reset = SupervisorOverrideReset;
+        let (mut server, pane, pane_id, mut input) = supervisor_shell_server(name);
+        let (fence, activity) = arm_supervisor_fence(&server, pane);
+        server.handle_server_event(ServerEvent::ClientShellPaneInput {
+            client_id: 91,
+            pane_id,
+            events: vec![event],
+        });
+        assert!(
+            !input.try_recv().expect("owner bytes queued").is_empty(),
+            "{name}"
+        );
+        assert!(activity.draft_latched(), "{name}");
+        assert!(activity.last_owner_input_ms().is_some(), "{name}");
+        assert!(!fence.try_commit(), "{name}: the fence was not tripped");
+        assert_eq!(
+            fence.close().reason,
+            Some(crate::supervisor::fence::FenceReason::OwnerInput),
+            "{name}"
+        );
+        shutdown_test_runtimes(&mut server);
+    }
+}
+
+#[tokio::test]
+async fn supervisor_shell_release_with_kitty_release_bytes_trips() {
+    let _reset = SupervisorOverrideReset;
+    // Kitty keyboard flags 1|2: release events are reported, so they encode to bytes.
+    let (mut server, pane, pane_id, mut input) =
+        supervisor_shell_server_with("supervisor-kitty-release", b"\x1b[>3u");
+    let (fence, activity) = arm_supervisor_fence(&server, pane);
+    server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 91,
+        pane_id,
+        events: vec![supervisor_key(
+            crate::protocol::ClientKeyCode::Char('x'),
+            crate::protocol::ClientKeyKind::Release,
+        )],
+    });
+    assert!(!input.try_recv().expect("encoded release").is_empty());
+    assert!(activity.draft_latched());
+    assert_eq!(
+        fence.close().reason,
+        Some(crate::supervisor::fence::FenceReason::OwnerInput)
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn supervisor_teardown_release_with_kitty_release_bytes_trips() {
+    let _reset = SupervisorOverrideReset;
+    // A held key's release replayed at client teardown encodes bytes under kitty release
+    // reporting, so it is owner input like any other release.
+    let (mut server, pane, pane_id, mut input) =
+        supervisor_shell_server_with("supervisor-teardown-release", b"\x1b[>3u");
+    let (fence, activity) = arm_supervisor_fence(&server, pane);
+    server.release_client_shell_inputs(
+        91,
+        vec![crate::server::clients::ClientShellHeldInput {
+            target: crate::server::clients::ClientShellInputTarget::Pane(pane_id),
+            release: supervisor_key(
+                crate::protocol::ClientKeyCode::Char('x'),
+                crate::protocol::ClientKeyKind::Release,
+            ),
+        }],
+    );
+    assert!(!input.try_recv().expect("encoded release").is_empty());
+    assert!(activity.draft_latched());
+    assert_eq!(
+        fence.close().reason,
+        Some(crate::supervisor::fence::FenceReason::OwnerInput)
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn supervisor_teardown_legacy_release_without_bytes_never_trips() {
+    let _reset = SupervisorOverrideReset;
+    let (mut server, pane, pane_id, mut input) =
+        supervisor_shell_server("supervisor-teardown-legacy");
+    let (fence, activity) = arm_supervisor_fence(&server, pane);
+    server.release_client_shell_inputs(
+        91,
+        vec![crate::server::clients::ClientShellHeldInput {
+            target: crate::server::clients::ClientShellInputTarget::Pane(pane_id),
+            release: supervisor_key(
+                crate::protocol::ClientKeyCode::Char('x'),
+                crate::protocol::ClientKeyKind::Release,
+            ),
+        }],
+    );
+    assert!(input.try_recv().is_err(), "legacy release encodes nothing");
+    assert!(!activity.draft_latched());
+    assert_eq!(fence.close().reason, None);
+    shutdown_test_runtimes(&mut server);
+}
+
+/// The owner-bytes hook runs before each event's bytes are queued: when it runs, the PTY
+/// queue holds only earlier events' bytes, and the fence trips before the first owner byte
+/// a writer could observe.
+#[test]
+fn supervisor_owner_bytes_hook_runs_before_each_queue() {
+    use crate::protocol::{ClientKeyCode, ClientKeyKind, ClientPaneInputEvent};
+    let _reset = SupervisorOverrideReset;
+    crate::supervisor::set_enabled_for_test(Some(true));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+    let _runtime_guard = rt.enter();
+    let (runtime, mut input) =
+        crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"", 8);
+    let activity = runtime.supervisor_activity().clone();
+    let fence = crate::supervisor::fence::SubmitFence::new();
+    activity.arm_submit_fence(fence.clone());
+    let events = [
+        ClientPaneInputEvent::TextCommit("a".into()),
+        supervisor_key(ClientKeyCode::Char('x'), ClientKeyKind::Release),
+        supervisor_key(ClientKeyCode::Enter, ClientKeyKind::Press),
+        ClientPaneInputEvent::Paste("p".into()),
+    ];
+    let mut queued_before_hook = Vec::new();
+    let mut tripped_before_hook = Vec::new();
+    let mut keyboard_forwarded = false;
+    apply_client_terminal_input_events(
+        &runtime,
+        &events,
+        true,
+        &mut keyboard_forwarded,
+        &mut || {
+            let mut queued = 0;
+            while input.try_recv().is_ok() {
+                queued += 1;
+            }
+            queued_before_hook.push(queued);
+            tripped_before_hook.push(fence.is_tripped());
+            activity.before_owner_bytes();
+        },
+    )
+    .expect("input forwarded");
+    // Text, Enter and paste each ran the hook once; the legacy release encoded nothing.
+    assert_eq!(queued_before_hook, vec![0, 1, 1]);
+    assert_eq!(tripped_before_hook, vec![false, true, true]);
+    assert!(
+        input.try_recv().is_ok(),
+        "the paste was queued after its hook"
+    );
+    assert!(input.try_recv().is_err());
+    assert!(activity.draft_latched());
+    assert!(keyboard_forwarded);
+    drop(runtime);
+    drop(_runtime_guard);
+    rt.shutdown_timeout(Duration::from_millis(100));
 }
 
 #[test]

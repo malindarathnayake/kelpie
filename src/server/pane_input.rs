@@ -213,7 +213,7 @@ pub(super) fn apply_client_pane_input_events(
     events: &[ClientPaneInputEvent],
 ) -> Result<bool, String> {
     let mut keyboard_forwarded = false;
-    apply_client_terminal_input_events(runtime, events, true, &mut keyboard_forwarded)?;
+    apply_client_terminal_input_events(runtime, events, true, &mut keyboard_forwarded, &mut || {})?;
     Ok(keyboard_forwarded)
 }
 
@@ -222,15 +222,28 @@ pub(super) fn apply_client_popup_input_events(
     events: &[ClientPaneInputEvent],
 ) -> Result<bool, String> {
     let mut keyboard_forwarded = false;
-    apply_client_terminal_input_events(runtime, events, false, &mut keyboard_forwarded)?;
+    apply_client_terminal_input_events(
+        runtime,
+        events,
+        false,
+        &mut keyboard_forwarded,
+        &mut || {},
+    )?;
     Ok(keyboard_forwarded)
 }
 
+/// Encodes and forwards client input events to the pane PTY.
+///
+/// Fork: `before_owner_bytes` runs immediately before non-empty key, text or paste bytes
+/// are queued to the PTY, after host page-key scrolling and encoding decided there are
+/// bytes. It never runs for mouse events, consumed page keys or key events (including
+/// releases) that encode to nothing.
 pub(super) fn apply_client_terminal_input_events(
     runtime: &crate::terminal::TerminalRuntime,
     events: &[ClientPaneInputEvent],
     host_page_keys: bool,
     keyboard_forwarded: &mut bool,
+    before_owner_bytes: &mut dyn FnMut(),
 ) -> Result<(), String> {
     for event in events {
         if let ClientPaneInputEvent::Mouse {
@@ -326,6 +339,7 @@ pub(super) fn apply_client_terminal_input_events(
                 runtime.scroll_reset();
                 let bytes = runtime.encode_terminal_key(key);
                 if !bytes.is_empty() {
+                    before_owner_bytes();
                     runtime
                         .try_send_bytes(Bytes::from(bytes))
                         .map_err(|err| format!("targeted pane key input failed: {err}"))?;
@@ -334,6 +348,9 @@ pub(super) fn apply_client_terminal_input_events(
             }
             crate::raw_input::RawInputEvent::Text(text) => {
                 runtime.scroll_reset();
+                if !text.as_str().is_empty() {
+                    before_owner_bytes();
+                }
                 runtime
                     .try_send_bytes(Bytes::copy_from_slice(text.as_str().as_bytes()))
                     .map_err(|err| format!("targeted pane text input failed: {err}"))?;
@@ -341,6 +358,10 @@ pub(super) fn apply_client_terminal_input_events(
             }
             crate::raw_input::RawInputEvent::Paste(text) => {
                 runtime.scroll_reset();
+                // An empty paste still queues the bracket markers in bracketed-paste mode.
+                if !text.is_empty() || runtime.bracketed_paste_enabled() {
+                    before_owner_bytes();
+                }
                 runtime
                     .try_send_paste(text)
                     .map_err(|err| format!("targeted pane paste failed: {err}"))?;

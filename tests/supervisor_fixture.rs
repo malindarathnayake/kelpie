@@ -1236,7 +1236,8 @@ fn s6a_watch_reports_stale_when_server_stops() {
 
 /// S5/S6b+c+h: one submit is written exactly once, its receipt is readable by
 /// id without waiting for the turn to finish, and a retry with the same id
-/// returns the same receipt without a second delivery.
+/// returns the same receipt without a second delivery. A later Working report
+/// shows in the digest but never moves the receipt past `written`.
 #[test]
 fn s6b_submit_once_then_retry_writes_once() {
     let mut fixture = Fixture::start_with_supervisor();
@@ -1257,7 +1258,7 @@ fn s6b_submit_once_then_retry_writes_once() {
 
     // No completion or idle wait: the receipt reaches written on its own.
     let written = fixture.wait_receipt("s6b-x", &text, "written", |receipt| {
-        matches!(receipt["state"].as_str(), Some("written" | "started"))
+        receipt["state"] == "written"
     });
     assert!(written["written_at_ms"].is_u64(), "{written}");
     assert_eq!(written["accepted_at_ms"], accepted_at, "{written}");
@@ -1266,6 +1267,21 @@ fn s6b_submit_once_then_retry_writes_once() {
         "submitted text never shown"
     );
     assert_eq!(fixture.screen_count(&pane, marker), 1);
+
+    fixture.report(&pane, "claude", "working");
+    fixture.digest_agent_until(&pane, "working after the write", |agent| {
+        agent["agent_status"] == "working"
+    });
+    let after_working = fixture.submit_status("s6b-x", &text);
+    assert_eq!(after_working["state"], "written", "{after_working}");
+    assert!(
+        after_working.get("started_at_ms").is_none(),
+        "{after_working}"
+    );
+    assert_eq!(
+        after_working["acknowledged"], "unsupported",
+        "{after_working}"
+    );
 
     let again = fixture.submit_ok(&target, "s6b-x", &text);
     assert_eq!(again["submit_id"], "s6b-x");
@@ -1820,7 +1836,7 @@ impl Drop for OwnerClient {
     }
 }
 
-/// S6g (KELPIE-S): owner keys typed through a real attached client while the
+/// S6g: owner keys typed through a real attached client while the
 /// accepted submission is parked fence it: receipt `fenced{owner_input}`, the
 /// owner's keys stay on screen, and the submission contributes zero text and
 /// zero Enter bytes.
@@ -1902,7 +1918,7 @@ fn s6g_owner_keys_during_hold_fence_via_attached_client() {
     drop(owner);
 }
 
-/// S6h (KELPIE-HANDOFF-WATCH): the operator's handoff through the real
+/// S6h: the operator's handoff through the real
 /// attached-client control message lets exactly one submit through the
 /// owner-input latch. `agent watch` shows `handoff_armed` go true, then false
 /// once the accepted submit consumed it; a second submit is rejected
@@ -1961,7 +1977,7 @@ fn s6h_operator_handoff_allows_exactly_one_submit() {
         |line| line["handoff_armed"] == false,
     );
     fixture.wait_receipt("s6h-1", &text, "written", |receipt| {
-        receipt["state"] == "written" || receipt["state"] == "started"
+        receipt["state"] == "written"
     });
 
     let second = comment_line("w2-handoff-second");
@@ -2129,7 +2145,7 @@ fn s7_answer_newest_question_once_then_old_id_is_not_current() {
     assert_eq!(accepted["kind"], "answer", "{accepted}");
     assert_eq!(accepted["question_id"], question.as_str(), "{accepted}");
     let written = fixture.wait_receipt("s7-a", &text, "written", |receipt| {
-        matches!(receipt["state"].as_str(), Some("written" | "started"))
+        receipt["state"] == "written"
     });
     assert!(fixture.wait_output(&pane, marker), "answer never shown");
     assert_eq!(fixture.screen_count(&pane, marker), 1);
@@ -2168,14 +2184,15 @@ fn s7_answer_newest_question_once_then_old_id_is_not_current() {
 }
 
 /// S8: interrupt is accepted only while working; the Esc write completes once
-/// (`written`), the next idle report records `effect_observed_at_ms`, a retry
+/// (`written`), the next idle report records `turn_end_observed_after_write_at_ms`
+/// (an uncorrelated observation), a retry
 /// returns the same receipt without a second write, and an idle agent is
 /// rejected `agent_not_working`.
 ///
 /// Limit: Esc has no visible echo in the stand-in shell, so "reached the
 /// stand-in" is the writer's own completion (`written`), not screen evidence.
 #[test]
-fn s8_interrupt_working_agent_once_then_effect_on_idle() {
+fn s8_interrupt_working_agent_once_then_turn_end_on_idle() {
     let mut fixture = Fixture::start_with_supervisor();
     let pane = fixture.pane();
     fixture.ready_clean_claude(&pane, "s8");
@@ -2197,19 +2214,16 @@ fn s8_interrupt_working_agent_once_then_effect_on_idle() {
     assert!(written["written_at_ms"].is_u64(), "{written}");
     assert!(
         written
-            .get("effect_observed_at_ms")
+            .get("turn_end_observed_after_write_at_ms")
             .is_none_or(|v| v.is_null()),
         "{written}"
     );
 
     fixture.report(&pane, "claude", "idle");
-    let effect = fixture.wait_receipt("s8-i", NO_TEXT, "an observed effect", |receipt| {
-        receipt["effect_observed_at_ms"].is_u64()
+    let effect = fixture.wait_receipt("s8-i", NO_TEXT, "an observed turn end", |receipt| {
+        receipt["turn_end_observed_after_write_at_ms"].is_u64()
     });
-    assert_eq!(
-        effect["state"], "written",
-        "an interrupt never reads started"
-    );
+    assert_eq!(effect["state"], "written", "{effect}");
 
     let again = fixture.control_ok("interrupt", &target, "s8-i");
     assert_eq!(again, effect, "retry returns the same receipt");
@@ -2242,7 +2256,7 @@ fn s9_reset_writes_clear_once_and_verifies_on_clear_session() {
     assert_eq!(accepted["kind"], "reset", "{accepted}");
     assert_eq!(accepted["reset"], "pending", "{accepted}");
     let written = fixture.wait_receipt("s9-r", NO_TEXT, "written", |receipt| {
-        matches!(receipt["state"].as_str(), Some("written" | "started"))
+        receipt["state"] == "written"
     });
     assert_eq!(written["reset"], "pending", "{written}");
     assert!(fixture.wait_output(&pane, "/clear"), "/clear never shown");
@@ -2290,7 +2304,7 @@ fn s9_reset_without_clear_session_stays_pending() {
     let accepted = fixture.control_ok("reset", &target_ref_arg(&agent), "s9p-r");
     assert_eq!(accepted["reset"], "pending", "{accepted}");
     fixture.wait_receipt("s9p-r", NO_TEXT, "written", |receipt| {
-        matches!(receipt["state"].as_str(), Some("written" | "started"))
+        receipt["state"] == "written"
     });
     thread::sleep(Duration::from_millis(SUBMIT_ENTER_DELAY_MS + 1000));
     let receipt = fixture.submit_status("s9p-r", NO_TEXT);

@@ -321,10 +321,9 @@ pub struct AgentSubmitStatusParams {
 pub enum SubmitState {
     /// Reserved; the write is queued or in progress.
     Accepted,
-    /// Text and Enter were written to the pane.
+    /// Text and Enter were written to the pane. Terminal for delivery: herdr never claims
+    /// the agent started or acknowledged the turn (activity facts are reported separately).
     Written,
-    /// The agent started a turn after the write.
-    Started,
     /// Dropped by the write-boundary fence; zero bytes were written.
     Fenced,
     /// The outcome is not known; never resend automatically.
@@ -406,8 +405,6 @@ pub struct SubmitReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub written_at_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub started_at_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<SubmitReason>,
     pub acknowledged: SubmitAcknowledged,
     /// First 16 lowercase hex chars of SHA-256 over the submitted text bytes.
@@ -421,10 +418,11 @@ pub struct SubmitReceipt {
     /// `answer` only: the question the text answers. The question is not resolved by it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question_id: Option<String>,
-    /// `interrupt` only: first Idle or AwaitingHuman edge ordered after the write
-    /// (order-based, not causal).
+    /// `interrupt` only: time of the first Idle or AwaitingHuman edge ordered after the
+    /// write completed. An uncorrelated observation, not an acknowledgement: the edge may
+    /// have other causes, and edges before the write completed are never recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effect_observed_at_ms: Option<u64>,
+    pub turn_end_observed_after_write_at_ms: Option<u64>,
     /// `reset` only: evidence state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reset: Option<ResetEvidence>,

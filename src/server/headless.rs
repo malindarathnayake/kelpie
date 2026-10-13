@@ -1010,7 +1010,18 @@ impl HeadlessServer {
                     ) else {
                         continue;
                     };
-                    apply_client_pane_input_events(runtime, &[held.release])
+                    // Fork: a release replayed at teardown can encode bytes (kitty release
+                    // reporting); treat it as owner input before it is queued.
+                    let activity = runtime.supervisor_activity();
+                    let mut keyboard_forwarded = false;
+                    apply_client_terminal_input_events(
+                        runtime,
+                        &[held.release],
+                        true,
+                        &mut keyboard_forwarded,
+                        &mut || activity.before_owner_bytes(),
+                    )
+                    .map(|_| keyboard_forwarded)
                 }
                 ClientShellInputTarget::Popup(terminal_id) => {
                     let Some(runtime) = self.runtime_for_terminal_id_string(&terminal_id) else {
@@ -1217,9 +1228,16 @@ impl HeadlessServer {
                 ) else {
                     return foreground_changed | geometry_changed;
                 };
-                if let Err(err) = apply_client_pane_input_events(
+                // Fork: the pasted image path is owner input; fence and latch before it is
+                // queued, like any other client-shell paste.
+                let activity = runtime.supervisor_activity();
+                let mut keyboard_forwarded = false;
+                if let Err(err) = apply_client_terminal_input_events(
                     runtime,
                     &[protocol::ClientPaneInputEvent::Paste(path)],
+                    true,
+                    &mut keyboard_forwarded,
+                    &mut || activity.before_owner_bytes(),
                 ) {
                     warn!(client_id, pane_id, err = %err, "client shell clipboard image paste failed");
                 }
@@ -2449,7 +2467,17 @@ impl HeadlessServer {
                         );
                     }
                     let scroll_before = runtime.scroll_metrics();
-                    if let Err(err) = apply_client_pane_input_events(runtime, &releases) {
+                    // Fork: a release the encoder turns into bytes (kitty release reporting)
+                    // is owner input; fence and latch before those bytes are queued.
+                    let activity = runtime.supervisor_activity();
+                    let mut keyboard_forwarded = false;
+                    if let Err(err) = apply_client_terminal_input_events(
+                        runtime,
+                        &releases,
+                        true,
+                        &mut keyboard_forwarded,
+                        &mut || activity.before_owner_bytes(),
+                    ) {
                         warn!(client_id, pane_id, err = %err, "targeted client shell release failed");
                     }
                     return runtime.scroll_metrics() != scroll_before;
@@ -2471,29 +2499,19 @@ impl HeadlessServer {
                     return foreground_changed | geometry_changed;
                 };
                 let scroll_before = runtime.scroll_metrics();
-                // Fork: owner input fences an in-flight agent.submit before it is forwarded.
-                if events
-                    .iter()
-                    .any(|e| !matches!(e, protocol::ClientPaneInputEvent::Mouse { .. }))
-                {
-                    runtime.supervisor_activity().trip_submit_fences();
-                }
+                // Fork: owner key, text and paste bytes trip in-flight agent.submit fences and
+                // set the owner-input latch immediately before they are queued to the PTY.
+                // Consumed page keys and events that encode to nothing do neither.
+                let activity = runtime.supervisor_activity();
                 let mut keyboard_forwarded = false;
                 let input_result = apply_client_terminal_input_events(
                     runtime,
                     &events,
                     true,
                     &mut keyboard_forwarded,
+                    &mut || activity.before_owner_bytes(),
                 );
                 let scroll_changed = runtime.scroll_metrics() != scroll_before;
-                // Fork: a paste is owner input too; it already tripped the fences above.
-                if keyboard_forwarded
-                    || events.iter().any(|e| {
-                        matches!(e, protocol::ClientPaneInputEvent::Paste(text) if !text.is_empty())
-                    })
-                {
-                    runtime.supervisor_activity().record_owner_input();
-                }
                 if keyboard_forwarded {
                     self.note_interactive_input(runtime_pane_id, Instant::now());
                 }
@@ -2581,6 +2599,7 @@ impl HeadlessServer {
                     &events,
                     false,
                     &mut keyboard_forwarded,
+                    &mut || {},
                 );
                 let scroll_changed = runtime.scroll_metrics() != scroll_before;
                 if keyboard_forwarded {

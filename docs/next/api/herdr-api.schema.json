@@ -11419,15 +11419,6 @@
             "acknowledged": {
               "$ref": "#/schemas/success_response/$defs/SubmitAcknowledged"
             },
-            "effect_observed_at_ms": {
-              "description": "`interrupt` only: first Idle or AwaitingHuman edge ordered after the write\n(order-based, not causal).",
-              "format": "uint64",
-              "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
             "handoff": {
               "default": false,
               "description": "True when acceptance consumed a one-shot operator handoff.",
@@ -11486,14 +11477,6 @@
               ],
               "description": "`reset` only: evidence state."
             },
-            "started_at_ms": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
             "state": {
               "$ref": "#/schemas/success_response/$defs/SubmitState"
             },
@@ -11506,6 +11489,15 @@
             "text_sha256_16": {
               "description": "First 16 lowercase hex chars of SHA-256 over the submitted text bytes.",
               "type": "string"
+            },
+            "turn_end_observed_after_write_at_ms": {
+              "description": "`interrupt` only: time of the first Idle or AwaitingHuman edge ordered after the\nwrite completed. An uncorrelated observation, not an acknowledgement: the edge may\nhave other causes, and edges before the write completed are never recorded.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "written_at_ms": {
               "format": "uint64",
@@ -11542,12 +11534,7 @@
             },
             {
               "const": "written",
-              "description": "Text and Enter were written to the pane.",
-              "type": "string"
-            },
-            {
-              "const": "started",
-              "description": "The agent started a turn after the write.",
+              "description": "Text and Enter were written to the pane. Terminal for delivery: herdr never claims\nthe agent started or acknowledged the turn (activity facts are reported separately).",
               "type": "string"
             },
             {

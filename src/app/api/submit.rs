@@ -867,6 +867,22 @@ mod tests {
                 .expect(&raw)
         }
 
+        fn digest_foreground(&mut self) -> String {
+            let raw = self.app.handle_api_request(Request {
+                id: "dg".into(),
+                method: Method::AgentsDigest(crate::api::schema::supervisor::AgentsDigestParams {
+                    filter: None,
+                    page_cursor: None,
+                    trace_id: None,
+                }),
+            });
+            let value: serde_json::Value = serde_json::from_str(&raw).expect(&raw);
+            value["result"]["agents"][0]["foreground"]["value"]
+                .as_str()
+                .expect(&raw)
+                .to_string()
+        }
+
         fn assert_rejected_unknown(&mut self, submit_id: &str) {
             let params = self.params(submit_id, "hello");
             let raw = self.submit(params);
@@ -1034,24 +1050,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn working_edge_after_write_marks_started() {
+    async fn working_activity_never_moves_a_receipt_past_written() {
         let mut f = fixture();
         let params = f.params("run-s", "hello");
-        f.submit(params);
+        assert_eq!(
+            receipt(&f.submit(params.clone())).state,
+            SubmitState::Accepted
+        );
+        // The writer finished (both chunks reached the PTY queue) but the App has not yet
+        // handled the completion: a Working edge and a Working hook report land first.
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"hello"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.state_changed(AgentState::Working);
+        f.app.state.supervisor.note_working_report(f.pane_id);
         f.pump_submit_event().await;
-        assert_eq!(receipt(&f.status("run-s")).state, SubmitState::Written);
-        f.app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: f.pane_id,
-            agent: Some(Agent::Claude),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: true,
-            process_exited: false,
-            observed_at: Instant::now(),
-        });
-        let r = receipt(&f.status("run-s"));
-        assert_eq!(r.state, SubmitState::Started);
-        assert!(r.started_at_ms.is_some());
+        let written = receipt(&f.status("run-s"));
+        assert_eq!(written.state, SubmitState::Written);
+        assert!(written.written_at_ms.is_some());
+        // Activity after the completion: still `written`.
+        f.state_changed(AgentState::Idle);
+        f.state_changed(AgentState::Working);
+        f.app.state.supervisor.note_working_report(f.pane_id);
+        let raw = f.status("run-s");
+        assert_eq!(receipt(&raw), written);
+        assert!(!raw.contains("started"), "{raw}");
+        assert_eq!(
+            written.acknowledged,
+            crate::api::schema::supervisor::SubmitAcknowledged::Unsupported
+        );
+        // The digest reports the activity independently of the receipt.
+        assert_eq!(f.digest_foreground(), "working");
+        // Idempotent retry: same receipt, no second write.
+        assert_eq!(receipt(&f.submit(params)), written);
+        f.assert_no_write().await;
     }
 
     #[tokio::test]
@@ -1124,7 +1155,7 @@ mod tests {
         assert_eq!(r.submit_id, "known");
     }
 
-    // --- KELPIE-U/V: sticky owner-input latch -------------------------------------------
+    // --- Sticky owner-input latch ---------------------------------------------------------
 
     #[tokio::test]
     async fn latched_owner_input_rejects_despite_later_output_and_time() {
@@ -1213,7 +1244,7 @@ mod tests {
         assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"hello"));
     }
 
-    // --- KELPIE-SHARED-HANDOFF: one-time operator handoff ---------------------------------
+    // --- One-time operator handoff ----------------------------------------------------------
 
     #[tokio::test]
     async fn handoff_allows_exactly_one_submit_then_latch_rejects() {
@@ -1565,7 +1596,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn interrupt_writes_exactly_one_esc_and_records_the_idle_edge() {
+    async fn interrupt_writes_exactly_one_esc_and_records_a_later_idle_edge() {
         let mut f = fixture_with(Agent::Claude, AgentState::Working, "❯ ");
         let first = receipt(&f.interrupt("int-1"));
         assert_eq!(first.state, SubmitState::Accepted);
@@ -1585,13 +1616,13 @@ mod tests {
         f.pump_submit_event().await;
         let written = receipt(&f.status("int-1"));
         assert_eq!(written.state, SubmitState::Written);
-        assert_eq!(written.effect_observed_at_ms, None);
+        assert_eq!(written.turn_end_observed_after_write_at_ms, None);
         f.assert_no_write().await; // no Enter follows the key
 
         f.state_changed(AgentState::Idle);
         let effect = receipt(&f.status("int-1"));
-        assert_eq!(effect.state, SubmitState::Written, "never `started`");
-        assert!(effect.effect_observed_at_ms.is_some());
+        assert_eq!(effect.state, SubmitState::Written);
+        assert!(effect.turn_end_observed_after_write_at_ms.is_some());
 
         // Idempotent: same receipt, no second Esc.
         assert_eq!(receipt(&f.interrupt("int-1")), effect);

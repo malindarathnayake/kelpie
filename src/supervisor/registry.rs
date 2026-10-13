@@ -362,8 +362,6 @@ impl SupervisorState {
     pub fn note_working_report(&mut self, pane: PaneId) {
         let seq = self.next_event_seq();
         self.pane_mut(pane).turn_seq = Some(seq);
-        self.submits
-            .note_turn_start(pane, seq, crate::supervisor::now_ms());
     }
 
     /// Bumps the generation and records whether the new generation is an exit.
@@ -517,7 +515,7 @@ impl SupervisorState {
     }
 
     /// Applies a submission's write result, ordered on the registry event counter so a
-    /// later turn start can be recognised as following the write.
+    /// later turn end or clear session can be recognised as following the write.
     pub fn complete_submit(
         &mut self,
         submit_id: &str,
@@ -539,12 +537,11 @@ impl SupervisorState {
         state_change_seq: u64,
         now_ms: u64,
     ) {
+        // A Working edge never changes a receipt: delivery ends at `written`.
         let seq = matches!(new, AgentState::Working).then(|| self.next_event_seq());
-        if let Some(seq) = seq {
-            self.submits.note_turn_start(pane, seq, now_ms);
-        }
         if matches!(new, AgentState::Idle | AgentState::Blocked) {
-            // Idle or AwaitingHuman edge: the order-based effect of an `agent.interrupt`.
+            // Idle or AwaitingHuman edge: an uncorrelated observation recorded on a written
+            // `agent.interrupt` receipt, never an acknowledgement.
             let end_seq = self.next_event_seq();
             self.submits.note_turn_end(pane, end_seq, now_ms);
         }

@@ -84,12 +84,6 @@ struct SubmitEntry {
     fence: SubmitFence,
     /// Registry event sequence at which the write was confirmed.
     written_seq: Option<u64>,
-    /// Time of a turn start seen after the writer committed the fence but before the
-    /// completion event was handled; promotes the completion straight to `started`.
-    start_candidate_ms: Option<u64>,
-    /// `interrupt`: time of an Idle/AwaitingHuman edge seen between the writer's commit
-    /// and the completion event; applied as `effect_observed_at_ms` by `complete`.
-    effect_candidate_ms: Option<u64>,
     /// `reset`: the next generation-changed trip of this fence is the expected clear
     /// SessionChanged bump (armed only while committed and untripped).
     expected_reset_trip: bool,
@@ -222,14 +216,13 @@ impl SubmitLedger {
             state: SubmitState::Accepted,
             accepted_at_ms: now_ms,
             written_at_ms: None,
-            started_at_ms: None,
             reason: None,
             acknowledged: SubmitAcknowledged::Unsupported,
             text_sha256_16: new.text_sha256_16,
             handoff: new.handoff,
             kind: new.kind,
             question_id: new.question_id,
-            effect_observed_at_ms: None,
+            turn_end_observed_after_write_at_ms: None,
             reset: (new.kind == SubmitKind::Reset).then_some(ResetEvidence::Pending),
             new_session: None,
             new_generation: None,
@@ -241,8 +234,6 @@ impl SubmitLedger {
                 pane: new.pane,
                 fence,
                 written_seq: None,
-                start_candidate_ms: None,
-                effect_candidate_ms: None,
                 expected_reset_trip: false,
                 reset_candidate: None,
                 #[cfg(debug_assertions)]
@@ -304,15 +295,9 @@ impl SubmitLedger {
                 r.state = SubmitState::Written;
                 r.written_at_ms = Some(now_ms);
                 entry.written_seq = Some(seq);
-                // A turn start handled between the writer's commit and this event
-                // (the completion is ordered only when the App handles it).
-                if let Some(started_at) = entry.start_candidate_ms {
-                    r.state = SubmitState::Started;
-                    r.started_at_ms = Some(started_at);
-                }
-                if let Some(effect_at) = entry.effect_candidate_ms {
-                    r.effect_observed_at_ms = Some(effect_at);
-                }
+                // Delivery ends at `written`. Activity edges handled before this event are
+                // never attributed to the write; only the expected clear session of a
+                // reset (order-based, see `note_clear_session`) is applied here.
                 if let Some((session, generation)) = entry.reset_candidate.take() {
                     r.reset = Some(ResetEvidence::Verified);
                     r.new_session = Some(session);
@@ -357,63 +342,20 @@ impl SubmitLedger {
         }
     }
 
-    /// A turn started (Working edge or accepted Working hook report) at registry event
-    /// `seq`: the first such event after a confirmed write marks the receipt `started`.
-    /// For a receipt still `accepted` whose fence the writer already committed (and that is
-    /// untripped), the event is kept as a start candidate and applied by `complete`.
-    ///
-    /// Limits: a submit sent while the agent is already Working produces no new edge, so the
-    /// receipt may stay `written` and never reach `started`; nothing correlates the turn
-    /// with this submission beyond event order.
-    pub fn note_turn_start(&mut self, pane: PaneId, seq: u64, now_ms: u64) {
-        // An interrupt is not a turn: a Working edge after Esc says nothing about it.
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|e| e.pane == pane && e.receipt.kind != SubmitKind::Interrupt)
-        {
-            match entry.receipt.state {
-                SubmitState::Written if entry.written_seq.is_some_and(|w| w < seq) => {
-                    entry.receipt.state = SubmitState::Started;
-                    entry.receipt.started_at_ms = Some(now_ms);
-                }
-                SubmitState::Accepted
-                    if entry.start_candidate_ms.is_none()
-                        && entry.fence.is_committed()
-                        && !entry.fence.is_tripped() =>
-                {
-                    entry.start_candidate_ms = Some(now_ms);
-                }
-                _ => {}
-            }
-        }
-    }
-
     /// An Idle or Blocked (AwaitingHuman) edge at registry event `seq`: the first such edge
-    /// after a confirmed `interrupt` write records `effect_observed_at_ms`. Order-based
-    /// only; the edge may have other causes.
+    /// ordered after a confirmed `interrupt` write records
+    /// `turn_end_observed_after_write_at_ms`. Uncorrelated observation only: the edge may
+    /// have other causes. An edge handled before the completion event (even after the
+    /// writer committed) is never recorded, because it may precede the Esc byte.
     pub fn note_turn_end(&mut self, pane: PaneId, seq: u64, now_ms: u64) {
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|e| e.pane == pane && e.receipt.kind == SubmitKind::Interrupt)
-        {
-            if entry.receipt.effect_observed_at_ms.is_some() {
-                continue;
-            }
-            match entry.receipt.state {
-                SubmitState::Written if entry.written_seq.is_some_and(|w| w < seq) => {
-                    entry.receipt.effect_observed_at_ms = Some(now_ms);
-                }
-                SubmitState::Accepted
-                    if entry.effect_candidate_ms.is_none()
-                        && entry.fence.is_committed()
-                        && !entry.fence.is_tripped() =>
-                {
-                    entry.effect_candidate_ms = Some(now_ms);
-                }
-                _ => {}
-            }
+        for entry in self.entries.values_mut().filter(|e| {
+            e.pane == pane
+                && e.receipt.kind == SubmitKind::Interrupt
+                && e.receipt.state == SubmitState::Written
+                && e.receipt.turn_end_observed_after_write_at_ms.is_none()
+                && e.written_seq.is_some_and(|w| w < seq)
+        }) {
+            entry.receipt.turn_end_observed_after_write_at_ms = Some(now_ms);
         }
     }
 
@@ -439,9 +381,7 @@ impl SubmitLedger {
                 && e.receipt.reset == Some(ResetEvidence::Pending)
         }) {
             match entry.receipt.state {
-                SubmitState::Written | SubmitState::Started
-                    if entry.written_seq.is_some_and(|w| w < seq) =>
-                {
+                SubmitState::Written if entry.written_seq.is_some_and(|w| w < seq) => {
                     entry.receipt.reset = Some(ResetEvidence::Verified);
                     entry.receipt.new_session = Some(session_wire(new_session));
                     entry.receipt.new_generation = Some(new_generation);
@@ -464,7 +404,7 @@ impl SubmitLedger {
             e.pane == pane
                 && e.receipt.kind == SubmitKind::Reset
                 && e.receipt.reset == Some(ResetEvidence::Pending)
-                && matches!(e.receipt.state, SubmitState::Written | SubmitState::Started)
+                && e.receipt.state == SubmitState::Written
         }) {
             entry.receipt.reset = Some(ResetEvidence::Unverified);
         }
@@ -644,41 +584,58 @@ mod tests {
     }
 
     #[test]
-    fn interrupt_effect_is_the_first_idle_edge_after_the_write() {
+    fn interrupt_records_only_the_first_turn_end_after_the_write() {
         let mut l = SubmitLedger::default();
         accept_kind(&mut l, "i", SubmitKind::Interrupt);
-        // Before the write: neither a turn end nor a turn start is attributed.
+        // Before the write: a turn end is not recorded.
         l.note_turn_end(pid(1), 2, 20);
         l.complete("i", &Ok(()), CLEAN, 3, 21);
         let r = l.get("i").unwrap();
         assert_eq!(r.state, SubmitState::Written);
-        assert_eq!(r.effect_observed_at_ms, None);
-        // A Working edge never marks an interrupt started.
-        l.note_turn_start(pid(1), 4, 22);
-        assert_eq!(l.get("i").unwrap().state, SubmitState::Written);
+        assert_eq!(r.turn_end_observed_after_write_at_ms, None);
         l.note_turn_end(pid(2), 5, 23);
-        assert_eq!(l.get("i").unwrap().effect_observed_at_ms, None);
+        assert_eq!(
+            l.get("i").unwrap().turn_end_observed_after_write_at_ms,
+            None
+        );
         l.note_turn_end(pid(1), 6, 24);
-        assert_eq!(l.get("i").unwrap().effect_observed_at_ms, Some(24));
+        assert_eq!(
+            l.get("i").unwrap().turn_end_observed_after_write_at_ms,
+            Some(24)
+        );
         l.note_turn_end(pid(1), 7, 25);
-        assert_eq!(l.get("i").unwrap().effect_observed_at_ms, Some(24));
+        let r = l.get("i").unwrap();
+        assert_eq!(
+            (r.state, r.turn_end_observed_after_write_at_ms),
+            (SubmitState::Written, Some(24))
+        );
 
-        // An edge between the writer's commit and completion is applied on completion.
+        // An edge between the writer's commit and completion may precede the Esc byte:
+        // it is never recorded, and the receipt stays plain `written`.
         let f = accept_kind(&mut l, "race", SubmitKind::Interrupt);
         assert!(f.try_commit());
         l.note_turn_end(pid(1), 8, 30);
         l.complete("race", &Ok(()), f.close(), 9, 31);
         let r = l.get("race").unwrap();
         assert_eq!(
-            (r.state, r.effect_observed_at_ms),
-            (SubmitState::Written, Some(30))
+            (r.state, r.turn_end_observed_after_write_at_ms),
+            (SubmitState::Written, None)
+        );
+        l.note_turn_end(pid(1), 10, 32);
+        assert_eq!(
+            l.get("race").unwrap().turn_end_observed_after_write_at_ms,
+            Some(32)
         );
 
-        // A submit receipt never gets an effect.
+        // A submit receipt never records a turn end.
         accept(&mut l, "s", "x");
-        l.complete("s", &Ok(()), CLEAN, 10, 32);
-        l.note_turn_end(pid(1), 11, 33);
-        assert_eq!(l.get("s").unwrap().effect_observed_at_ms, None);
+        l.complete("s", &Ok(()), CLEAN, 11, 33);
+        l.note_turn_end(pid(1), 12, 34);
+        let r = l.get("s").unwrap();
+        assert_eq!(
+            (r.state, r.turn_end_observed_after_write_at_ms),
+            (SubmitState::Written, None)
+        );
     }
 
     #[test]
@@ -718,7 +675,6 @@ mod tests {
         let mut l = SubmitLedger::default();
         accept_kind(&mut l, "p", SubmitKind::Reset);
         l.complete("p", &Ok(()), CLEAN, 2, 20);
-        l.note_turn_start(pid(1), 3, 21);
         let r = l.get("p").unwrap();
         assert_eq!(r.reset, Some(ResetEvidence::Pending));
         assert!(r.new_session.is_none() && r.new_generation.is_none());
@@ -906,60 +862,19 @@ mod tests {
     }
 
     #[test]
-    fn started_needs_a_turn_after_the_write() {
+    fn completion_after_commit_is_plain_written() {
         let mut l = SubmitLedger::default();
-        accept(&mut l, "s", "x");
-        let clean = FenceSnapshot {
-            committed: true,
-            reason: None,
-        };
-        l.note_turn_start(pid(1), 3, 30);
-        assert_eq!(l.get("s").unwrap().state, SubmitState::Accepted);
-        l.complete("s", &Ok(()), clean, 5, 31);
-        l.note_turn_start(pid(1), 4, 32);
-        assert_eq!(l.get("s").unwrap().state, SubmitState::Written);
-        l.note_turn_start(pid(2), 6, 33);
-        assert_eq!(l.get("s").unwrap().state, SubmitState::Written);
-        l.note_turn_start(pid(1), 6, 34);
-        let r = l.get("s").unwrap();
-        assert_eq!((r.state, r.started_at_ms), (SubmitState::Started, Some(34)));
-        l.note_turn_start(pid(1), 7, 35);
-        assert_eq!(l.get("s").unwrap().started_at_ms, Some(34));
-    }
-
-    #[test]
-    fn turn_start_between_commit_and_completion_marks_started() {
-        let mut l = SubmitLedger::default();
-        let f = accept(&mut l, "race", "x");
-        // Before the writer commits, a turn start is not attributed to this submission.
-        l.note_turn_start(pid(1), 2, 40);
-        assert!(f.try_commit());
-        l.note_turn_start(pid(1), 3, 41);
-        l.note_turn_start(pid(1), 4, 42);
-        assert_eq!(l.get("race").unwrap().state, SubmitState::Accepted);
-        let snap = f.close();
-        l.complete("race", &Ok(()), snap, 5, 43);
-        let r = l.get("race").unwrap();
-        assert_eq!(
-            (r.state, r.written_at_ms, r.started_at_ms),
-            (SubmitState::Started, Some(43), Some(41))
-        );
-
-        // A tripped fence never records a candidate.
-        let g = accept(&mut l, "tripped", "x");
-        assert!(g.try_commit());
-        g.trip(FenceReason::OwnerInput);
-        l.note_turn_start(pid(1), 6, 44);
-        l.complete("tripped", &Ok(()), g.close(), 7, 45);
-        let r = l.get("tripped").unwrap();
-        assert_eq!(r.state, SubmitState::Indeterminate);
-        assert_eq!(r.started_at_ms, None);
-
-        // No candidate: plain written.
+        // Whatever activity the App handled between commit and completion, delivery ends at
+        // `written`; the ledger has no turn-start input at all.
         let h = accept(&mut l, "plain", "x");
         assert!(h.try_commit());
         l.complete("plain", &Ok(()), h.close(), 8, 46);
-        assert_eq!(l.get("plain").unwrap().state, SubmitState::Written);
+        let r = l.get("plain").unwrap();
+        assert_eq!((r.state, r.written_at_ms), (SubmitState::Written, Some(46)));
+        let json = serde_json::to_value(r).unwrap();
+        assert!(json.get("started_at_ms").is_none());
+        assert_eq!(json["state"], "written");
+        assert_eq!(json["acknowledged"], "unsupported");
     }
 
     #[test]

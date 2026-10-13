@@ -365,7 +365,7 @@ fn agent_command() -> Command {
                 )
                 .arg(required("text", "TEXT"))
                 .after_help(
-                    "Prints the receipt. Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: herdr agent submit-status <ID>",
+                    "Prints the receipt. Delivery ends at written, fenced or indeterminate; herdr never claims the agent started the turn (acknowledged is unsupported). Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: herdr agent submit-status <ID>",
                 ),
         )
         .subcommand(
@@ -411,7 +411,7 @@ fn agent_command() -> Command {
                         .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
                 )
                 .after_help(
-                    "Claude only. The agent must be working (else agent_not_working) and the draft clean. The receipt's effect_observed_at_ms is the first idle or awaiting-human edge after the write (order-based, not causal).\n\nnext: herdr agent submit-status <ID>",
+                    "Claude only. The agent must be working (else agent_not_working) and the draft clean. The receipt's turn_end_observed_after_write_at_ms is the first idle or awaiting-human edge after the write completed (an uncorrelated observation, not an acknowledgement).\n\nnext: herdr agent submit-status <ID>",
                 ),
         )
         .subcommand(

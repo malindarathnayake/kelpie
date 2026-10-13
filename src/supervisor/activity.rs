@@ -135,6 +135,13 @@ impl PaneActivity {
         self.fences_armed.store(true, Ordering::Release);
     }
 
+    /// Owner bytes are about to be queued to this pane's PTY: trips every armed submit
+    /// fence, then sets the owner-input latch. Called only once encoding produced bytes.
+    pub fn before_owner_bytes(&self) {
+        self.trip_submit_fences();
+        self.record_owner_input();
+    }
+
     /// Owner keyboard input is about to reach the pane: trips every armed submit fence.
     /// One Acquire load when nothing is armed; not gated by `enabled()` because fences
     /// exist only when the supervisor surface is enabled.
