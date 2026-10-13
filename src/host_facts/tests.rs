@@ -161,6 +161,7 @@ fn interval_has_a_floor() {
     assert_eq!(effective_interval_secs(5), MIN_INTERVAL_SECS);
     assert_eq!(effective_interval_secs(60), 60);
     assert_eq!(effective_interval_secs(600), 600);
+    assert_eq!(effective_interval_secs(u64::MAX), MAX_INTERVAL_SECS);
 }
 
 #[test]

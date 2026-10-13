@@ -51,9 +51,12 @@ impl Shared {
     }
 }
 
-/// Clamps a configured interval to the supported minimum.
+/// Longest supported interval (one day); larger values could overflow deadline math.
+pub(crate) const MAX_INTERVAL_SECS: u64 = 86_400;
+
+/// Clamps a configured interval to the supported range.
 pub(crate) fn effective_interval_secs(configured: u64) -> u64 {
-    configured.max(MIN_INTERVAL_SECS)
+    configured.clamp(MIN_INTERVAL_SECS, MAX_INTERVAL_SECS)
 }
 
 /// `state_dir/host-facts.json`.

@@ -19,7 +19,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{
         GetLastError, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_IO_PENDING, ERROR_PIPE_BUSY,
-        ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT,
+        ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE,
     },
     Storage::FileSystem::{
         CreateFileW, GetDiskFreeSpaceExW, ReadFile, WriteFile, FILE_FLAG_OVERLAPPED, OPEN_EXISTING,
@@ -316,21 +316,24 @@ fn overlapped_io(pipe: &OwnedHandle, op: IoOp<'_>, deadline: Instant) -> Option<
         return None;
     }
     let remaining = deadline.saturating_duration_since(Instant::now());
-    let millis = u32::try_from(remaining.as_millis()).unwrap_or(u32::MAX);
+    // At least 1 ms: with 0 a still-pending operation reports ERROR_IO_INCOMPLETE
+    // rather than WAIT_TIMEOUT.
+    let millis = u32::try_from(remaining.as_millis())
+        .unwrap_or(u32::MAX)
+        .max(1);
     // SAFETY: `overlapped` belongs to the operation started above.
     let ok = unsafe { GetOverlappedResultEx(handle, &overlapped, &mut transferred, millis, 0) };
     if ok != 0 {
         return Some(transferred as usize);
     }
-    // SAFETY: reads the last error right after the call above.
-    if unsafe { GetLastError() } == WAIT_TIMEOUT {
-        // Cancel the pending operation and wait for the cancellation to land, so
-        // the kernel no longer references `overlapped` or the buffer.
-        // SAFETY: same handle and OVERLAPPED as the started operation.
-        unsafe {
-            CancelIoEx(handle, &overlapped);
-            GetOverlappedResult(handle, &overlapped, &mut transferred, 1);
-        }
+    // Whatever the failure (timeout, ERROR_IO_INCOMPLETE, or completed with an
+    // error), cancel and wait until the kernel no longer references `overlapped`
+    // or the buffer before they leave this stack frame. Both calls are harmless
+    // when the operation has already finished.
+    // SAFETY: same handle and OVERLAPPED as the started operation.
+    unsafe {
+        CancelIoEx(handle, &overlapped);
+        GetOverlappedResult(handle, &overlapped, &mut transferred, 1);
     }
     None
 }

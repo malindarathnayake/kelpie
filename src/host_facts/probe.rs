@@ -139,6 +139,12 @@ pub(crate) fn run_bounded(
         return ProbeRun::SpawnFailed;
     }
     let mut command = crate::noninteractive_process::command(program);
+    // Run from the program's own directory, never the server's cwd (often a cloned
+    // repo), so DLL and batch lookups cannot pick files from there [CWE-427]. That
+    // directory is already first in the DLL search order.
+    if let Some(dir) = program.parent() {
+        command.current_dir(dir);
+    }
     command
         .args(args)
         .stdin(Stdio::null())
