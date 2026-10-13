@@ -38,6 +38,7 @@ pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
         "wait-output" => pane_wait_output(&args[1..]),
         "report-agent" => pane_report_agent(&args[1..]),
         "report-agent-session" => pane_report_agent_session(&args[1..]),
+        "report-prompt-submitted" => pane_report_prompt_submitted(&args[1..]),
         "release-agent" => pane_release_agent(&args[1..]),
         "report-metadata" => pane_report_metadata(&args[1..]),
         "run" => pane_run(&args[1..]),
@@ -1413,6 +1414,81 @@ fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
     ))
 }
 
+/// Largest hook payload read from stdin; a larger prompt can never match a submission
+/// (at most 8192 bytes), so nothing is reported.
+const MAX_PROMPT_HOOK_INPUT_BYTES: u64 = 1024 * 1024;
+
+/// Fork (B1): run by the Claude integration's `UserPromptSubmit` hook with the hook JSON
+/// on stdin. Sends only `prompt_ack_sha256_16` of the prompt, never the text. Prints
+/// nothing on success (Claude adds hook stdout to the prompt context).
+fn pane_report_prompt_submitted(args: &[String]) -> std::io::Result<i32> {
+    use std::io::Read;
+
+    const USAGE: &str =
+        "usage: herdr pane report-prompt-submitted <pane_id> --source ID --agent LABEL < hook.json";
+    let args = super::expand_equals_args(args, &["--source", "--agent"]);
+    let mut pane_id = None;
+    let mut source = None;
+    let mut agent = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            flag @ ("--source" | "--agent") => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for {flag}");
+                    return Ok(2);
+                };
+                let slot = if flag == "--source" {
+                    &mut source
+                } else {
+                    &mut agent
+                };
+                *slot = Some(value.trim().to_string()).filter(|value| !value.is_empty());
+                index += 2;
+            }
+            option if option.starts_with('-') => {
+                eprintln!("unknown option: {option}");
+                return Ok(2);
+            }
+            positional => {
+                if pane_id.is_some() {
+                    eprintln!("{USAGE}");
+                    return Ok(2);
+                }
+                pane_id = Some(super::normalize_pane_id(positional));
+                index += 1;
+            }
+        }
+    }
+    let (Some(pane_id), Some(source), Some(agent)) = (pane_id, source, agent) else {
+        eprintln!("{USAGE}");
+        return Ok(2);
+    };
+
+    let mut input = Vec::new();
+    std::io::stdin()
+        .take(MAX_PROMPT_HOOK_INPUT_BYTES + 1)
+        .read_to_end(&mut input)?;
+    if input.len() as u64 > MAX_PROMPT_HOOK_INPUT_BYTES {
+        return Ok(0);
+    }
+    let Some(prompt_sha256_16) = std::str::from_utf8(&input)
+        .ok()
+        .and_then(crate::supervisor::submit::hook_prompt_sha256_16)
+    else {
+        return Ok(0);
+    };
+    drop(input);
+    super::send_ok_request(Method::PaneReportPromptSubmitted(
+        crate::api::schema::supervisor::PaneReportPromptSubmittedParams {
+            pane_id,
+            source,
+            agent,
+            prompt_sha256_16,
+        },
+    ))
+}
+
 fn pane_release_agent(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
         eprintln!("usage: herdr pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
@@ -1700,6 +1776,9 @@ fn print_pane_help() {
     eprintln!("  herdr pane wait-output <pane_id> (--match TEXT | --regex PATTERN) [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--raw]");
     eprintln!("  herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
     eprintln!("  herdr pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+    eprintln!(
+        "  herdr pane report-prompt-submitted <pane_id> --source ID --agent LABEL < hook.json"
+    );
     eprintln!("  herdr pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
     eprintln!("  herdr pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--state-label STATUS=TEXT] [--clear-state-labels] [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
     eprintln!("  herdr pane run <pane_id> <command>");

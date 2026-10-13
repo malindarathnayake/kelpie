@@ -1272,50 +1272,6 @@
           ],
           "type": "object"
         },
-        "AgentPromptParams": {
-          "properties": {
-            "target": {
-              "type": "string"
-            },
-            "text": {
-              "type": "string"
-            },
-            "wait": {
-              "anyOf": [
-                {
-                  "$ref": "#/schemas/request/$defs/AgentPromptWaitOptions"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "target",
-            "text"
-          ],
-          "type": "object"
-        },
-        "AgentPromptWaitOptions": {
-          "properties": {
-            "timeout_ms": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "until": {
-              "items": {
-                "$ref": "#/schemas/request/$defs/AgentStatus"
-              },
-              "type": "array"
-            }
-          },
-          "type": "object"
-        },
         "AgentReadParams": {
           "properties": {
             "format": {
@@ -1384,24 +1340,6 @@
             "pane_id",
             "session_id",
             "submit_id"
-          ],
-          "type": "object"
-        },
-        "AgentSendKeysParams": {
-          "properties": {
-            "keys": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "target": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "target",
-            "keys"
           ],
           "type": "object"
         },
@@ -3235,6 +3173,31 @@
           "required": [
             "pane_id",
             "source"
+          ],
+          "type": "object"
+        },
+        "PaneReportPromptSubmittedParams": {
+          "description": "Parameters for `pane.report_prompt_submitted`: an agent's prompt-submit hook reports\nthe hash of the prompt it received. Never carries the prompt text.",
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "prompt_sha256_16": {
+              "description": "First 16 lowercase hex chars of SHA-256 over the normalised prompt text (see\n`supervisor::submit::prompt_ack_sha256_16`).",
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "agent",
+            "prompt_sha256_16"
           ],
           "type": "object"
         },
@@ -5516,22 +5479,6 @@
         {
           "properties": {
             "method": {
-              "const": "agent.send_keys",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/AgentSendKeysParams"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
               "const": "agent.rename",
               "type": "string"
             },
@@ -5601,22 +5548,6 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentStartParams"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "const": "agent.prompt",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/AgentPromptParams"
             }
           },
           "required": [
@@ -5729,6 +5660,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentSubmitStatusParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.report_prompt_submitted",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneReportPromptSubmittedParams"
             }
           },
           "required": [
@@ -10785,22 +10732,6 @@
             },
             {
               "properties": {
-                "agent": {
-                  "$ref": "#/schemas/success_response/$defs/AgentInfo"
-                },
-                "type": {
-                  "const": "agent_prompted",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "agent"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
                 "agents": {
                   "items": {
                     "$ref": "#/schemas/success_response/$defs/AgentInfo"
@@ -11915,9 +11846,10 @@
           "type": "string"
         },
         "SubmitAcknowledged": {
-          "description": "Whether the agent acknowledged the submission natively.",
+          "description": "Whether the agent acknowledged the submission natively. `confirmed`: the agent's own\nprompt-submit hook reported the same text hash for the pane after the write (Claude\n`UserPromptSubmit`). Otherwise `unsupported`; never inferred from activity edges.",
           "enum": [
             "unsupported",
+            "confirmed",
             "unknown"
           ],
           "type": "string"
@@ -11975,6 +11907,15 @@
             },
             "acknowledged": {
               "$ref": "#/schemas/success_response/$defs/SubmitAcknowledged"
+            },
+            "acknowledged_at_ms": {
+              "description": "When `acknowledged` is `confirmed`: time the matching prompt-submit hook report was\napplied.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "handoff": {
               "default": false,

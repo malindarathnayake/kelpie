@@ -14,7 +14,7 @@ use crate::api::schema::{
     ErrorBody, ErrorResponse, Method, Request, ResponseResult, ServerCapabilities, SuccessResponse,
 };
 use crate::api::subscriptions::ActiveSubscription;
-use crate::api::wait::{prompt_agent, wait_for_agent, wait_for_event, wait_for_output};
+use crate::api::wait::{wait_for_agent, wait_for_event, wait_for_output};
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
     bind_local_listener, is_connection_closed_error, local_stream_peer_closed,
@@ -269,7 +269,7 @@ mod accept_loop_tests {
     }
 }
 
-fn retired_pane_graphics_method_error(line: &str, id: &str) -> Option<ErrorResponse> {
+fn retired_method_error(line: &str, id: &str) -> Option<ErrorResponse> {
     #[derive(serde::Deserialize)]
     struct RequestMethod {
         method: String,
@@ -277,20 +277,42 @@ fn retired_pane_graphics_method_error(line: &str, id: &str) -> Option<ErrorRespo
 
     let envelope = serde_json::from_str::<RequestMethod>(line).ok()?;
     let method = envelope.method.as_str();
-    if !matches!(
-        method,
-        "pane.graphics.info" | "pane.graphics.set" | "pane.graphics.clear" | "pane.graphics.stream"
-    ) {
-        return None;
-    }
+    let message = match method {
+        "pane.graphics.info" | "pane.graphics.set" | "pane.graphics.clear"
+        | "pane.graphics.stream" => format!("unknown method: {method}"),
+        // Removed agent writers: point old clients at the receipted replacements.
+        "agent.prompt" | "agent.send_keys" => format!(
+            "unknown method: {method}; use agent.submit, agent.answer, agent.interrupt, agent.reset or agent.resume"
+        ),
+        _ => return None,
+    };
 
     Some(ErrorResponse {
         id: id.into(),
         error: ErrorBody {
             code: "unknown_method".into(),
-            message: format!("unknown method: {method}"),
+            message,
         },
     })
+}
+
+#[cfg(test)]
+#[test]
+fn removed_agent_writers_return_unknown_method() {
+    for method in ["agent.prompt", "agent.send_keys"] {
+        let line = format!(
+            "{{\"id\":\"old\",\"method\":\"{method}\",\"params\":{{\"target\":\"w\",\"text\":\"x\",\"keys\":[\"enter\"]}}}}"
+        );
+        // The typed request no longer accepts the method, so the connection takes the
+        // invalid-request path where the retired-method error is produced.
+        assert!(serde_json::from_str::<Request>(&line).is_err(), "{method}");
+        let error = retired_method_error(&line, "old").expect("retired method recognised");
+        assert_eq!(error.id, "old");
+        assert_eq!(error.error.code, "unknown_method");
+        assert!(error.error.message.contains(method), "{method}");
+        assert!(error.error.message.contains("agent.submit"), "{method}");
+    }
+    assert!(retired_method_error(r#"{"id":"x","method":"nope"}"#, "x").is_none());
 }
 
 fn prepare_socket_path(path: &Path) -> std::io::Result<()> {
@@ -364,14 +386,13 @@ fn handle_connection_with_stop(
             } else {
                 String::new()
             };
-            let response =
-                retired_pane_graphics_method_error(line, &id).unwrap_or_else(|| ErrorResponse {
-                    id,
-                    error: ErrorBody {
-                        code: "invalid_request".into(),
-                        message: format!("invalid request: {request_error}"),
-                    },
-                });
+            let response = retired_method_error(line, &id).unwrap_or_else(|| ErrorResponse {
+                id,
+                error: ErrorBody {
+                    code: "invalid_request".into(),
+                    message: format!("invalid request: {request_error}"),
+                },
+            });
             write_json_line_allow_disconnect(&mut stream, &response)?;
             return Ok(());
         }
@@ -450,17 +471,6 @@ fn handle_connection_with_stop(
         }
         Method::EventsWait(params) => {
             let response = wait_for_event(
-                request_id.clone(),
-                params,
-                &mut stream,
-                api_tx,
-                event_hub,
-                running,
-            )?;
-            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
-        }
-        Method::AgentPrompt(params) => {
-            let response = prompt_agent(
                 request_id.clone(),
                 params,
                 &mut stream,
@@ -606,7 +616,7 @@ fn handle_request(
         return crate::host_facts::api_response(request.id, refresh);
     }
 
-    dispatch_to_app(request, api_tx, None, response_write_complete, None)
+    dispatch_to_app(request, api_tx, None, response_write_complete)
 }
 
 pub(crate) fn api_method_name(method: &Method) -> &'static str {
@@ -652,13 +662,11 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::AgentGet(_) => "agent.get",
         Method::AgentRead(_) => "agent.read",
         Method::AgentExplain(_) => "agent.explain",
-        Method::AgentSendKeys(_) => "agent.send_keys",
         Method::AgentRename(_) => "agent.rename",
         Method::AgentViewSet(_) => "agent.view.set",
         Method::AgentViewClear(_) => "agent.view.clear",
         Method::AgentFocus(_) => "agent.focus",
         Method::AgentStart(_) => "agent.start",
-        Method::AgentPrompt(_) => "agent.prompt",
         Method::AgentWait(_) => "agent.wait",
         Method::AgentSubmit(_) => "agent.submit",
         Method::AgentAnswer(_) => "agent.answer",
@@ -666,6 +674,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::AgentReset(_) => "agent.reset",
         Method::AgentResume(_) => "agent.resume",
         Method::AgentSubmitStatus(_) => "agent.submit_status",
+        Method::PaneReportPromptSubmitted(_) => "pane.report_prompt_submitted",
         Method::PaneSplit(_) => "pane.split",
         Method::PaneSwap(_) => "pane.swap",
         Method::PaneMove(_) => "pane.move",
@@ -1056,21 +1065,7 @@ pub(super) fn dispatch_to_app_with_timeout(
     api_tx: &ApiRequestSender,
     timeout: Option<Duration>,
 ) -> String {
-    dispatch_to_app(request, api_tx, timeout, None, None)
-}
-
-pub(super) fn dispatch_to_app_with_caller_timeout(
-    request: Request,
-    api_tx: &ApiRequestSender,
-    timeout: Option<Duration>,
-) -> String {
-    dispatch_to_app(
-        request,
-        api_tx,
-        timeout,
-        None,
-        Some(("timeout", "timed out waiting for agent status")),
-    )
+    dispatch_to_app(request, api_tx, timeout, None)
 }
 
 fn dispatch_to_app(
@@ -1078,7 +1073,6 @@ fn dispatch_to_app(
     api_tx: &ApiRequestSender,
     timeout: Option<Duration>,
     response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
-    timeout_response: Option<(&str, &str)>,
 ) -> String {
     let request_id = request.id.clone();
     let (respond_to, response_rx) = std::sync::mpsc::channel();
@@ -1115,39 +1109,12 @@ fn dispatch_to_app(
 
     match response {
         Ok(response) => response,
-        Err(err) => {
-            if err.kind() == std::io::ErrorKind::TimedOut {
-                if let Some((code, message)) = timeout_response {
-                    return error_response_json(request_id, code, message.into());
-                }
-            }
-            error_response_json(
-                request_id,
-                "server_unavailable",
-                format!("request handling failed: {err}"),
-            )
-        }
+        Err(err) => error_response_json(
+            request_id,
+            "server_unavailable",
+            format!("request handling failed: {err}"),
+        ),
     }
-}
-
-#[cfg(test)]
-#[test]
-fn caller_timeout_dispatch_uses_timeout_error() {
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let response = dispatch_to_app_with_caller_timeout(
-        Request {
-            id: "prompt-timeout".into(),
-            method: Method::AgentPrompt(crate::api::schema::AgentPromptParams {
-                target: "reviewer".into(),
-                text: "review this".into(),
-                wait: None,
-            }),
-        },
-        &tx,
-        Some(Duration::ZERO),
-    );
-    let error: ErrorResponse = serde_json::from_str(&response).unwrap();
-    assert_eq!(error.error.code, "timeout");
 }
 
 fn error_response_json(id: String, code: &str, message: String) -> String {
@@ -1412,12 +1379,14 @@ mod tests {
     }
 
     #[test]
-    fn removed_pane_graphics_methods_return_unknown_method_without_stream_upgrade() {
+    fn removed_methods_return_unknown_method_without_stream_upgrade() {
         for method in [
             "pane.graphics.info",
             "pane.graphics.set",
             "pane.graphics.clear",
             "pane.graphics.stream",
+            "agent.prompt",
+            "agent.send_keys",
         ] {
             let (mut client, server, _path) = local_stream_pair("removed-pane-graphics");
             let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();

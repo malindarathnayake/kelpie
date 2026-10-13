@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=10
+# HERDR_INTEGRATION_VERSION=11
 
 set -eu
 
@@ -14,6 +14,14 @@ cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
   session) ;;
+  prompt)
+    # UserPromptSubmit: herdr reads the hook JSON and reports only a hash of the prompt.
+    [ "${HERDR_ENV:-}" = "1" ] || exit 0
+    [ -n "${HERDR_PANE_ID:-}" ] || exit 0
+    "${HERDR_BIN_PATH:-herdr}" pane report-prompt-submitted "$HERDR_PANE_ID" \
+      --source herdr:claude --agent claude <"$hook_input_file" >/dev/null 2>&1 || true
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 

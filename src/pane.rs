@@ -3764,17 +3764,6 @@ impl PaneRuntime {
         }
     }
 
-    pub fn queue_user_input_submission(
-        &self,
-        text: Bytes,
-        enter: Bytes,
-        delay: std::time::Duration,
-        deadline: Option<std::time::Instant>,
-    ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
-        self.io
-            .queue_user_input_submission(text, enter, delay, deadline, None)
-    }
-
     /// Fork: queues a submission whose first text byte is guarded by `fence`.
     pub fn queue_fenced_user_input_submission(
         &self,

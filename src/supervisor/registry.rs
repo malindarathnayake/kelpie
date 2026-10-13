@@ -426,6 +426,19 @@ impl SupervisorState {
         self.pane_mut(pane).turn_seq = Some(seq);
     }
 
+    /// Fork (B1): a prompt-submit hook of `pane` reported `hash`, ordered on the registry
+    /// event counter after every write completion already handled. Returns the confirmed
+    /// submit id, if any.
+    pub fn note_prompt_submitted(
+        &mut self,
+        pane: PaneId,
+        hash: &str,
+        now_ms: u64,
+    ) -> Option<String> {
+        let seq = self.next_event_seq();
+        self.submits.note_prompt_submitted(pane, hash, seq, now_ms)
+    }
+
     /// Bumps the generation and records whether the new generation is an exit.
     pub fn record_generation_change(
         &mut self,
@@ -1381,6 +1394,7 @@ mod tests {
                         pane: pid(pane),
                         target_ref,
                         text_sha256_16: String::new(),
+                        ack_sha256_16: None,
                         handoff: false,
                         session_id: Some("x".into()),
                     },

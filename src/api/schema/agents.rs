@@ -17,29 +17,12 @@ pub struct AgentReadParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentSendKeysParams {
-    pub target: String,
-    pub keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentWaitParams {
     pub target: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub until: Vec<AgentStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentPromptWaitOptions {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub until: Vec<AgentStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout_ms: Option<u64>,
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub(crate) submission_deadline: Option<std::time::Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -173,14 +156,6 @@ pub struct AgentStartParams {
     /// Startup timeout in milliseconds. Values must be greater than 3000 and at most 300000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentPromptParams {
-    pub target: String,
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wait: Option<AgentPromptWaitOptions>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

@@ -2,10 +2,37 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=10
+# HERDR_INTEGRATION_VERSION=11
 
 param([string]$Action = "")
 
+if ($Action -eq "prompt") {
+    # UserPromptSubmit: herdr reads the hook JSON and reports only a hash of the prompt.
+    # The raw stdin bytes are forwarded unchanged, so no console code page touches them.
+    if ($env:HERDR_ENV -ne "1") { exit 0 }
+    if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { exit 0 }
+    try {
+        $buffer = New-Object System.IO.MemoryStream
+        [Console]::OpenStandardInput().CopyTo($buffer)
+        $bytes = $buffer.ToArray()
+        $herdr = if ([string]::IsNullOrWhiteSpace($env:HERDR_BIN_PATH)) { "herdr" } else { $env:HERDR_BIN_PATH }
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $herdr
+        $startInfo.Arguments = "pane report-prompt-submitted `"$($env:HERDR_PANE_ID)`" --source herdr:claude --agent claude"
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+        $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $process.StandardInput.Close()
+        # Output is a few bytes at most; never block on it. A stuck report is killed.
+        if (-not $process.WaitForExit(10000)) { $process.Kill() }
+    } catch {
+    }
+    exit 0
+}
 if ($Action -ne "session") { exit 0 }
 if ($env:HERDR_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { exit 0 }

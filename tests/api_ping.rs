@@ -1304,11 +1304,15 @@ fn agent_methods_round_trip_over_socket() {
     assert_eq!(read["result"]["type"], "pane_read");
     assert_eq!(read["result"]["read"]["pane_id"], pane_id);
 
-    let sent = send_request(
-        &socket_path,
+    // Removed agent writers answer an old client with unknown_method, never a write.
+    for request in [
         r#"{"id":"agent_send_keys","method":"agent.send_keys","params":{"target":"worker","keys":["enter"]}}"#,
-    );
-    assert_eq!(sent["error"]["code"], "agent_not_ready");
+        r#"{"id":"agent_prompt","method":"agent.prompt","params":{"target":"worker","text":"hi","wait":{"until":["idle"]}}}"#,
+    ] {
+        let removed = send_request(&socket_path, request);
+        assert_eq!(removed["error"]["code"], "unknown_method", "{request}");
+        assert!(removed.get("result").is_none(), "{request}");
+    }
 
     let tab_created = send_request(
         &socket_path,

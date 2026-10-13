@@ -514,39 +514,6 @@ fn agent_command() -> Command {
                 .arg(flag("ansi")),
         )
         .subcommand(
-            Command::new("send-keys")
-                .about("Send key presses to an agent")
-                .arg(required("target", "TARGET"))
-                .arg(required("key", "KEY").num_args(1..))
-                .after_help("Use esc as the canonical Escape key name; escape is also accepted."),
-        )
-        .subcommand(
-            Command::new("prompt")
-                .about("Submit a prompt to an agent")
-                .override_usage("herdr agent prompt <TARGET> <TEXT> [OPTIONS]")
-                .arg(required("target", "TARGET"))
-                .arg(required("text", "TEXT"))
-                .arg(
-                    flag("wait")
-                        .help("Wait for the first matching state observed after submission"),
-                )
-                .arg(
-                    option("until", "STATUS")
-                        .action(ArgAction::Append)
-                        .requires("wait")
-                        .value_parser(["idle", "working", "blocked", "done", "unknown"])
-                        .help("State to match after --wait; repeat for more than one state"),
-                )
-                .arg(
-                    option("timeout", "MS")
-                        .requires("wait")
-                        .help("Fail after this many milliseconds"),
-                )
-                .after_help(
-                    "If the agent is already blocked, submission is rejected with agent_blocked before any input is sent. When an accepted submission starts from another non-working state, --wait requires an observed working or blocked state within 5000ms; otherwise it returns agent_prompt_stalled. A caller timeout that expires first returns timeout. It then matches idle, done, or blocked by default, or any exact --until state. It does not track turns: if the agent is already working, that active turn's completion may match.",
-                ),
-        )
-        .subcommand(
             Command::new("rename")
                 .about("Rename an agent")
                 .override_usage("herdr agent rename <TARGET> <NAME>|--clear")
@@ -612,7 +579,7 @@ fn agent_command() -> Command {
                         .last(true),
                 )
                 .after_help(
-                    "The pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.\n\nnext: herdr agent prompt <TARGET> <TEXT> --wait",
+                    "The pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.\n\nnext: herdr agent digest, then herdr agent submit --target-ref <TARGET_REF> --submit-id <ID> <TEXT>",
                 ),
         )
         .subcommand(
@@ -815,6 +782,7 @@ fn pane_command() -> Command {
         )
         .subcommand(report_agent_command())
         .subcommand(report_agent_session_command())
+        .subcommand(report_prompt_submitted_command())
         .subcommand(release_agent_command())
         .subcommand(report_metadata_command())
 }
@@ -844,6 +812,15 @@ fn report_agent_session_command() -> Command {
         .arg(path_option("agent-session-path", "PATH"))
         .arg(option("session-start-source", "SOURCE"))
         .arg(resume_argv_arg())
+}
+
+fn report_prompt_submitted_command() -> Command {
+    Command::new("report-prompt-submitted")
+        .about("Report the hash of a prompt an agent hook received (reads hook JSON on stdin)")
+        .arg(required("pane_id", "PANE_ID"))
+        .arg(option("source", "ID").required(true))
+        .arg(option("agent", "LABEL").required(true))
+        .after_help("Sends only a 16-hex SHA-256 prefix of the normalised prompt, never its text. Used by the Claude integration's UserPromptSubmit hook to confirm agent.submit receipts.")
 }
 
 fn resume_argv_arg() -> Arg {
@@ -1587,6 +1564,10 @@ mod tests {
                 &["source", "agent"][..],
             ),
             (&["pane", "release-agent"][..], &["source", "agent"][..]),
+            (
+                &["pane", "report-prompt-submitted"][..],
+                &["source", "agent"][..],
+            ),
             (&["pane", "report-metadata"][..], &["source"][..]),
         ] {
             let cmd = command_path(&super::command(), path).clone();
@@ -1598,19 +1579,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn agent_prompt_until_requires_wait() {
-        let error = super::command()
-            .try_get_matches_from([
-                "herdr", "agent", "prompt", "reviewer", "hello", "--until", "idle",
-            ])
-            .unwrap_err();
-        assert_eq!(
-            error.kind(),
-            clap::error::ErrorKind::MissingRequiredArgument
-        );
     }
 
     #[test]
@@ -1687,9 +1655,14 @@ mod tests {
             .all(|subcommand| subcommand.get_name() != "wait"));
 
         let agent = command_path(&cmd, &["agent"]);
-        assert!(agent
-            .get_subcommands()
-            .any(|subcommand| subcommand.get_name() == "send-keys"));
+        for removed in ["send-keys", "prompt"] {
+            assert!(
+                agent
+                    .get_subcommands()
+                    .all(|subcommand| subcommand.get_name() != removed),
+                "agent {removed} was removed"
+            );
+        }
         assert!(agent
             .get_subcommands()
             .any(|subcommand| subcommand.get_name() == "wait"));
@@ -1777,7 +1750,7 @@ mod tests {
             "agent start dropped its existing after_help: {agent_start}"
         );
         assert!(
-            agent_start.contains("next: herdr agent prompt <TARGET> <TEXT> --wait"),
+            agent_start.contains("next: herdr agent digest, then herdr agent submit"),
             "agent start is missing its next-step hint: {agent_start}"
         );
 

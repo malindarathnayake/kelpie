@@ -221,7 +221,7 @@ impl Fixture {
     }
 
     /// Run a long-lived stand-in process that herdr identifies as Claude, so
-    /// `agent prompt` sees the agent as the pane's foreground process. It is an
+    /// `agent submit` sees the agent as the pane's foreground process. It is an
     /// interactive shell, so typed prompts are echoed and otherwise harmless.
     fn launch_stand_in_claude(&self, pane: &str) {
         let stand_in = self.write_stand_in_claude();
@@ -569,71 +569,6 @@ fn current_background_job_is_not_a_separate_fact() {
     assert_no_future_facts(&agent);
 }
 
-/// Incident: `agent prompt --wait` exited 1 after its timeout even though the
-/// prompt had been delivered and the agent had started working. Today the
-/// failure carries no delivery fact.
-#[test]
-fn current_prompt_wait_timeout_hides_delivery() {
-    let mut fixture = Fixture::start();
-    let pane = fixture.pane();
-    fixture.launch_stand_in_claude(&pane);
-    fixture.report(&pane, "claude", "idle");
-
-    let prompt = fixture
-        .command(&[
-            "agent",
-            "prompt",
-            &pane,
-            "cover the 429 retry path",
-            "--wait",
-            "--until",
-            "idle",
-            "--timeout",
-            "8000",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    // The prompt text reaches the pane, then the agent starts working and
-    // keeps working past the caller's timeout. The delivery wait is shorter
-    // than the prompt timeout, so "working" is always reported before it.
-    let delivered = fixture.cli(&[
-        "pane",
-        "wait-output",
-        &pane,
-        "--match",
-        "cover the 429 retry path",
-        "--timeout",
-        "4000",
-    ]);
-    if !delivered.status.success() {
-        let output = prompt.wait_with_output().unwrap();
-        panic!(
-            "prompt text never reached the pane; agent prompt exited {:?}: {}{}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr),
-            String::from_utf8_lossy(&output.stdout)
-        );
-    }
-    fixture.report(&pane, "claude", "working");
-
-    let output = prompt.wait_with_output().unwrap();
-
-    assert_eq!(output.status.code(), Some(1));
-    assert!(
-        output.stdout.iter().all(u8::is_ascii_whitespace),
-        "unexpected stdout: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    let error: serde_json::Value = serde_json::from_slice(&output.stderr)
-        .unwrap_or_else(|_| panic!("stderr: {}", String::from_utf8_lossy(&output.stderr)));
-    assert_eq!(error["error"]["code"], "timeout", "{error}");
-    assert_no_future_facts(&error);
-    assert_eq!(fixture.agent_status(&pane)["agent_status"], "working");
-}
-
 /// `isolate()` must point every child, server included, at the fixture's own
 /// state dir. The headless server writes nothing under the state dir in a
 /// short run (sessions and logs live under the config dir), so the write is
@@ -906,16 +841,22 @@ fn target_ref_arg(agent: &serde_json::Value) -> String {
     )
 }
 
-/// The receipt inside a submit/submit-status success response. Every receipt
-/// must say the agent's acknowledgement is unsupported (S6h) and must never
-/// carry the submitted text.
+/// The receipt inside a submit/submit-status success response. The agent's
+/// acknowledgement is `unsupported` unless its prompt-submit hook confirmed the
+/// write (B1), and a receipt must never carry the submitted text.
 fn receipt_of(response: &serde_json::Value, text: &str) -> serde_json::Value {
     assert_eq!(
         response["result"]["type"], "agent_submit_receipt",
         "{response}"
     );
     let receipt = response["result"]["receipt"].clone();
-    assert_eq!(receipt["acknowledged"], "unsupported", "{receipt}");
+    assert!(
+        matches!(
+            receipt["acknowledged"].as_str(),
+            Some("unsupported" | "confirmed")
+        ),
+        "{receipt}"
+    );
     assert!(
         !receipt.to_string().contains(text),
         "receipt leaked the submitted text: {receipt}"
@@ -1086,6 +1027,62 @@ impl Fixture {
                 let _ = server.wait();
             }
         }
+    }
+
+    /// Run the shipped Claude hook script with action `prompt`, as Claude's
+    /// `UserPromptSubmit` hook would, feeding it the hook JSON for `prompt`. The
+    /// hook must exit 0 and print nothing (Claude adds hook stdout to the prompt).
+    fn run_prompt_hook(&self, pane: &str, prompt: &str) {
+        use std::io::Write as _;
+
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("integration")
+            .join("assets")
+            .join("claude");
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("powershell");
+            command
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(assets.join("herdr-agent-state.ps1"));
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.arg(assets.join("herdr-agent-state.sh"));
+            command
+        };
+        command.arg("prompt");
+        self.isolate(&mut command);
+        command
+            .env("HERDR_ENV", "1")
+            .env("HERDR_PANE_ID", pane)
+            .env("HERDR_BIN_PATH", env!("CARGO_BIN_EXE_herdr"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let payload = serde_json::json!({
+            "session_id": "fixture-session",
+            "transcript_path": "fixture.jsonl",
+            "cwd": self.base.to_str().unwrap(),
+            "permission_mode": "default",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": prompt,
+        });
+        let mut child = command.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(payload.to_string().as_bytes())
+            .unwrap();
+        let status = wait_child_exit(&mut child, Duration::from_secs(60));
+        let output = child.wait_with_output().unwrap();
+        assert!(status.success(), "prompt hook failed: {status:?}");
+        assert!(
+            output.stdout.iter().all(u8::is_ascii_whitespace),
+            "prompt hook printed to stdout: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
 
     /// `herdr agent watch <args>` as a child; its stdout lines arrive parsed.
@@ -1308,6 +1305,53 @@ fn s6b_submit_once_then_retry_writes_once() {
         fixture.screen_count(&pane, marker),
         1,
         "retry delivered the text again"
+    );
+}
+
+/// B1: the shipped Claude `UserPromptSubmit` hook, fed the hook JSON for the
+/// submitted text, confirms the written receipt once. A different prompt
+/// confirms nothing, a repeat of the same prompt changes nothing, and the
+/// prompt text reaches neither the receipt nor the server log.
+#[test]
+fn b1_prompt_submit_hook_confirms_the_written_receipt_once() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let agent = fixture.ready_clean_claude(&pane, "b1");
+    let target = target_ref_arg(&agent);
+    let marker = "b1-prompt-ack-marker";
+    let text = comment_line(marker);
+
+    fixture.submit_ok(&target, "b1-x", &text);
+    let written = fixture.wait_receipt("b1-x", &text, "written", |receipt| {
+        receipt["state"] == "written"
+    });
+    assert_eq!(written["acknowledged"], "unsupported", "{written}");
+
+    fixture.run_prompt_hook(&pane, "b1 a prompt the owner typed");
+    let unmatched = fixture.submit_status("b1-x", &text);
+    assert_eq!(unmatched["acknowledged"], "unsupported", "{unmatched}");
+
+    // Claude's hook prompt for the submitted text, with a trailing newline.
+    fixture.run_prompt_hook(&pane, &format!("{text}\n"));
+    let confirmed = fixture.wait_receipt("b1-x", &text, "confirmed", |receipt| {
+        receipt["acknowledged"] == "confirmed"
+    });
+    assert_eq!(confirmed["state"], "written", "{confirmed}");
+    assert!(confirmed["acknowledged_at_ms"].is_u64(), "{confirmed}");
+
+    // The owner retyping the same prompt changes nothing.
+    fixture.run_prompt_hook(&pane, &text);
+    assert_eq!(fixture.submit_status("b1-x", &text), confirmed);
+
+    let log_path = fixture
+        .config_home
+        .join(app_dir_name())
+        .join("herdr-server.log");
+    let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+    assert!(
+        !log.contains(marker) && !log.contains("owner typed"),
+        "server log contains prompt text: {}",
+        log_path.display()
     );
 }
 

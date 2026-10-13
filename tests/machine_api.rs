@@ -229,7 +229,17 @@ fn machine_api_routes_structured_payload_and_remote_errors_without_local_fallbac
     );
     let prompt = "quotes ' \" ; $(touch should-not-exist)\n--machine other";
     let output = harness
-        .command(&["--machine", "mac", "agent", "prompt", "w4:p1", prompt])
+        .command(&[
+            "--machine",
+            "mac",
+            "agent",
+            "submit",
+            "--target-ref",
+            "epoch:w4:p1:1",
+            "--submit-id",
+            "remote-1",
+            prompt,
+        ])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
@@ -237,8 +247,9 @@ fn machine_api_routes_structured_payload_and_remote_errors_without_local_fallbac
         .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stderr)));
     assert_eq!(error["error"]["code"], "test_remote_error");
     let request = server.join().unwrap();
-    assert_eq!(request["method"], "agent.prompt");
+    assert_eq!(request["method"], "agent.submit");
     assert_eq!(request["params"]["text"], prompt);
+    assert_eq!(request["params"]["target_ref"]["pane_id"], "w4:p1");
     let ssh_args = fs::read_to_string(harness.root.join("ssh-args")).unwrap();
     assert!(ssh_args.contains("StrictHostKeyChecking=yes"));
     assert!(ssh_args.contains("BatchMode=yes"));

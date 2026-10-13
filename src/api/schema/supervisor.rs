@@ -289,6 +289,18 @@ pub struct AgentSubmitParams {
     pub submit_id: String,
 }
 
+/// Parameters for `pane.report_prompt_submitted`: an agent's prompt-submit hook reports
+/// the hash of the prompt it received. Never carries the prompt text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneReportPromptSubmittedParams {
+    pub pane_id: String,
+    pub source: String,
+    pub agent: String,
+    /// First 16 lowercase hex chars of SHA-256 over the normalised prompt text (see
+    /// `supervisor::submit::prompt_ack_sha256_16`).
+    pub prompt_sha256_16: String,
+}
+
 /// Parameters for `agent.answer`: `agent.submit` plus the open prose question it answers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentAnswerParams {
@@ -425,11 +437,14 @@ pub struct ReceiptSession {
     pub value: String,
 }
 
-/// Whether the agent acknowledged the submission natively.
+/// Whether the agent acknowledged the submission natively. `confirmed`: the agent's own
+/// prompt-submit hook reported the same text hash for the pane after the write (Claude
+/// `UserPromptSubmit`). Otherwise `unsupported`; never inferred from activity edges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubmitAcknowledged {
     Unsupported,
+    Confirmed,
     #[serde(other)]
     Unknown,
 }
@@ -447,6 +462,10 @@ pub struct SubmitReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<SubmitReason>,
     pub acknowledged: SubmitAcknowledged,
+    /// When `acknowledged` is `confirmed`: time the matching prompt-submit hook report was
+    /// applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acknowledged_at_ms: Option<u64>,
     /// First 16 lowercase hex chars of SHA-256 over the submitted text bytes (`resume`:
     /// over the requested session id).
     pub text_sha256_16: String,

@@ -1144,13 +1144,6 @@ impl App {
                 return self.handle_agent_view_clear(request.id, params);
             }
             Method::AgentStart(params) => return self.handle_agent_start(request.id, params),
-            Method::AgentPrompt(_) => {
-                return responses::encode_error(
-                    request.id,
-                    "invalid_request",
-                    "agent.prompt is handled asynchronously by the app runtime",
-                );
-            }
             Method::AgentSubmit(params) => return self.handle_agent_submit(request.id, params),
             Method::AgentAnswer(params) => return self.handle_agent_answer(request.id, params),
             Method::AgentInterrupt(params) => {
@@ -1161,6 +1154,9 @@ impl App {
             Method::AgentSubmitStatus(params) => {
                 return self.handle_agent_submit_status(request.id, params);
             }
+            Method::PaneReportPromptSubmitted(params) => {
+                return self.handle_pane_report_prompt_submitted(request.id, params);
+            }
             Method::AgentWait(_) => {
                 return responses::encode_error(
                     request.id,
@@ -1170,9 +1166,6 @@ impl App {
             }
             Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
             Method::AgentExplain(target) => return self.handle_agent_explain(request.id, target),
-            Method::AgentSendKeys(params) => {
-                return self.handle_agent_send_keys(request.id, params);
-            }
             Method::PaneSplit(params) => return self.handle_pane_split(request.id, params),
             Method::PaneSwap(params) => return self.handle_pane_swap(request.id, params),
             Method::PaneMove(params) => return self.handle_pane_move(request.id, params),

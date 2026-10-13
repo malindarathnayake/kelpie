@@ -8,7 +8,8 @@ use bytes::Bytes;
 
 use crate::api::schema::supervisor::{
     AgentAnswerParams, AgentControlParams, AgentResumeParams, AgentSubmitParams,
-    AgentSubmitStatusParams, DraftState, SubmitKind, SubmitReceipt, TargetRef,
+    AgentSubmitStatusParams, DraftState, PaneReportPromptSubmittedParams, SubmitKind,
+    SubmitReceipt, TargetRef,
 };
 use crate::api::schema::ResponseResult;
 use crate::app::App;
@@ -16,16 +17,16 @@ use crate::events::AppEvent;
 use crate::supervisor::fence::SubmitFence;
 use crate::supervisor::registry::AnswerReject;
 use crate::supervisor::submit::{
-    text_sha256_16, valid_resume_session_id, valid_submit_id, valid_submit_text, NewReceipt,
-    Repeat, RequestKey, SubmitEvent, INTERRUPT_HASH_TEXT, MAX_RESUME_SESSION_ID_CHARS, RESET_TEXT,
-    SUBMIT_DEADLINE,
+    prompt_ack_sha256_16, text_sha256_16, valid_prompt_sha256_16, valid_resume_session_id,
+    valid_submit_id, valid_submit_text, NewReceipt, Repeat, RequestKey, SubmitEvent,
+    INTERRUPT_HASH_TEXT, MAX_RESUME_SESSION_ID_CHARS, RESET_TEXT, SUBMIT_DEADLINE,
 };
 
 use super::agents::agent_not_found;
 use super::responses::{encode_error, encode_success};
 use super::supervisor::RequestLog;
 
-/// Same paste-to-Enter delay as `agent.prompt`.
+/// Paste-to-Enter delay between the submitted text and its Enter key.
 const SUBMIT_ENTER_DELAY: Duration = Duration::from_millis(300);
 /// Upper bound on an `agent.answer` question_id (ids are short hashes; this only bounds
 /// garbage input).
@@ -367,6 +368,7 @@ impl App {
                 pane: pane_id,
                 target_ref,
                 text_sha256_16: session_hash,
+                ack_sha256_16: None,
                 handoff: operator_handoff.is_some(),
                 session_id: Some(params.session_id.clone()),
             },
@@ -641,6 +643,12 @@ impl App {
                 pane: pane_id,
                 target_ref: req.target_ref.clone(),
                 text_sha256_16: text_hash,
+                ack_sha256_16: match req.kind {
+                    SubmitKind::Submit | SubmitKind::Answer | SubmitKind::Reset => {
+                        req.text.as_deref().map(prompt_ack_sha256_16)
+                    }
+                    SubmitKind::Interrupt | SubmitKind::Resume | SubmitKind::Unknown => None,
+                },
                 handoff: operator_handoff.is_some(),
                 session_id: None,
             },
@@ -779,6 +787,56 @@ impl App {
                 response
             }
         }
+    }
+
+    /// Fork (B1): an agent's prompt-submit hook reported the hash of the prompt it received
+    /// in a pane. Confirms at most one matching `written` receipt of that pane (see
+    /// `SubmitLedger::note_prompt_submitted`); never records or logs prompt text. A report
+    /// with supervisor mode disabled, from another agent, or matching nothing is a no-op.
+    pub(super) fn handle_pane_report_prompt_submitted(
+        &mut self,
+        id: String,
+        params: PaneReportPromptSubmittedParams,
+    ) -> String {
+        let log = RequestLog::new("pane.report_prompt_submitted", &id);
+        if !valid_prompt_sha256_16(&params.prompt_sha256_16) {
+            let response = encode_error(
+                id,
+                "invalid_request",
+                "prompt_sha256_16 must be 16 lowercase hex characters",
+            );
+            log.error("invalid_request", &response);
+            return response;
+        }
+        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            let response = encode_error(
+                id,
+                "pane_not_found",
+                format!("pane {} not found", params.pane_id),
+            );
+            log.error("pane_not_found", &response);
+            return response;
+        };
+        let claude = crate::detect::agent_label(crate::detect::Agent::Claude);
+        if crate::supervisor::enabled() && params.agent.trim().eq_ignore_ascii_case(claude) {
+            let confirmed = self.state.supervisor.note_prompt_submitted(
+                pane_id,
+                &params.prompt_sha256_16,
+                crate::supervisor::now_ms(),
+            );
+            if confirmed.is_some() {
+                tracing::debug!(
+                    event = "supervisor.prompt_ack",
+                    subsystem = "supervisor",
+                    outcome = "confirmed",
+                    trace_id = %log.trace_id,
+                    "prompt-submit hook confirmed a receipt"
+                );
+            }
+        }
+        let response = encode_success(id, ResponseResult::Ok {});
+        log.ok(0, &response);
+        response
     }
 
     /// Fork: arms a one-shot operator handoff on a pane's per-PTY activity. Reached only from
@@ -1261,6 +1319,89 @@ mod tests {
         assert!(
             !f.status("run-1").contains("hello"),
             "receipt never echoes text"
+        );
+    }
+
+    impl Fixture {
+        fn report_prompt(&mut self, hash: &str) -> String {
+            let pane_id = self.app.public_pane_id(0, self.pane_id).unwrap();
+            self.app.handle_api_request(Request {
+                id: "hook".into(),
+                method: Method::PaneReportPromptSubmitted(PaneReportPromptSubmittedParams {
+                    pane_id,
+                    source: "herdr:claude".into(),
+                    agent: "claude".into(),
+                    prompt_sha256_16: hash.into(),
+                }),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn prompt_hook_report_confirms_written_receipt_and_ignores_others() {
+        let mut f = fixture();
+        let params = f.params("run-ack", "review this");
+        assert_eq!(receipt(&f.submit(params)).state, SubmitState::Accepted);
+        assert_eq!(
+            f.rx.recv().await.unwrap(),
+            Bytes::from_static(b"review this")
+        );
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.pump_submit_event().await;
+        assert_eq!(receipt(&f.status("run-ack")).state, SubmitState::Written);
+
+        // Wrong text: a no-op success; the receipt stays unsupported.
+        let ok = f.report_prompt(&prompt_ack_sha256_16("something else"));
+        assert!(serde_json::from_str::<SuccessResponse>(&ok).is_ok(), "{ok}");
+        let r = receipt(&f.status("run-ack"));
+        assert_eq!(
+            r.acknowledged,
+            crate::api::schema::supervisor::SubmitAcknowledged::Unsupported
+        );
+
+        // Claude's hook prompt carries a trailing newline: still the same text.
+        let ok = f.report_prompt(&prompt_ack_sha256_16("review this\n"));
+        assert!(serde_json::from_str::<SuccessResponse>(&ok).is_ok(), "{ok}");
+        let raw = f.status("run-ack");
+        let r = receipt(&raw);
+        assert_eq!(
+            r.acknowledged,
+            crate::api::schema::supervisor::SubmitAcknowledged::Confirmed
+        );
+        assert!(r.acknowledged_at_ms.is_some());
+        assert_eq!(r.state, SubmitState::Written);
+        assert!(!raw.contains("review this"), "receipt never echoes text");
+
+        // Malformed hash and unknown pane are rejected without touching receipts.
+        assert_eq!(
+            error_code(&f.report_prompt("not-a-hash")),
+            "invalid_request"
+        );
+        let missing = f.app.handle_api_request(Request {
+            id: "hook".into(),
+            method: Method::PaneReportPromptSubmitted(PaneReportPromptSubmittedParams {
+                pane_id: "w999:p1".into(),
+                source: "herdr:claude".into(),
+                agent: "claude".into(),
+                prompt_sha256_16: prompt_ack_sha256_16("review this"),
+            }),
+        });
+        assert_eq!(error_code(&missing), "pane_not_found");
+    }
+
+    #[tokio::test]
+    async fn prompt_hook_report_is_a_no_op_with_supervisor_disabled() {
+        let mut f = fixture();
+        let params = f.params("run-off", "hello");
+        assert_eq!(receipt(&f.submit(params)).state, SubmitState::Accepted);
+        f.pump_submit_event().await;
+        crate::supervisor::set_enabled_for_test(Some(false));
+        let ok = f.report_prompt(&prompt_ack_sha256_16("hello"));
+        assert!(serde_json::from_str::<SuccessResponse>(&ok).is_ok(), "{ok}");
+        crate::supervisor::set_enabled_for_test(Some(true));
+        assert_eq!(
+            receipt(&f.status("run-off")).acknowledged,
+            crate::api::schema::supervisor::SubmitAcknowledged::Unsupported
         );
     }
 

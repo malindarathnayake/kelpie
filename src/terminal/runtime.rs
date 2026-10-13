@@ -486,17 +486,6 @@ impl TerminalRuntime {
         self.0.validate_input_submission(bytes)
     }
 
-    pub fn queue_user_input_submission(
-        &self,
-        text: Bytes,
-        enter: Bytes,
-        delay: std::time::Duration,
-        deadline: Option<std::time::Instant>,
-    ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
-        self.0
-            .queue_user_input_submission(text, enter, delay, deadline)
-    }
-
     /// Fork: queues an `agent.submit` write guarded by a write-boundary fence.
     pub(crate) fn queue_fenced_user_input_submission(
         &self,

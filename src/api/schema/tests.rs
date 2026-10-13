@@ -91,7 +91,7 @@ fn workspace_close_group_intent_defaults_false_and_round_trips() {
 }
 
 #[test]
-fn agent_start_and_prompt_requests_round_trip() {
+fn agent_start_request_round_trips() {
     let start = Request {
         id: "start".into(),
         method: Method::AgentStart(AgentStartParams {
@@ -108,47 +108,6 @@ fn agent_start_and_prompt_requests_round_trip() {
     assert_eq!(
         serde_json::from_value::<Request>(start_json).unwrap(),
         start
-    );
-
-    let prompt = Request {
-        id: "prompt".into(),
-        method: Method::AgentPrompt(AgentPromptParams {
-            target: "reviewer".into(),
-            text: "review this".into(),
-            wait: None,
-        }),
-    };
-    let prompt_json = serde_json::to_value(&prompt).unwrap();
-    assert_eq!(prompt_json["method"], "agent.prompt");
-    assert_eq!(
-        serde_json::from_value::<Request>(prompt_json).unwrap(),
-        prompt
-    );
-
-    let prompt_and_wait = Request {
-        id: "prompt-and-wait".into(),
-        method: Method::AgentPrompt(AgentPromptParams {
-            target: "reviewer".into(),
-            text: "review this".into(),
-            wait: Some(AgentPromptWaitOptions {
-                until: vec![AgentStatus::Idle, AgentStatus::Done],
-                timeout_ms: Some(120_000),
-                submission_deadline: None,
-            }),
-        }),
-    };
-    let prompt_and_wait_json = serde_json::to_value(&prompt_and_wait).unwrap();
-    assert_eq!(
-        prompt_and_wait_json["params"]["wait"]["until"],
-        serde_json::json!(["idle", "done"])
-    );
-    assert_eq!(
-        prompt_and_wait_json["params"]["wait"]["timeout_ms"],
-        120_000
-    );
-    assert_eq!(
-        serde_json::from_value::<Request>(prompt_and_wait_json).unwrap(),
-        prompt_and_wait
     );
 }
 

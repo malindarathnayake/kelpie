@@ -64,6 +64,77 @@ pub fn text_sha256_16(text: &str) -> String {
     digest[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Lines Claude Code may wrap around expanded pasted content in a `UserPromptSubmit`
+/// prompt (`<pasted_content id="…">` … `</pasted_content id="…">`).
+const PASTED_CONTENT_OPEN: &str = "<pasted_content id=\"";
+const PASTED_CONTENT_CLOSE: &str = "</pasted_content id=\"";
+
+/// Text compared for a prompt-submit acknowledgement. Applied identically to the text
+/// herdr submits and to the `prompt` an agent's hook reports:
+/// - CRLF and lone CR become LF;
+/// - surrounding whitespace (including trailing newlines) is trimmed;
+/// - a prompt that is exactly one `<pasted_content id="X">` … `</pasted_content id="X">`
+///   block (herdr's whole submission is one bracketed paste) is unwrapped and trimmed again.
+pub fn prompt_ack_text(text: &str) -> String {
+    let unified = text.replace("\r\n", "\n").replace('\r', "\n");
+    let trimmed = unified.trim();
+    unwrap_single_pasted_content(trimmed).trim().to_string()
+}
+
+fn unwrap_single_pasted_content(text: &str) -> &str {
+    let Some((first, rest)) = text.split_once('\n') else {
+        return text;
+    };
+    let Some((body, last)) = rest.rsplit_once('\n') else {
+        return text;
+    };
+    let Some(id) = first
+        .strip_prefix(PASTED_CONTENT_OPEN)
+        .and_then(|rest| rest.strip_suffix("\">"))
+    else {
+        return text;
+    };
+    let closes_same_id = last
+        .strip_prefix(PASTED_CONTENT_CLOSE)
+        .and_then(|rest| rest.strip_suffix("\">"))
+        .is_some_and(|close_id| close_id == id);
+    if !closes_same_id || body.contains(PASTED_CONTENT_OPEN) {
+        return text;
+    }
+    body
+}
+
+/// `text_sha256_16` over `prompt_ack_text`: the only value a prompt-submit hook reports.
+pub fn prompt_ack_sha256_16(text: &str) -> String {
+    text_sha256_16(&prompt_ack_text(text))
+}
+
+/// Hash a prompt-submit hook reports for Claude's `UserPromptSubmit` stdin JSON: the
+/// `prompt_ack_sha256_16` of its `prompt`. None for any other event, a Cursor payload
+/// (Cursor imports Claude hooks), a subagent, invalid JSON, or an empty prompt. The prompt
+/// text is dropped here and never leaves this function.
+pub fn hook_prompt_sha256_16(input: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    let object = value.as_object()?;
+    if object.get("hook_event_name")?.as_str()? != "UserPromptSubmit"
+        || object.contains_key("cursor_version")
+        || object
+            .get("agent_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| !id.is_empty())
+    {
+        return None;
+    }
+    let prompt = object.get("prompt")?.as_str()?;
+    let normalised = prompt_ack_text(prompt);
+    (!normalised.is_empty()).then(|| text_sha256_16(&normalised))
+}
+
+/// `[0-9a-f]{16}`: the shape of a reported prompt hash.
+pub fn valid_prompt_sha256_16(hash: &str) -> bool {
+    hash.len() == 16 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// Write-completion event posted by the waiter thread to the App.
 #[derive(Debug)]
 pub enum SubmitEvent {
@@ -109,6 +180,15 @@ struct SubmitEntry {
     reset_candidate: Option<(ReceiptSession, u64)>,
     /// `resume`: registry event sequence at which the launch was accepted.
     launched_seq: Option<u64>,
+    /// `submit` / `answer` / `reset`: `prompt_ack_sha256_16` of the submitted text, matched
+    /// against prompt-submit hook reports. None for kinds with their own evidence.
+    ack_sha256_16: Option<String>,
+    /// A matching hook report applied while the write was in flight (first byte written,
+    /// completion not yet handled): its time. Consumed once when the write completes;
+    /// dropped unless the receipt ends `written`.
+    pending_ack_ms: Option<u64>,
+    /// Insertion order (entries are never evicted, so the ledger length at insert).
+    order: usize,
     #[cfg(debug_assertions)]
     held: Option<HeldWrite>,
     #[cfg(debug_assertions)]
@@ -122,6 +202,9 @@ pub type CompletionHandoff =
 #[derive(Debug, Default)]
 pub struct SubmitLedger {
     entries: HashMap<String, SubmitEntry>,
+    /// Per pane: `written_seq` of the last confirmed receipt. Earlier unconfirmed receipts
+    /// of that pane can no longer be confirmed.
+    ack_watermark: HashMap<PaneId, u64>,
     #[cfg(test)]
     cap_override: Option<usize>,
 }
@@ -145,6 +228,8 @@ pub struct NewReceipt {
     pub pane: PaneId,
     pub target_ref: TargetRef,
     pub text_sha256_16: String,
+    /// `submit` / `answer` / `reset`: `prompt_ack_sha256_16` of the text; None otherwise.
+    pub ack_sha256_16: Option<String>,
     pub handoff: bool,
     /// `resume` only: the requested session id.
     pub session_id: Option<String>,
@@ -263,6 +348,7 @@ impl SubmitLedger {
             written_at_ms: None,
             reason: None,
             acknowledged: SubmitAcknowledged::Unsupported,
+            acknowledged_at_ms: None,
             text_sha256_16: new.text_sha256_16,
             handoff: new.handoff,
             kind: new.kind,
@@ -288,6 +374,9 @@ impl SubmitLedger {
                 expected_reset_trip: false,
                 reset_candidate: None,
                 launched_seq: None,
+                ack_sha256_16: new.ack_sha256_16,
+                pending_ack_ms: None,
+                order: self.entries.len(),
                 #[cfg(debug_assertions)]
                 held: None,
                 #[cfg(debug_assertions)]
@@ -347,6 +436,13 @@ impl SubmitLedger {
                 r.state = SubmitState::Written;
                 r.written_at_ms = Some(now_ms);
                 entry.written_seq = Some(seq);
+                // A hook report that arrived while this write was in flight. This is the
+                // newest written receipt of the pane, so the watermark only moves forward.
+                if let Some(at_ms) = entry.pending_ack_ms.take() {
+                    r.acknowledged = SubmitAcknowledged::Confirmed;
+                    r.acknowledged_at_ms = Some(at_ms);
+                    self.ack_watermark.insert(entry.pane, seq);
+                }
                 // Delivery ends at `written`. Activity edges handled before this event are
                 // never attributed to the write; only the expected clear session of a
                 // reset (order-based, see `note_clear_session`) is applied here.
@@ -380,7 +476,65 @@ impl SubmitLedger {
                 });
             }
         }
+        // Only a `written` receipt can be confirmed.
+        entry.pending_ack_ms = None;
         unverify_unwritten_reset(r);
+    }
+
+    /// A prompt-submit hook of `pane` reported `hash` (`prompt_ack_sha256_16`) at registry
+    /// event `seq`. Order-based, consumed once, never inferred from activity:
+    /// - the earliest `written`, unconfirmed submit/answer/reset receipt of the pane with
+    ///   the same hash, written before `seq` and after the pane's last confirmed one,
+    ///   becomes `confirmed`; earlier unconfirmed receipts can no longer be confirmed;
+    /// - otherwise the earliest in-flight receipt of the pane with that hash whose first
+    ///   byte is written (fence committed, not tripped) and no report pending keeps the
+    ///   report pending, applied only if the write completes `written`;
+    /// - otherwise nothing changes. Returns the confirmed submit id, if any.
+    pub fn note_prompt_submitted(
+        &mut self,
+        pane: PaneId,
+        hash: &str,
+        seq: u64,
+        now_ms: u64,
+    ) -> Option<String> {
+        let watermark = self.ack_watermark.get(&pane).copied().unwrap_or(0);
+        let ackable = |e: &SubmitEntry| {
+            e.pane == pane
+                && e.receipt.acknowledged == SubmitAcknowledged::Unsupported
+                && e.ack_sha256_16.as_deref() == Some(hash)
+        };
+        let written = self
+            .entries
+            .iter_mut()
+            .filter(|(_, e)| {
+                ackable(e)
+                    && e.receipt.state == SubmitState::Written
+                    && e.written_seq.is_some_and(|w| w > watermark && w < seq)
+            })
+            .min_by_key(|(_, e)| e.written_seq);
+        if let Some((submit_id, entry)) = written {
+            entry.receipt.acknowledged = SubmitAcknowledged::Confirmed;
+            entry.receipt.acknowledged_at_ms = Some(now_ms);
+            if let Some(written_seq) = entry.written_seq {
+                self.ack_watermark.insert(pane, written_seq);
+            }
+            return Some(submit_id.clone());
+        }
+        if let Some((_, entry)) = self
+            .entries
+            .iter_mut()
+            .filter(|(_, e)| {
+                ackable(e)
+                    && e.receipt.state == SubmitState::Accepted
+                    && e.pending_ack_ms.is_none()
+                    && e.fence.is_committed()
+                    && !e.fence.is_tripped()
+            })
+            .min_by_key(|(_, e)| e.order)
+        {
+            entry.pending_ack_ms = Some(now_ms);
+        }
+        None
     }
 
     /// `resume`: the agent.start path accepted the launch at registry event `seq`.
@@ -633,6 +787,7 @@ mod tests {
             pane: pid(pane),
             target_ref: target(1),
             text_sha256_16: text_sha256_16(text),
+            ack_sha256_16: (kind != SubmitKind::Interrupt).then(|| prompt_ack_sha256_16(text)),
             handoff,
             session_id: None,
         }
@@ -1081,6 +1236,7 @@ mod tests {
             pane: pid(pane),
             target_ref: target(1),
             text_sha256_16: text_sha256_16(session),
+            ack_sha256_16: None,
             handoff: false,
             session_id: Some(session.into()),
         };
@@ -1295,5 +1451,190 @@ mod tests {
         let r = l.get("p").unwrap();
         assert_eq!(r.resume, Some(ResumeEvidence::Pending));
         assert!(r.reported_session.is_none() && r.new_generation.is_none());
+    }
+
+    /// Accept, commit and complete a submit of `text` on pane 1 at registry `seq`.
+    fn written(l: &mut SubmitLedger, id: &str, text: &str, seq: u64) {
+        let f = accept(l, id, text);
+        assert!(f.try_commit());
+        l.complete(id, &Ok(()), f.close(), seq, 100 + seq);
+        assert_eq!(l.get(id).unwrap().state, SubmitState::Written);
+    }
+
+    fn ack(l: &SubmitLedger, id: &str) -> (SubmitAcknowledged, Option<u64>) {
+        let r = l.get(id).unwrap();
+        (r.acknowledged, r.acknowledged_at_ms)
+    }
+
+    #[test]
+    fn prompt_ack_text_normalises_line_endings_whitespace_and_one_paste_block() {
+        assert_eq!(prompt_ack_text("review this"), "review this");
+        assert_eq!(prompt_ack_text("review this\n"), "review this");
+        assert_eq!(prompt_ack_text("  a\r\nb\rc \r\n"), "a\nb\nc");
+        let wrapped = "<pasted_content id=\"p1\">\nline one\nline two\n</pasted_content id=\"p1\">";
+        assert_eq!(prompt_ack_text(wrapped), "line one\nline two");
+        assert_eq!(
+            prompt_ack_sha256_16(wrapped),
+            prompt_ack_sha256_16("line one\r\nline two\n")
+        );
+        // Mismatched ids, a second block or extra typed text are not unwrapped.
+        let other_id = "<pasted_content id=\"p1\">\nx\n</pasted_content id=\"p2\">";
+        assert_eq!(prompt_ack_text(other_id), other_id);
+        let typed_after = format!("{wrapped}\nplease");
+        assert_eq!(prompt_ack_text(&typed_after), typed_after);
+        // Plain text keeps the receipt hash.
+        assert_eq!(prompt_ack_sha256_16("hello"), text_sha256_16("hello"));
+        assert!(valid_prompt_sha256_16(&prompt_ack_sha256_16("hello")));
+        assert!(!valid_prompt_sha256_16("ABCDEF0123456789"));
+        assert!(!valid_prompt_sha256_16("abc"));
+    }
+
+    #[test]
+    fn hook_payload_yields_only_the_prompt_hash() {
+        let payload = serde_json::json!({
+            "session_id": "s",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "secret prompt text\n",
+        })
+        .to_string();
+        let hash = hook_prompt_sha256_16(&payload).unwrap();
+        assert_eq!(hash, prompt_ack_sha256_16("secret prompt text"));
+        assert!(valid_prompt_sha256_16(&hash));
+        assert!(!hash.contains("secret"));
+        for other in [
+            serde_json::json!({"hook_event_name": "SessionStart", "prompt": "x"}),
+            serde_json::json!({"hook_event_name": "UserPromptSubmit"}),
+            serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": " \n"}),
+            serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": 1}),
+            serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "x", "cursor_version": "1"}),
+            serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "x", "agent_id": "a"}),
+        ] {
+            assert!(
+                hook_prompt_sha256_16(&other.to_string()).is_none(),
+                "{other}"
+            );
+        }
+        assert!(hook_prompt_sha256_16("not json").is_none());
+    }
+
+    #[test]
+    fn matching_hook_confirms_a_written_receipt_once() {
+        let mut l = SubmitLedger::default();
+        written(&mut l, "a", "review this", 5);
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+        let hash = prompt_ack_sha256_16("review this\n");
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &hash, 6, 200),
+            Some("a".to_string())
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(200)));
+        let json = serde_json::to_value(l.get("a").unwrap()).unwrap();
+        assert_eq!(json["acknowledged"], "confirmed");
+        assert_eq!(json["acknowledged_at_ms"], 200);
+        // The owner typing the same prompt again confirms nothing further.
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 7, 300), None);
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(200)));
+    }
+
+    #[test]
+    fn mismatched_text_other_pane_or_earlier_report_stays_unsupported() {
+        let mut l = SubmitLedger::default();
+        written(&mut l, "a", "review this", 5);
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("other"), 6, 200),
+            None
+        );
+        assert_eq!(
+            l.note_prompt_submitted(pid(2), &prompt_ack_sha256_16("review this"), 7, 201),
+            None
+        );
+        // A report ordered before the write completion is not after the write.
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("review this"), 4, 202),
+            None
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+    }
+
+    #[test]
+    fn hook_before_completion_confirms_once_on_written() {
+        let mut l = SubmitLedger::default();
+        let f = accept(&mut l, "a", "review this");
+        let hash = prompt_ack_sha256_16("review this");
+        // Nothing written yet: a report is not kept.
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 2, 150), None);
+        assert!(f.try_commit());
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 3, 160), None);
+        // A second report while the first is pending is not kept for this receipt.
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 4, 170), None);
+        l.complete("a", &Ok(()), f.close(), 5, 180);
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(160)));
+
+        // A pending report is dropped when the write does not end `written`.
+        let g = accept(&mut l, "b", "next");
+        assert!(g.try_commit());
+        let next = prompt_ack_sha256_16("next");
+        assert_eq!(l.note_prompt_submitted(pid(1), &next, 6, 190), None);
+        g.trip(FenceReason::OwnerInput);
+        l.complete("b", &Ok(()), g.close(), 7, 195);
+        assert_eq!(l.get("b").unwrap().state, SubmitState::Indeterminate);
+        assert_eq!(ack(&l, "b"), (SubmitAcknowledged::Unsupported, None));
+    }
+
+    #[test]
+    fn two_quick_submits_match_their_own_receipts_in_order() {
+        let mut l = SubmitLedger::default();
+        written(&mut l, "a", "same", 5);
+        written(&mut l, "b", "same", 6);
+        written(&mut l, "c", "other", 7);
+        let same = prompt_ack_sha256_16("same");
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &same, 8, 200),
+            Some("a".into())
+        );
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &same, 9, 201),
+            Some("b".into())
+        );
+        assert_eq!(l.note_prompt_submitted(pid(1), &same, 10, 202), None);
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("other"), 11, 203),
+            Some("c".into())
+        );
+    }
+
+    #[test]
+    fn a_later_confirmation_retires_earlier_unconfirmed_receipts() {
+        let mut l = SubmitLedger::default();
+        written(&mut l, "a", "first", 5);
+        written(&mut l, "b", "second", 6);
+        // The hook for "first" was lost; "second" is confirmed.
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("second"), 7, 200),
+            Some("b".into())
+        );
+        // A later identical owner prompt cannot confirm the older receipt.
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("first"), 8, 201),
+            None
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+    }
+
+    #[test]
+    fn interrupt_and_resume_receipts_are_never_confirmed_by_a_prompt_hook() {
+        let mut l = SubmitLedger::default();
+        let f = accept_kind(&mut l, "esc", SubmitKind::Interrupt);
+        assert!(f.try_commit());
+        l.complete("esc", &Ok(()), f.close(), 5, 20);
+        accept_resume(&mut l, "resume", 1, "x");
+        for text in ["x", INTERRUPT_HASH_TEXT] {
+            assert_eq!(
+                l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16(text), 6, 30),
+                None
+            );
+        }
+        assert_eq!(ack(&l, "esc"), (SubmitAcknowledged::Unsupported, None));
+        assert_eq!(ack(&l, "resume"), (SubmitAcknowledged::Unsupported, None));
     }
 }

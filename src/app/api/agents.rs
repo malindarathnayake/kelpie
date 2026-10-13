@@ -1,36 +1,9 @@
-use std::time::Duration;
-
-use bytes::Bytes;
-
 use crate::api::schema::{
-    AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
-    PaneReadResult, ResponseResult,
+    AgentRenameParams, AgentStartParams, AgentTarget, PaneReadResult, ResponseResult,
 };
 use crate::app::App;
 
 use super::responses::{encode_error, encode_error_body, encode_success};
-
-const AGENT_PROMPT_SUBMIT_DELAY: Duration = Duration::from_millis(300);
-
-// Codex's Windows input reader does not surface bracketed paste. It detects the prompt as a
-// "paste burst" and, while that burst is buffered, rewrites a following Enter into a newline
-// instead of submitting. The burst only flushes after an idle timeout, so any size-based delay is
-// a timing guess that fails when ConPTY delivery lags it. Codex flushes a buffered burst
-// synchronously when it receives a non-character key, so appending one after the paste gives the
-// submission a deterministic paste boundary regardless of prompt size or delivery speed.
-#[cfg(windows)]
-fn append_codex_paste_boundary(runtime: &crate::terminal::TerminalRuntime, text: &mut Vec<u8>) {
-    let keys = match crate::app::api_helpers::encode_api_keys(runtime, &["right".to_string()]) {
-        Ok(keys) => keys,
-        Err(key) => {
-            tracing::warn!(key = %key, "failed to encode Codex paste boundary key");
-            return;
-        }
-    };
-    if let Some(key) = keys.into_iter().find(|bytes| !bytes.is_empty()) {
-        text.extend_from_slice(&key);
-    }
-}
 
 impl App {
     pub(super) fn handle_agent_list(&mut self, id: String) -> String {
@@ -79,88 +52,15 @@ impl App {
         encode_success(id, ResponseResult::AgentStarted { agent, argv })
     }
 
-    pub(crate) fn handle_deferred_agent_api_request(
-        &mut self,
-        request: crate::api::schema::Request,
-        respond_to: std::sync::mpsc::Sender<String>,
-    ) -> bool {
-        let crate::api::schema::Method::AgentPrompt(params) = request.method else {
-            return false;
-        };
-        let validated = match self.validate_agent_prompt(request.id, &params) {
-            Ok(validated) => validated,
-            Err(response) => {
-                let _ = respond_to.send(response);
-                return true;
-            }
-        };
-        // Start the completion waiter before submitting, so a refused thread
-        // fails the request while nothing has been sent yet.
-        let (handoff_tx, handoff_rx) = std::sync::mpsc::channel::<(
-            String,
-            crate::api::schema::AgentInfo,
-            std::sync::mpsc::Receiver<std::io::Result<()>>,
-        )>();
-        let waiter_respond_to = respond_to.clone();
-        let spawned = crate::thread_spawn::spawn_named("herdr-agent-prompt", move || {
-            let Ok((id, agent, completion)) = handoff_rx.recv() else {
-                return;
-            };
-            let response = match completion.recv() {
-                Ok(Ok(())) => encode_success(id, ResponseResult::AgentPrompted { agent }),
-                Ok(Err(err)) if err.kind() == std::io::ErrorKind::TimedOut => {
-                    encode_error(id, "timeout", err.to_string())
-                }
-                Ok(Err(err)) => encode_error(id, "agent_prompt_failed", err.to_string()),
-                Err(_) => encode_error(id, "agent_prompt_failed", "pty actor closed"),
-            };
-            let _ = waiter_respond_to.send(response);
-        });
-        if let Err(err) = spawned {
-            tracing::warn!(err = %err, "failed to spawn agent prompt thread");
-            let _ = respond_to.send(encode_error(
-                validated.id,
-                "agent_prompt_failed",
-                format!("could not start prompt completion waiter: {err}"),
-            ));
-            return true;
-        }
-        match self.submit_agent_prompt(validated, &params) {
-            Ok(submission) => {
-                let _ = handoff_tx.send(submission);
-            }
-            Err(response) => {
-                let _ = respond_to.send(response);
-            }
-        }
-        true
-    }
-
-    /// Runs every check that can reject a prompt without touching the pane.
-    fn validate_agent_prompt(
-        &self,
-        id: String,
-        params: &AgentPromptParams,
-    ) -> Result<ValidatedAgentPrompt, String> {
-        if params.text.is_empty() {
-            return Err(encode_error(
-                id,
-                "empty_agent_prompt",
-                "agent prompt must not be empty",
-            ));
-        }
-        self.validate_agent_target(id, &params.target, true)
-    }
-
-    /// Agent-ready checks shared by `agent.prompt` and the fork's `agent.submit`. With
-    /// `reject_blocked` a Blocked agent is rejected exactly where `agent.prompt` always did;
-    /// without it the state is returned in `blocked` so the caller can order the check.
+    /// Agent-ready checks for the fork's `agent.submit` family. With `reject_blocked` a
+    /// Blocked agent is rejected here; without it the state is returned in `blocked` so the
+    /// caller can order the check.
     pub(super) fn validate_agent_target(
         &self,
         id: String,
         target: &str,
         reject_blocked: bool,
-    ) -> Result<ValidatedAgentPrompt, String> {
+    ) -> Result<ValidatedAgentTarget, String> {
         let resolved = match self.resolve_agent_target(target) {
             Ok(resolved) => resolved,
             Err(err) => return Err(encode_error_body(id, self.agent_target_error_body(err))),
@@ -202,81 +102,17 @@ impl App {
                 format!("agent {} is no longer the pane foreground process", target),
             ));
         }
-        let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
+        if self.agent_info(resolved.ws_idx, resolved.pane_id).is_none() {
             return Err(agent_not_found(id, target));
-        };
-        Ok(ValidatedAgentPrompt {
+        }
+        Ok(ValidatedAgentTarget {
             id,
             ws_idx: resolved.ws_idx,
             pane_id: resolved.pane_id,
             expected_agent,
-            agent,
             blocked,
             working,
         })
-    }
-
-    fn submit_agent_prompt(
-        &mut self,
-        validated: ValidatedAgentPrompt,
-        params: &AgentPromptParams,
-    ) -> Result<
-        (
-            String,
-            crate::api::schema::AgentInfo,
-            std::sync::mpsc::Receiver<std::io::Result<()>>,
-        ),
-        String,
-    > {
-        let ValidatedAgentPrompt {
-            id,
-            ws_idx,
-            pane_id,
-            expected_agent,
-            agent,
-            ..
-        } = validated;
-        let Some(runtime) = self.lookup_runtime_sender(ws_idx, pane_id) else {
-            return Err(agent_not_found(id, &params.target));
-        };
-        #[cfg(windows)]
-        let submit_deadline = params
-            .wait
-            .as_ref()
-            .and_then(|wait| wait.submission_deadline);
-        #[cfg(not(windows))]
-        let submit_deadline = None;
-        if expected_agent == crate::detect::Agent::GithubCopilot {
-            // Copilot ignores synthetic Enter after focus loss until it receives focus gained.
-            let focus = match crate::ghostty::encode_focus(crate::ghostty::FocusEvent::Gained) {
-                Ok(focus) => focus,
-                Err(err) => {
-                    return Err(encode_error(id, "agent_prompt_failed", err.to_string()));
-                }
-            };
-            if let Err(err) = runtime.try_send_bytes(Bytes::from(focus)) {
-                return Err(encode_error(id, "agent_prompt_failed", err.to_string()));
-            }
-        }
-        let (text, enter) =
-            crate::app::api_helpers::encode_api_submission_parts(runtime, &params.text);
-        #[cfg(windows)]
-        let text = if expected_agent == crate::detect::Agent::Codex {
-            let mut text = text;
-            append_codex_paste_boundary(runtime, &mut text);
-            text
-        } else {
-            text
-        };
-        let completion = runtime
-            .queue_user_input_submission(
-                Bytes::from(text),
-                Bytes::from(enter),
-                AGENT_PROMPT_SUBMIT_DELAY,
-                submit_deadline,
-            )
-            .map_err(|err| encode_error(id.clone(), "agent_prompt_failed", err.to_string()))?;
-        Ok((id, agent, completion))
     }
 
     pub(super) fn handle_agent_read(
@@ -390,59 +226,13 @@ impl App {
 
         encode_success(id, ResponseResult::AgentExplain { explain: value })
     }
-
-    pub(super) fn handle_agent_send_keys(
-        &mut self,
-        id: String,
-        params: AgentSendKeysParams,
-    ) -> String {
-        let resolved = match self.resolve_agent_target(&params.target) {
-            Ok(resolved) => resolved,
-            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
-        };
-        let Some(terminal_id) = self
-            .state
-            .workspaces
-            .get(resolved.ws_idx)
-            .and_then(|workspace| workspace.terminal_id(resolved.pane_id))
-        else {
-            return agent_not_found(id, &params.target);
-        };
-        let Some(expected_agent) = self
-            .state
-            .terminals
-            .get(terminal_id)
-            .and_then(|terminal| terminal.effective_known_agent())
-        else {
-            return agent_not_ready(id, &params.target);
-        };
-        let Some(runtime) = self.lookup_runtime_sender(resolved.ws_idx, resolved.pane_id) else {
-            return agent_not_found(id, &params.target);
-        };
-        if !super::super::agents::runtime_hosts_agent(runtime, expected_agent) {
-            return agent_not_ready(id, &params.target);
-        }
-        let encoded = match super::super::api_helpers::encode_api_keys(runtime, &params.keys) {
-            Ok(encoded) => encoded,
-            Err(key) => {
-                return encode_error(id, "invalid_key", format!("unsupported key {key}"));
-            }
-        };
-        let bytes: Vec<u8> = encoded.into_iter().flatten().collect();
-        if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
-            return encode_error(id, "agent_send_keys_failed", err.to_string());
-        }
-
-        encode_success(id, ResponseResult::Ok {})
-    }
 }
 
-pub(super) struct ValidatedAgentPrompt {
+pub(super) struct ValidatedAgentTarget {
     pub(super) id: String,
     pub(super) ws_idx: usize,
     pub(super) pane_id: crate::layout::PaneId,
     pub(super) expected_agent: crate::detect::Agent,
-    pub(super) agent: crate::api::schema::AgentInfo,
     /// Set only when the caller deferred the Blocked rejection.
     pub(super) blocked: bool,
     /// Effective agent state is Working (fork: `agent.interrupt` precondition).
@@ -491,61 +281,6 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app
-    }
-
-    fn start_deferred_agent_prompt(
-        app: &mut App,
-        id: &str,
-        params: AgentPromptParams,
-    ) -> std::sync::mpsc::Receiver<String> {
-        let (respond_to, response_rx) = std::sync::mpsc::channel();
-        assert!(app.handle_deferred_agent_api_request(
-            crate::api::schema::Request {
-                id: id.into(),
-                method: crate::api::schema::Method::AgentPrompt(params),
-            },
-            respond_to,
-        ));
-        response_rx
-    }
-
-    fn run_deferred_agent_prompt(app: &mut App, id: &str, params: AgentPromptParams) -> String {
-        start_deferred_agent_prompt(app, id, params)
-            .recv_timeout(Duration::from_secs(1))
-            .expect("agent prompt responds after submission")
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn windows_codex_prompt_flushes_paste_burst_before_enter() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
-        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        let response = run_deferred_agent_prompt(
-            &mut app,
-            "req",
-            AgentPromptParams {
-                target: "reviewer".into(),
-                text: "A != B".into(),
-                wait: None,
-            },
-        );
-        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
-        assert!(matches!(
-            success.result,
-            ResponseResult::AgentPrompted { .. }
-        ));
-        // The non-character key must precede Enter so Codex commits the paste burst first.
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"A != B\x1b[C"));
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"\r"));
     }
 
     #[tokio::test]
@@ -608,297 +343,6 @@ mod tests {
             serde_json::from_str::<SuccessResponse>(&after).is_ok(),
             "a live agent must stay reachable by its assigned name: {after}"
         );
-    }
-
-    #[tokio::test]
-    async fn agent_prompt_sends_text_then_delays_enter() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Working);
-        let (runtime, mut rx) =
-            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
-                80, 24, 0, b"", 2,
-            );
-        runtime.test_process_pty_bytes(b"\x1b[?2004h");
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
-        let bracketed_started = std::time::Instant::now();
-        let response_rx = start_deferred_agent_prompt(
-            &mut app,
-            "req",
-            AgentPromptParams {
-                target: public_pane_id,
-                text: "A != B".into(),
-                wait: None,
-            },
-        );
-        assert!(response_rx.try_recv().is_err());
-        let response = response_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("agent prompt responds after submission");
-        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
-        let ResponseResult::AgentPrompted { agent, .. } = success.result else {
-            panic!("expected prompted response");
-        };
-        assert_eq!(agent.name.as_deref(), Some("reviewer"));
-        assert_eq!(
-            rx.try_recv().unwrap(),
-            Bytes::from_static(b"\x1b[200~A != B\x1b[201~")
-        );
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"\r"));
-        assert!(bracketed_started.elapsed() >= AGENT_PROMPT_SUBMIT_DELAY);
-
-        app.lookup_runtime_sender(0, pane_id)
-            .unwrap()
-            .test_process_pty_bytes(b"\x1b[?2004l");
-        let raw_started = std::time::Instant::now();
-        let raw = run_deferred_agent_prompt(
-            &mut app,
-            "req-raw",
-            AgentPromptParams {
-                target: "reviewer".into(),
-                text: "A != B".into(),
-                wait: None,
-            },
-        );
-        let raw: SuccessResponse = serde_json::from_str(&raw).unwrap();
-        assert!(matches!(raw.result, ResponseResult::AgentPrompted { .. }));
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"A != B"));
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"\r"));
-        assert!(raw_started.elapsed() >= AGENT_PROMPT_SUBMIT_DELAY);
-
-        let rejected = run_deferred_agent_prompt(
-            &mut app,
-            "req-label",
-            AgentPromptParams {
-                target: "opencode".into(),
-                text: "wrong target".into(),
-                wait: None,
-            },
-        );
-        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&rejected).unwrap();
-        assert_eq!(error.error.code, "agent_not_found");
-        assert!(rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn agent_prompt_waiter_spawn_failure_fails_before_submitting() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
-        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        crate::thread_spawn::test_hook::fail_next_spawns(1);
-        let response = run_deferred_agent_prompt(
-            &mut app,
-            "req",
-            AgentPromptParams {
-                target: "reviewer".into(),
-                text: "hello".into(),
-                wait: None,
-            },
-        );
-
-        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "agent_prompt_failed");
-        std::thread::sleep(AGENT_PROMPT_SUBMIT_DELAY * 2);
-        assert!(rx.try_recv().is_err(), "a failed prompt must not be sent");
-    }
-
-    #[tokio::test]
-    async fn agent_prompt_validation_errors_win_over_waiter_spawn_failure() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
-        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        for (target, text, code) in [
-            ("reviewer", "", "empty_agent_prompt"),
-            ("missing", "hello", "agent_not_found"),
-        ] {
-            crate::thread_spawn::test_hook::fail_next_spawns(1);
-            let response = run_deferred_agent_prompt(
-                &mut app,
-                "req",
-                AgentPromptParams {
-                    target: target.into(),
-                    text: text.into(),
-                    wait: None,
-                },
-            );
-
-            let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
-            assert_eq!(error.error.code, code);
-            assert!(
-                crate::thread_spawn::spawn_named("probe", || {}).is_err(),
-                "a rejected prompt must not start a waiter thread"
-            );
-        }
-        assert!(rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn agent_prompt_rejects_blocked_agent_without_writing() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::GithubCopilot), AgentState::Blocked);
-        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        let response = run_deferred_agent_prompt(
-            &mut app,
-            "req",
-            AgentPromptParams {
-                target: "reviewer".into(),
-                text: "unrelated prompt".into(),
-                wait: None,
-            },
-        );
-
-        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "agent_blocked");
-        assert!(
-            tokio::time::timeout(
-                AGENT_PROMPT_SUBMIT_DELAY + Duration::from_millis(100),
-                rx.recv()
-            )
-            .await
-            .is_err(),
-            "blocked prompt wrote or scheduled terminal input"
-        );
-    }
-
-    #[tokio::test]
-    async fn agent_prompt_focuses_copilot_before_submitting() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::GithubCopilot), AgentState::Idle);
-        let (runtime, mut rx) =
-            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
-                80, 24, 0, b"", 3,
-            );
-        runtime.test_process_pty_bytes(b"\x1b[?2004h");
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        let response = run_deferred_agent_prompt(
-            &mut app,
-            "req",
-            AgentPromptParams {
-                target: "reviewer".into(),
-                text: "A != B".into(),
-                wait: None,
-            },
-        );
-        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
-        assert!(matches!(
-            success.result,
-            ResponseResult::AgentPrompted { .. }
-        ));
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"\x1b[I"));
-        assert_eq!(
-            rx.try_recv().unwrap(),
-            Bytes::from_static(b"\x1b[200~A != B\x1b[201~")
-        );
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"\r"));
-    }
-
-    #[tokio::test]
-    async fn agent_send_keys_validates_every_key_before_writing() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_agent_name("reviewer".into());
-        terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
-        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        let rejected = app.handle_agent_send_keys(
-            "req-invalid".into(),
-            AgentSendKeysParams {
-                target: "reviewer".into(),
-                keys: vec!["enter".into(), "not-a-key".into()],
-            },
-        );
-        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&rejected).unwrap();
-        assert_eq!(error.error.code, "invalid_key");
-        assert!(rx.try_recv().is_err());
-
-        let sent = app.handle_agent_send_keys(
-            "req-valid".into(),
-            AgentSendKeysParams {
-                target: "reviewer".into(),
-                keys: vec!["up".into(), "enter".into()],
-            },
-        );
-        let success: SuccessResponse = serde_json::from_str(&sent).unwrap();
-        assert!(matches!(success.result, ResponseResult::Ok {}));
-        assert_eq!(rx.try_recv().unwrap(), Bytes::from_static(b"\x1b[A\r"));
-        assert!(rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn agent_prompt_rejects_managed_agent_while_startup_is_pending() {
-        let mut app = app_with_agent();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        let now = std::time::Instant::now();
-        terminal.begin_managed_agent(
-            "reviewer".into(),
-            Agent::OpenCode,
-            now,
-            std::time::Duration::from_secs(3),
-            std::time::Duration::from_secs(10),
-        );
-        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
-        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        app.state.insert_test_runtime(pane_id, runtime);
-
-        let response = run_deferred_agent_prompt(
-            &mut app,
-            "req-pending",
-            AgentPromptParams {
-                target: "reviewer".into(),
-                text: "A != B".into(),
-                wait: None,
-            },
-        );
-        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "agent_not_ready");
-        assert!(rx.try_recv().is_err());
     }
 
     #[test]

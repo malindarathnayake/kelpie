@@ -335,138 +335,8 @@ fn agent_start_command_works() {
         "--name\nscratch\n--no-session\n"
     );
 
-    let literal_flag_prompt = run_cli(&socket_path, &["agent", "prompt", "main", "--wait"]);
-    assert!(
-        literal_flag_prompt.status.success(),
-        "flag-shaped prompt was not treated literally: {}",
-        String::from_utf8_lossy(&literal_flag_prompt.stderr)
-    );
-    let literal_flag_prompt: serde_json::Value =
-        serde_json::from_slice(&literal_flag_prompt.stdout).unwrap();
-    assert_eq!(literal_flag_prompt["result"]["type"], "agent_prompted");
-    assert!(wait_until(
-        Duration::from_secs(2),
-        Duration::from_millis(25),
-        || captured_prompts.exists()
-    ));
-
     let after = run_cli_json(&socket_path, &["pane", "list"]);
     assert_eq!(pane_topology_snapshot(&after), before_topology);
-
-    let prompts_before_blocked = fs::read(&captured_prompts).unwrap();
-    let blocked_report = run_cli(
-        &socket_path,
-        &[
-            "pane",
-            "report-agent",
-            &pane_id,
-            "--source",
-            "custom:fake-pi",
-            "--agent",
-            "pi",
-            "--state",
-            "blocked",
-        ],
-    );
-    assert!(blocked_report.status.success());
-    assert_eq!(
-        run_cli_json(&socket_path, &["agent", "get", "main"])["result"]["agent"]["agent_status"],
-        "blocked"
-    );
-
-    let blocked_prompt = run_cli(
-        &socket_path,
-        &[
-            "agent",
-            "prompt",
-            "main",
-            "must not be submitted",
-            "--wait",
-            "--timeout",
-            "2000",
-        ],
-    );
-    assert_eq!(blocked_prompt.status.code(), Some(1));
-    let blocked_prompt: serde_json::Value = serde_json::from_slice(&blocked_prompt.stderr).unwrap();
-    assert_eq!(blocked_prompt["error"]["code"], "agent_blocked");
-    thread::sleep(Duration::from_millis(400));
-    assert_eq!(fs::read(&captured_prompts).unwrap(), prompts_before_blocked);
-
-    let report_agent = |state| {
-        run_cli(
-            &socket_path,
-            &[
-                "pane",
-                "report-agent",
-                &pane_id,
-                "--source",
-                "custom:fake-pi",
-                "--agent",
-                "pi",
-                "--state",
-                state,
-            ],
-        )
-        .status
-        .success()
-    };
-    let prompt_wait = |prompt, timeout| {
-        run_cli(
-            &socket_path,
-            &[
-                "agent",
-                "prompt",
-                "main",
-                prompt,
-                "--wait",
-                "--timeout",
-                timeout,
-            ],
-        )
-    };
-
-    assert!(report_agent("idle"));
-    let stale_idle = prompt_wait("do not transition", "500");
-    assert_eq!(stale_idle.status.code(), Some(1));
-    let stale_idle: serde_json::Value = serde_json::from_slice(&stale_idle.stderr).unwrap();
-    assert_eq!(stale_idle["error"]["code"], "timeout");
-
-    let stalled = prompt_wait("do not transition", "6000");
-    assert_eq!(stalled.status.code(), Some(1));
-    let stalled: serde_json::Value = serde_json::from_slice(&stalled.stderr).unwrap();
-    assert_eq!(stalled["error"]["code"], "agent_prompt_stalled");
-    assert!(stalled["error"]["message"]
-        .as_str()
-        .is_some_and(|message| message.contains("no observed working or blocked state")));
-
-    for prompt in ["done churn", "session churn"] {
-        let settled_only = prompt_wait(prompt, "500");
-        assert_eq!(settled_only.status.code(), Some(1));
-        let settled_only: serde_json::Value = serde_json::from_slice(&settled_only.stderr).unwrap();
-        assert_eq!(settled_only["error"]["code"], "timeout");
-    }
-
-    let blocked_after_submit = prompt_wait("block after submit", "2000");
-    assert!(blocked_after_submit.status.success());
-    let blocked_after_submit: serde_json::Value =
-        serde_json::from_slice(&blocked_after_submit.stdout).unwrap();
-    assert_eq!(
-        blocked_after_submit["result"]["agent"]["agent_status"],
-        "blocked"
-    );
-    assert!(report_agent("idle"));
-    assert!(report_agent("working"));
-    let already_working = prompt_wait("finish active", "2000");
-    assert!(already_working.status.success());
-
-    let prompted = prompt_wait("Review this diff", "2000");
-    assert!(
-        prompted.status.success(),
-        "prompt failed: {}",
-        String::from_utf8_lossy(&prompted.stderr)
-    );
-    let prompted: serde_json::Value = serde_json::from_slice(&prompted.stdout).unwrap();
-    assert_eq!(prompted["result"]["type"], "agent_prompted");
 
     let duplicate = run_cli(
         &socket_path,
@@ -893,14 +763,14 @@ fn agent_commands_work() {
     );
     assert_eq!(waited["result"]["agent"]["pane_id"], root_pane_id);
 
-    // A stale semantic report must not allow prompt text into the resumed shell.
-    let prompted = run_cli(
-        &socket_path,
-        &["agent", "prompt", "worker", "echo prompt-must-not-run"],
-    );
-    assert_eq!(prompted.status.code(), Some(1));
-    let prompted_json: serde_json::Value = serde_json::from_slice(&prompted.stderr).unwrap();
-    assert_eq!(prompted_json["error"]["code"], "agent_not_ready");
+    // The removed agent writers are rejected by the CLI before anything reaches the pane.
+    for removed in [
+        &["agent", "prompt", "worker", "echo prompt-must-not-run"][..],
+        &["agent", "send-keys", "worker", "enter"][..],
+    ] {
+        let rejected = run_cli(&socket_path, removed);
+        assert_eq!(rejected.status.code(), Some(2), "{removed:?}");
+    }
 
     let working = run_cli(
         &socket_path,
@@ -1067,11 +937,6 @@ fn agent_commands_work() {
     assert_eq!(missing_read.status.code(), Some(1));
     let missing_read: serde_json::Value = serde_json::from_slice(&missing_read.stderr).unwrap();
     assert_eq!(missing_read["error"]["code"], "agent_not_found");
-
-    let sent = run_cli(&socket_path, &["agent", "send-keys", "worker", "enter"]);
-    assert_eq!(sent.status.code(), Some(1));
-    let sent: serde_json::Value = serde_json::from_slice(&sent.stderr).unwrap();
-    assert_eq!(sent["error"]["code"], "agent_not_ready");
 
     let agent_renamed = run_cli_json(&socket_path, &["agent", "rename", "worker", "reviewer"]);
     assert_eq!(agent_renamed["result"]["agent"]["name"], "reviewer");
