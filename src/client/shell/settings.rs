@@ -42,7 +42,17 @@ impl ClientShellState {
             integration_messages: Vec::new(),
             loading_integrations: false,
             installing_integrations: false,
+            theme_picker: false,
         }));
+    }
+
+    /// Theme picker: the settings theme list on its own, grouped dark then light.
+    /// Moving the cursor previews the palette; Enter saves `theme.name`; Esc reverts.
+    pub(super) fn open_theme_picker_overlay(&mut self) {
+        self.open_settings_overlay();
+        if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
+            settings.theme_picker = true;
+        }
     }
 
     fn selected_index_for_settings_section(&self, section: ClientSettingsSection) -> usize {
@@ -114,8 +124,22 @@ impl ClientShellState {
             settings.selected = 0;
             return;
         }
-        settings.selected = (settings.selected as isize + delta)
-            .clamp(0, count.saturating_sub(1) as isize) as usize;
+        if settings.theme_picker && settings.section == ClientSettingsSection::Theme {
+            // Step through the grouped display order, not THEME_NAMES order.
+            let order: Vec<usize> = crate::config::grouped_theme_names()
+                .map(theme_index)
+                .collect();
+            let position = order
+                .iter()
+                .position(|index| *index == settings.selected)
+                .unwrap_or(0);
+            let next = (position as isize + delta).clamp(0, order.len() as isize - 1) as usize;
+            settings.selected = order.get(next).copied().unwrap_or(settings.selected);
+        } else {
+            settings.selected = (settings.selected as isize + delta)
+                .clamp(0, count.saturating_sub(1) as isize)
+                as usize;
+        }
         if settings.section == ClientSettingsSection::Theme {
             self.preview_selected_theme();
         }
@@ -164,7 +188,11 @@ impl ClientShellState {
         edit: crate::config::ConfigEdit<'_>,
         outcome: &mut ClientShellInput,
     ) -> bool {
-        if let Err(error) = crate::config::write_edit(edit) {
+        if let Err(error) = crate::config::update_file_at(
+            &self.config.local_config_path,
+            edit.description(),
+            |content| edit.apply(content),
+        ) {
             self.set_endpoint_error(error);
             outcome.repaint = true;
             return false;
@@ -367,6 +395,26 @@ impl ClientShellState {
                 self.cancel_settings_overlay();
                 outcome.repaint = true;
             }
+            return true;
+        }
+        let theme_picker = matches!(
+            self.overlay,
+            Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
+                theme_picker: true,
+                ..
+            }))
+        );
+        if theme_picker
+            && matches!(
+                code,
+                KeyCode::Tab
+                    | KeyCode::BackTab
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Char('h')
+                    | KeyCode::Char('l')
+            )
+        {
             return true;
         }
         if matches!(code, KeyCode::Tab | KeyCode::Right | KeyCode::Char('l'))

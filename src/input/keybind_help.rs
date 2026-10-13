@@ -193,6 +193,7 @@ pub(crate) fn keybind_help_groups(
                     binding_label(&keybinds.supervisor_handoff),
                     "supervisor handoff",
                 ),
+                entry(binding_label(&keybinds.theme_picker), "theme picker"),
                 entry(binding_label(&keybinds.focus_pane_left), "focus pane left"),
                 entry(binding_label(&keybinds.focus_pane_down), "focus pane down"),
                 entry(binding_label(&keybinds.focus_pane_up), "focus pane up"),

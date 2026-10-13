@@ -39,6 +39,9 @@ pub(super) fn render_settings_overlay(
     integration_updates_available: bool,
     palette: &Palette,
 ) -> Option<OverlayRender> {
+    if settings.theme_picker {
+        return render_theme_picker(buffer, settings, palette);
+    }
     let integration_height = 14u16
         .saturating_add(settings.integrations.len().max(1) as u16)
         .saturating_add(settings.integration_messages.len().min(6) as u16);
@@ -412,4 +415,147 @@ fn render_integrations(
             Style::default().fg(palette.overlay1).bg(palette.panel_bg),
         );
     }
+}
+
+enum ThemePickerRow {
+    Group(&'static str),
+    Theme(usize),
+}
+
+fn theme_picker_rows() -> Vec<ThemePickerRow> {
+    let mut rows = Vec::new();
+    let mut group = None;
+    for name in crate::config::grouped_theme_names() {
+        let label = if crate::config::theme_is_light(name) {
+            "light"
+        } else {
+            "dark"
+        };
+        if group != Some(label) {
+            rows.push(ThemePickerRow::Group(label));
+            group = Some(label);
+        }
+        if let Some(index) = crate::config::THEME_NAMES
+            .iter()
+            .position(|candidate| *candidate == name)
+        {
+            rows.push(ThemePickerRow::Theme(index));
+        }
+    }
+    rows
+}
+
+fn render_theme_picker(
+    buffer: &mut Buffer,
+    settings: &ClientSettingsOverlay,
+    palette: &Palette,
+) -> Option<OverlayRender> {
+    let rows = theme_picker_rows();
+    let height = (rows.len() as u16).saturating_add(7);
+    let popup = popup(buffer.area, 40, height)?;
+    let inner = panel(buffer, popup, palette.accent, palette.panel_bg)?;
+    if inner.width < 16 || inner.height < 6 {
+        return None;
+    }
+    put_text(
+        buffer,
+        inner.x,
+        inner.y,
+        inner.width,
+        " theme",
+        Style::default()
+            .fg(palette.text)
+            .bg(palette.panel_bg)
+            .add_modifier(Modifier::BOLD),
+    );
+    put_text(
+        buffer,
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        &"─".repeat(inner.width as usize),
+        Style::default().fg(palette.surface0).bg(palette.panel_bg),
+    );
+
+    let list = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(4),
+    );
+    let visible = usize::from(list.height);
+    let selected_row = rows
+        .iter()
+        .position(|row| matches!(row, ThemePickerRow::Theme(index) if *index == settings.selected))
+        .unwrap_or(0);
+    let scroll = selected_row.saturating_sub(visible.saturating_sub(1));
+    let original = super::super::settings::normalized_theme_name(&settings.original_theme_name);
+    let mut choice_hits = Vec::new();
+    for (offset, row) in rows.iter().skip(scroll).take(visible).enumerate() {
+        let rect = Rect::new(list.x, list.y + offset as u16, list.width, 1);
+        match row {
+            ThemePickerRow::Group(label) => put_text(
+                buffer,
+                rect.x,
+                rect.y,
+                rect.width,
+                &format!(" {label}"),
+                Style::default()
+                    .fg(palette.overlay1)
+                    .bg(palette.panel_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            ThemePickerRow::Theme(index) => {
+                let Some(name) = crate::config::THEME_NAMES.get(*index) else {
+                    continue;
+                };
+                draw_choice(
+                    buffer,
+                    rect,
+                    name,
+                    *index == settings.selected,
+                    super::super::settings::normalized_theme_name(name) == original,
+                    palette,
+                );
+                choice_hits.push((rect, *index));
+            }
+        }
+    }
+
+    put_text(
+        buffer,
+        inner.x,
+        inner.bottom().saturating_sub(2),
+        inner.width,
+        " ↑↓ preview  ✓ current",
+        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+    );
+    let buttons = row(inner, &[10, 12], 2, inner.height.saturating_sub(1));
+    button(
+        buffer,
+        buttons[0],
+        " ↵ save ",
+        Style::default()
+            .fg(contrast(palette))
+            .bg(palette.accent)
+            .add_modifier(Modifier::BOLD),
+    );
+    button(
+        buffer,
+        buttons[1],
+        " esc revert ",
+        Style::default()
+            .fg(palette.text)
+            .bg(palette.surface0)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    Some(OverlayRender {
+        area: popup,
+        primary: buttons[0],
+        cancel: buttons[1],
+        settings_popup: popup,
+        settings_choices: choice_hits,
+        ..OverlayRender::default()
+    })
 }

@@ -990,3 +990,156 @@ fn supervisor_handoff_binding_sends_only_a_control_message_for_the_focused_pane(
         .as_ref()
         .is_some_and(|feedback| feedback.message.contains("pane_1")));
 }
+
+fn theme_picker_state() -> ClientShellState {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.config.theme_runtime.auto_switch = false;
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state
+}
+
+fn open_theme_picker(state: &mut ClientShellState) {
+    let outcome = state.handle_raw_events(vec![
+        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('t'), KeyModifiers::NONE)),
+    ]);
+    assert!(outcome.repaint);
+    assert!(
+        outcome.requests.is_empty(),
+        "the picker key never reaches the pane: {:?}",
+        outcome.requests
+    );
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
+            theme_picker: true,
+            section: ClientSettingsSection::Theme,
+            ..
+        }))
+    ));
+}
+
+fn picker_selected_theme(state: &ClientShellState) -> &'static str {
+    match state.overlay.as_ref() {
+        Some(ClientShellOverlay::Settings(settings)) => {
+            crate::config::THEME_NAMES[settings.selected]
+        }
+        other => panic!("theme picker closed: {other:?}"),
+    }
+}
+
+#[test]
+fn theme_picker_previews_live_in_grouped_order_and_esc_restores() {
+    let mut state = theme_picker_state();
+    let original_palette = state.config.palette.clone();
+    let original_name = state.config.theme_name.clone();
+    open_theme_picker(&mut state);
+    assert_eq!(picker_selected_theme(&state), "catppuccin");
+
+    let grouped: Vec<&str> = crate::config::grouped_theme_names().collect();
+    for expected in grouped.iter().skip(1) {
+        state.handle_input_bytes(b"j");
+        assert_eq!(picker_selected_theme(&state), *expected);
+        assert_eq!(state.config.theme_name, *expected);
+        assert_eq!(
+            state.config.palette,
+            crate::app::client_palette_for_theme(&state.config.theme_runtime, expected),
+            "chrome palette follows the cursor for {expected}"
+        );
+    }
+    // Grouped order: the six long-session dark themes come before the first light theme.
+    let midnight = grouped.iter().position(|name| *name == "midnight").unwrap();
+    let first_light = grouped
+        .iter()
+        .position(|name| crate::config::theme_is_light(name))
+        .unwrap();
+    assert!(midnight < first_light);
+    assert_ne!(state.config.palette, original_palette);
+
+    // Section switching is disabled in the picker.
+    state.handle_raw_events(vec![RawInputEvent::Key(TerminalKey::new(
+        KeyCode::Tab,
+        KeyModifiers::NONE,
+    ))]);
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
+            section: ClientSettingsSection::Theme,
+            ..
+        }))
+    ));
+
+    let outcome = state.handle_raw_events(vec![RawInputEvent::Key(TerminalKey::new(
+        KeyCode::Esc,
+        KeyModifiers::NONE,
+    ))]);
+    assert!(outcome.repaint);
+    assert!(state.overlay.is_none());
+    assert_eq!(state.config.palette, original_palette);
+    assert_eq!(state.config.theme_name, original_name);
+    assert!(outcome.actions.is_empty(), "esc writes nothing");
+}
+
+#[test]
+fn theme_picker_renders_grouped_rows_with_the_current_theme_marked() {
+    let mut state = theme_picker_state();
+    open_theme_picker(&mut state);
+    let frame = state.compose(106, 40).unwrap();
+    let text = frame_rows(&frame).join("\n");
+    assert!(text.contains(" theme"), "{text}");
+    assert!(text.contains(" dark"), "{text}");
+    assert!(text.contains(" light"), "{text}");
+    assert!(text.contains("catppuccin ✓"), "{text}");
+    assert!(text.contains("esc revert"), "{text}");
+    assert!(state.hits.settings_tabs.is_empty());
+    assert!(!state.hits.settings_choices.is_empty());
+
+    // Scrolling keeps the cursor visible down to the last light theme.
+    for _ in 0..crate::config::THEME_NAMES.len() {
+        state.handle_input_bytes(b"j");
+    }
+    let last = crate::config::grouped_theme_names().last().unwrap();
+    assert_eq!(picker_selected_theme(&state), last);
+    let frame = state.compose(106, 20).unwrap();
+    let text = frame_rows(&frame).join("\n");
+    assert!(text.contains(&format!("▸ {last}")), "{text}");
+}
+
+#[test]
+fn theme_picker_enter_persists_only_theme_name_and_reloads_the_server() {
+    let path = std::env::temp_dir().join(format!(
+        "herdr-theme-picker-{}-{}.toml",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let original = "# keep me\n[theme]\nname = \"nord\"\ndark_name = \"dracula\"\n\n[ui]\nsidebar_width = 31\n";
+    std::fs::write(&path, original).unwrap();
+    let mut state = theme_picker_state();
+    state.config.local_config_path = path.clone();
+    open_theme_picker(&mut state);
+    state.handle_input_bytes(b"j");
+    let chosen = picker_selected_theme(&state);
+
+    let outcome = state.handle_input_bytes(b"\r");
+    let written = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(
+        written,
+        original.replace("name = \"nord\"", &format!("name = \"{chosen}\""))
+    );
+    assert!(state.overlay.is_none());
+    assert!(
+        outcome.actions.iter().any(|action| matches!(
+            action,
+            ClientShellAction::Endpoint { request, .. }
+                if matches!(request.method, crate::api::schema::Method::ServerReloadConfig(_))
+        )),
+        "{:?}",
+        outcome.actions
+    );
+}

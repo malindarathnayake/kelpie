@@ -86,6 +86,11 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                if action == crate::input::KeybindAction::ThemePicker {
+                    self.open_theme_picker_overlay();
+                    outcome.repaint = true;
+                    return;
+                }
                 if action == crate::input::KeybindAction::OpenNotificationTarget {
                     self.focus_visible_notification(outcome);
                     return;

@@ -34,6 +34,7 @@ pub(super) fn command() -> Command {
         .subcommand(status_command())
         .subcommand(config_command())
         .subcommand(channel_command())
+        .subcommand(theme_command())
         .subcommand(machine::command())
         .subcommand(server_command())
         .subcommand(api_command())
@@ -153,6 +154,24 @@ fn channel_command() -> Command {
                     .required(true)
                     .value_parser(["stable", "preview"]),
             ),
+        )
+}
+
+fn theme_command() -> Command {
+    Command::new("theme")
+        .about("List built-in themes or save the active one")
+        .subcommand(Command::new("list").about("List built-in themes and mark the current one"))
+        .subcommand(
+            Command::new("set")
+                .about("Save theme.name in config and reload a running server")
+                .arg(
+                    Arg::new("name")
+                        .value_name("NAME")
+                        .required(true)
+                        .value_parser(clap::builder::PossibleValuesParser::new(
+                            crate::config::THEME_NAMES,
+                        )),
+                ),
         )
 }
 
@@ -1405,6 +1424,33 @@ mod tests {
             assert_command_descriptions(subcommand, path);
             path.pop();
         }
+    }
+
+    #[test]
+    fn spec_lists_theme_list_and_set_with_every_theme_name() {
+        let cmd = super::command();
+        command_path(&cmd, &["theme", "list"]);
+        let set = command_path(&cmd, &["theme", "set"]);
+        let name = set
+            .get_arguments()
+            .find(|arg| arg.get_id() == "name")
+            .unwrap();
+        assert!(name.is_required_set());
+        let values: Vec<String> = name
+            .get_possible_values()
+            .iter()
+            .map(|value| value.get_name().to_string())
+            .collect();
+        assert_eq!(values, crate::config::THEME_NAMES);
+        assert!(super::command()
+            .try_get_matches_from(["herdr", "theme", "set", "midnight"])
+            .is_ok());
+        assert!(super::command()
+            .try_get_matches_from(["herdr", "theme", "set", "midnite"])
+            .is_err());
+        assert!(super::command()
+            .try_get_matches_from(["herdr", "theme", "set"])
+            .is_err());
     }
 
     #[test]

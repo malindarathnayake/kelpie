@@ -75,7 +75,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 [theme]
 # Built-in themes: catppuccin, terminal, tokyo-night, dracula, nord,
 #                  gruvbox, one-dark, solarized, kanagawa, rose-pine,
-#                  vesper
+#                  vesper; long-session dark themes: midnight, dusk,
+#                  ember (night, low blue), slate, forest, kelpie
+# Pick one live with prefix+t, or run `herdr theme list` / `herdr theme set <name>`.
 # name = "catppuccin"
 
 # Follow host terminal light/dark appearance and switch Herdr UI themes.
@@ -194,6 +196,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # resize_pane_right = ""  # optional, e.g. "ctrl+shift+alt+right"
 # toggle_sidebar = "prefix+b"
 # supervisor_handoff = "prefix+shift+a"   # hand the focused pane's next agent.submit to the supervisor once
+# theme_picker = "prefix+t"   # pick a theme with live preview; enter saves theme.name, esc reverts
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.
 # They are independent from focus_pane_*. Do not include prefix+, esc, enter, tab, or 1..9 here.

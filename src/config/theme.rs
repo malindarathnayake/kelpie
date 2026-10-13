@@ -20,7 +20,45 @@ pub const THEME_NAMES: &[&str] = &[
     "rose-pine",
     "rose-pine-dawn",
     "vesper",
+    "midnight",
+    "dusk",
+    "ember",
+    "slate",
+    "forest",
+    "kelpie",
 ];
+
+/// Built-in themes with a light background. Every other built-in theme is dark
+/// (`terminal` follows the host terminal and is listed with the dark themes).
+pub const LIGHT_THEME_NAMES: &[&str] = &[
+    "catppuccin-latte",
+    "tokyo-night-day",
+    "gruvbox-light",
+    "one-light",
+    "solarized-light",
+    "kanagawa-lotus",
+    "rose-pine-dawn",
+];
+
+/// True when a canonical built-in theme name has a light background.
+pub fn theme_is_light(name: &str) -> bool {
+    canonical_theme_name(name).is_some_and(|name| LIGHT_THEME_NAMES.contains(&name))
+}
+
+/// Built-in theme names grouped for pickers: dark themes first, then light ones,
+/// each group in `THEME_NAMES` order.
+pub fn grouped_theme_names() -> impl Iterator<Item = &'static str> {
+    THEME_NAMES
+        .iter()
+        .copied()
+        .filter(|name| !theme_is_light(name))
+        .chain(
+            THEME_NAMES
+                .iter()
+                .copied()
+                .filter(|name| theme_is_light(name)),
+        )
+}
 
 pub(crate) fn canonical_theme_name(name: &str) -> Option<&'static str> {
     match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -42,6 +80,12 @@ pub(crate) fn canonical_theme_name(name: &str) -> Option<&'static str> {
         "rose-pine" | "rosepine" => Some("rose-pine"),
         "rose-pine-dawn" | "rosepine-dawn" | "dawn" => Some("rose-pine-dawn"),
         "vesper" => Some("vesper"),
+        "midnight" => Some("midnight"),
+        "dusk" => Some("dusk"),
+        "ember" => Some("ember"),
+        "slate" => Some("slate"),
+        "forest" => Some("forest"),
+        "kelpie" => Some("kelpie"),
         _ => None,
     }
 }
@@ -50,7 +94,7 @@ pub(crate) fn canonical_theme_name(name: &str) -> Option<&'static str> {
 ///
 /// ```toml
 /// [theme]
-/// name = "tokyo-night"  # built-in: catppuccin, terminal, dracula, nord, etc.
+/// name = "tokyo-night"  # built-in: catppuccin, terminal, dracula, nord, midnight, etc.
 ///
 /// [theme.custom]        # override individual tokens on top of the base
 /// accent = "#f5c2e7"
@@ -258,6 +302,32 @@ light_name = "lattee"
     fn theme_name_aliases_are_valid() {
         for name in ["catppuccin-mocha", "tokyonight", "gruvbox-dark", "dawn"] {
             assert!(canonical_theme_name(name).is_some(), "alias: {name}");
+        }
+    }
+
+    #[test]
+    fn grouped_theme_names_list_every_theme_once_with_dark_first() {
+        let grouped: Vec<_> = grouped_theme_names().collect();
+        assert_eq!(grouped.len(), THEME_NAMES.len());
+        for name in THEME_NAMES {
+            assert_eq!(grouped.iter().filter(|g| *g == name).count(), 1, "{name}");
+        }
+        let first_light = grouped
+            .iter()
+            .position(|name| theme_is_light(name))
+            .unwrap();
+        assert!(grouped[..first_light]
+            .iter()
+            .all(|name| !theme_is_light(name)));
+        assert!(grouped[first_light..]
+            .iter()
+            .all(|name| theme_is_light(name)));
+        for name in LIGHT_THEME_NAMES {
+            assert!(THEME_NAMES.contains(name), "{name}");
+        }
+        for name in ["midnight", "dusk", "ember", "slate", "forest", "kelpie"] {
+            assert_eq!(canonical_theme_name(name), Some(name));
+            assert!(!theme_is_light(name), "{name}");
         }
     }
 

@@ -524,6 +524,156 @@ impl Palette {
         }
     }
 
+    /// Midnight — cool navy dark theme tuned for long sessions.
+    pub fn midnight() -> Self {
+        Self {
+            accent: Color::Rgb(130, 166, 210),
+            panel_bg: Color::Rgb(20, 26, 36),
+            sidebar_bg: Color::Reset,
+            active_row_bg: Color::Rgb(27, 35, 48),
+            selection_bg: Color::Rgb(34, 44, 59),
+            surface0: Color::Rgb(27, 35, 48),
+            surface1: Color::Rgb(35, 45, 60),
+            surface_dim: Color::Rgb(16, 21, 29),
+            overlay0: Color::Rgb(97, 109, 126),
+            overlay1: Color::Rgb(107, 120, 137),
+            text: Color::Rgb(195, 203, 214),
+            subtext0: Color::Rgb(151, 162, 177),
+            mauve: Color::Rgb(169, 154, 209),
+            green: Color::Rgb(143, 191, 154),
+            yellow: Color::Rgb(214, 192, 138),
+            red: Color::Rgb(214, 138, 138),
+            blue: Color::Rgb(130, 166, 210),
+            teal: Color::Rgb(127, 188, 188),
+            peach: Color::Rgb(212, 163, 127),
+        }
+    }
+
+    /// Dusk — warm dark theme with reduced blue for long sessions.
+    pub fn dusk() -> Self {
+        Self {
+            accent: Color::Rgb(214, 162, 107),
+            panel_bg: Color::Rgb(28, 24, 20),
+            sidebar_bg: Color::Reset,
+            active_row_bg: Color::Rgb(36, 31, 26),
+            selection_bg: Color::Rgb(44, 38, 31),
+            surface0: Color::Rgb(36, 31, 26),
+            surface1: Color::Rgb(44, 38, 31),
+            surface_dim: Color::Rgb(22, 19, 15),
+            overlay0: Color::Rgb(114, 105, 94),
+            overlay1: Color::Rgb(125, 114, 100),
+            text: Color::Rgb(212, 198, 176),
+            subtext0: Color::Rgb(168, 154, 133),
+            mauve: Color::Rgb(196, 154, 168),
+            green: Color::Rgb(163, 185, 138),
+            yellow: Color::Rgb(217, 189, 122),
+            red: Color::Rgb(212, 138, 122),
+            blue: Color::Rgb(159, 176, 184),
+            teal: Color::Rgb(143, 181, 168),
+            peach: Color::Rgb(217, 160, 122),
+        }
+    }
+
+    /// Ember — night theme with minimal blue light; the blue slot is a warm grey.
+    pub fn ember() -> Self {
+        Self {
+            accent: Color::Rgb(217, 154, 91),
+            panel_bg: Color::Rgb(23, 18, 14),
+            sidebar_bg: Color::Reset,
+            active_row_bg: Color::Rgb(32, 25, 18),
+            selection_bg: Color::Rgb(40, 31, 23),
+            surface0: Color::Rgb(32, 25, 18),
+            surface1: Color::Rgb(40, 31, 23),
+            surface_dim: Color::Rgb(18, 14, 10),
+            overlay0: Color::Rgb(115, 99, 83),
+            overlay1: Color::Rgb(122, 102, 80),
+            text: Color::Rgb(205, 181, 146),
+            subtext0: Color::Rgb(163, 141, 110),
+            mauve: Color::Rgb(201, 154, 126),
+            green: Color::Rgb(176, 168, 106),
+            yellow: Color::Rgb(216, 181, 106),
+            red: Color::Rgb(212, 130, 107),
+            blue: Color::Rgb(168, 154, 133),
+            teal: Color::Rgb(168, 164, 119),
+            peach: Color::Rgb(224, 138, 82),
+        }
+    }
+
+    /// Slate — neutral soft dark theme for long sessions.
+    pub fn slate() -> Self {
+        Self {
+            accent: Color::Rgb(143, 179, 201),
+            panel_bg: Color::Rgb(29, 32, 36),
+            sidebar_bg: Color::Reset,
+            active_row_bg: Color::Rgb(36, 40, 45),
+            selection_bg: Color::Rgb(43, 48, 54),
+            surface0: Color::Rgb(36, 40, 45),
+            surface1: Color::Rgb(43, 48, 54),
+            surface_dim: Color::Rgb(22, 24, 27),
+            overlay0: Color::Rgb(107, 113, 121),
+            overlay1: Color::Rgb(115, 122, 131),
+            text: Color::Rgb(200, 204, 210),
+            subtext0: Color::Rgb(155, 161, 169),
+            mauve: Color::Rgb(176, 159, 196),
+            green: Color::Rgb(149, 191, 149),
+            yellow: Color::Rgb(209, 192, 140),
+            red: Color::Rgb(207, 141, 141),
+            blue: Color::Rgb(143, 179, 201),
+            teal: Color::Rgb(134, 189, 182),
+            peach: Color::Rgb(208, 165, 133),
+        }
+    }
+
+    /// Forest — green-tinted dark theme for long sessions.
+    pub fn forest() -> Self {
+        Self {
+            accent: Color::Rgb(143, 191, 143),
+            panel_bg: Color::Rgb(19, 26, 22),
+            sidebar_bg: Color::Reset,
+            active_row_bg: Color::Rgb(26, 35, 30),
+            selection_bg: Color::Rgb(33, 44, 37),
+            surface0: Color::Rgb(26, 35, 30),
+            surface1: Color::Rgb(33, 44, 37),
+            surface_dim: Color::Rgb(15, 21, 17),
+            overlay0: Color::Rgb(93, 111, 99),
+            overlay1: Color::Rgb(105, 121, 109),
+            text: Color::Rgb(194, 207, 196),
+            subtext0: Color::Rgb(149, 165, 152),
+            mauve: Color::Rgb(167, 160, 198),
+            green: Color::Rgb(143, 191, 143),
+            yellow: Color::Rgb(207, 196, 136),
+            red: Color::Rgb(204, 140, 132),
+            blue: Color::Rgb(138, 169, 189),
+            teal: Color::Rgb(132, 187, 168),
+            peach: Color::Rgb(207, 164, 127),
+        }
+    }
+
+    /// Kelpie — the Kelpie brand dark theme.
+    pub fn kelpie() -> Self {
+        Self {
+            accent: Color::Rgb(217, 160, 102),
+            panel_bg: Color::Rgb(34, 34, 46),
+            sidebar_bg: Color::Reset,
+            active_row_bg: Color::Rgb(42, 42, 56),
+            selection_bg: Color::Rgb(50, 50, 68),
+            surface0: Color::Rgb(42, 42, 56),
+            surface1: Color::Rgb(50, 50, 68),
+            surface_dim: Color::Rgb(27, 27, 37),
+            overlay0: Color::Rgb(114, 114, 138),
+            overlay1: Color::Rgb(119, 119, 143),
+            text: Color::Rgb(224, 222, 216),
+            subtext0: Color::Rgb(174, 172, 184),
+            mauve: Color::Rgb(203, 166, 247),
+            green: Color::Rgb(166, 227, 161),
+            yellow: Color::Rgb(249, 226, 175),
+            red: Color::Rgb(243, 139, 168),
+            blue: Color::Rgb(137, 180, 250),
+            teal: Color::Rgb(148, 226, 213),
+            peach: Color::Rgb(250, 179, 135),
+        }
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match crate::config::canonical_theme_name(name)? {
@@ -545,6 +695,12 @@ impl Palette {
             "rose-pine" => Some(Self::rose_pine()),
             "rose-pine-dawn" => Some(Self::rose_pine_dawn()),
             "vesper" => Some(Self::vesper()),
+            "midnight" => Some(Self::midnight()),
+            "dusk" => Some(Self::dusk()),
+            "ember" => Some(Self::ember()),
+            "slate" => Some(Self::slate()),
+            "forest" => Some(Self::forest()),
+            "kelpie" => Some(Self::kelpie()),
             _ => None,
         }
     }
@@ -1399,6 +1555,214 @@ mod tests {
             (a.max(b), a.min(b))
         };
         (lighter + 0.05) / (darker + 0.05)
+    }
+
+    const LONG_SESSION_THEMES: [&str; 6] =
+        ["midnight", "dusk", "ember", "slate", "forest", "kelpie"];
+
+    fn palette_fields(palette: &Palette) -> [(&'static str, Color); 19] {
+        [
+            ("accent", palette.accent),
+            ("panel_bg", palette.panel_bg),
+            ("sidebar_bg", palette.sidebar_bg),
+            ("active_row_bg", palette.active_row_bg),
+            ("selection_bg", palette.selection_bg),
+            ("surface0", palette.surface0),
+            ("surface1", palette.surface1),
+            ("surface_dim", palette.surface_dim),
+            ("overlay0", palette.overlay0),
+            ("overlay1", palette.overlay1),
+            ("text", palette.text),
+            ("subtext0", palette.subtext0),
+            ("mauve", palette.mauve),
+            ("green", palette.green),
+            ("yellow", palette.yellow),
+            ("red", palette.red),
+            ("blue", palette.blue),
+            ("teal", palette.teal),
+            ("peach", palette.peach),
+        ]
+    }
+
+    /// CIE L*a*b* (D65) of an sRGB color.
+    fn rgb_lab(color: Color) -> (f64, f64, f64) {
+        let Color::Rgb(r, g, b) = color else {
+            panic!("expected RGB color, got {color:?}");
+        };
+        let channel = |value: u8| {
+            let value = f64::from(value) / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (channel(r), channel(g), channel(b));
+        let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+        let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+        let f = |t: f64| {
+            if t > 0.008856 {
+                t.cbrt()
+            } else {
+                7.787 * t + 16.0 / 116.0
+            }
+        };
+        let (fx, fy, fz) = (f(x), f(y), f(z));
+        (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+    }
+
+    /// CIE76 color difference.
+    fn delta_e(a: Color, b: Color) -> f64 {
+        let (l1, a1, b1) = rgb_lab(a);
+        let (l2, a2, b2) = rgb_lab(b);
+        ((l1 - l2).powi(2) + (a1 - a2).powi(2) + (b1 - b2).powi(2)).sqrt()
+    }
+
+    #[test]
+    fn long_session_themes_meet_the_eye_strain_contrast_checks() {
+        for name in LONG_SESSION_THEMES {
+            let palette = Palette::from_name(name).unwrap();
+            assert!(!crate::config::theme_is_light(name), "{name} must be dark");
+            assert_eq!(palette.sidebar_bg, Color::Reset, "{name}");
+            for (field, color) in palette_fields(&palette) {
+                assert_ne!(color, Color::Rgb(0, 0, 0), "{name}.{field} is pure black");
+                assert_ne!(
+                    color,
+                    Color::Rgb(255, 255, 255),
+                    "{name}.{field} is pure white"
+                );
+            }
+            for (bg_name, bg) in [
+                ("panel_bg", palette.panel_bg),
+                ("active_row_bg", palette.active_row_bg),
+            ] {
+                let text = contrast_ratio(palette.text, bg);
+                assert!(
+                    (7.0..=12.0).contains(&text),
+                    "{name}: text on {bg_name} is {text:.2}:1, want 7-12:1"
+                );
+                for (field, color) in [
+                    ("green", palette.green),
+                    ("yellow", palette.yellow),
+                    ("red", palette.red),
+                    ("blue", palette.blue),
+                    ("teal", palette.teal),
+                    ("peach", palette.peach),
+                    ("mauve", palette.mauve),
+                    ("accent", palette.accent),
+                    ("subtext0", palette.subtext0),
+                ] {
+                    let ratio = contrast_ratio(color, bg);
+                    assert!(
+                        ratio >= 4.5,
+                        "{name}: {field} on {bg_name} is {ratio:.2}:1, want >= 4.5:1"
+                    );
+                }
+                for (field, color) in [
+                    ("overlay0", palette.overlay0),
+                    ("overlay1", palette.overlay1),
+                ] {
+                    let ratio = contrast_ratio(color, bg);
+                    assert!(
+                        ratio >= 3.0,
+                        "{name}: {field} on {bg_name} is {ratio:.2}:1, want >= 3:1"
+                    );
+                }
+            }
+            let stale_vs_working = delta_e(palette.peach, palette.yellow);
+            assert!(
+                stale_vs_working >= 10.0,
+                "{name}: peach vs yellow delta E is {stale_vs_working:.1}, want >= 10"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_terminal_schemes_match_the_long_session_palettes() {
+        let schemes: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../docs/themes/windows-terminal-schemes.json"
+        ))
+        .unwrap();
+        assert_eq!(schemes.len(), LONG_SESSION_THEMES.len());
+        for name in LONG_SESSION_THEMES {
+            let title = format!("Kelpie {}{}", name[..1].to_uppercase(), &name[1..]);
+            let scheme = schemes
+                .iter()
+                .find(|scheme| scheme["name"] == title.as_str())
+                .unwrap_or_else(|| panic!("missing scheme {title}"));
+            let palette = Palette::from_name(name).unwrap();
+            let hex = |color: Color| format!("#{}", color_token(color));
+            for (key, color) in [
+                ("background", palette.panel_bg),
+                ("foreground", palette.text),
+                ("cursorColor", palette.accent),
+                ("selectionBackground", palette.selection_bg),
+                ("red", palette.red),
+                ("green", palette.green),
+                ("yellow", palette.yellow),
+                ("blue", palette.blue),
+                ("purple", palette.mauve),
+                ("cyan", palette.teal),
+            ] {
+                assert_eq!(scheme[key], hex(color).as_str(), "{title}.{key}");
+            }
+            for value in scheme.as_object().unwrap().values() {
+                assert!(
+                    !matches!(value.as_str(), Some("#000000" | "#ffffff")),
+                    "{title} uses pure black or white"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ember_keeps_the_blue_channel_low() {
+        let palette = Palette::ember();
+        for (field, color) in palette_fields(&palette) {
+            if let Color::Rgb(r, _, b) = color {
+                assert!(b < r, "ember.{field} lets blue exceed red: {color:?}");
+            }
+        }
+    }
+
+    fn color_token(color: Color) -> String {
+        match color {
+            Color::Rgb(r, g, b) => format!("{r:02x}{g:02x}{b:02x}"),
+            other => format!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn original_built_in_themes_keep_their_exact_colors() {
+        for (name, expected) in [
+            ("catppuccin", "89b4fa 181825 Reset 1e1e2e 313244 313244 45475a 1e1e2e 6c7086 7f849c cdd6f4 a6adc8 cba6f7 a6e3a1 f9e2af f38ba8 89b4fa 94e2d5 fab387"),
+            ("catppuccin-latte", "1e66f5 eff1f5 Reset e6e9ef bdd0f5 ccd0da bcc0cc e6e9ef 9ca0b0 8c8fa1 4c4f69 6c6f85 8839ef 40a02b df8e1d d20f39 1e66f5 179299 fe640b"),
+            ("terminal", "Blue Reset Reset DarkGray Reset Reset DarkGray DarkGray Gray White Reset Gray Gray Green Yellow LightRed Blue Cyan Yellow"),
+            ("tokyo-night", "7aa2f7 1a1b26 Reset 232636 2d3650 24283b 414868 1a1b26 565f89 697196 c0caf5 a9b1d6 bb9af7 9ece6a e0af68 f7768e 7aa2f7 7dcfff ff9e64"),
+            ("tokyo-night-day", "2e7de9 e1e2e7 Reset d2d3da b6cae7 c4c8da a8aecb d2d3da 8990b3 68709a 3760bf 6172b0 7847bd 587539 8c6c3e f52a65 2e7de9 118c74 b15c00"),
+            ("dracula", "bd93f9 282a36 Reset 373c52 463f5d 44475a 6272a4 282a36 6272a4 828cb4 f8f8f2 d2d2dc ff79c6 50fa7b f1fa8c ff5555 8be9fd 8be9fd ffb86c"),
+            ("nord", "88c0d0 2e3440 Reset 434c5e 40505d 3b4252 434c5e 2e3440 4c566a 646e82 eceff4 d8dee9 b48ead a3be8c ebcb8b bf616a 81a1c1 8fbcbb d08770"),
+            ("gruvbox", "d79921 282828 Reset 323130 4b3f27 3c3836 504945 282828 928374 a89984 ebdbb2 d5c4a1 d3869b b8bb26 fabd2f fb4934 83a598 8ec07c fe8019"),
+            ("gruvbox-light", "076678 fbf1c7 Reset f2e5bc ebdbb2 ebdbb2 d5c4a1 f2e5bc 928374 7c6f64 3c3836 504945 8f3f71 79740e b57614 9d0006 076678 427b58 af3a03"),
+            ("one-dark", "61afef 282c34 Reset 313640 334659 2c313a 3e4451 282c34 5c6370 737a87 abb2bf 969ca8 c678dd 98c379 e5c07b e06c75 61afef 56b6c2 d19a66"),
+            ("one-light", "4078f2 fafafa Reset d8dbe2 cddbf8 f0f0f1 e5e5e6 f5f5f6 a0a1a7 686b77 383a42 686b77 a626a4 50a14f c18401 e45649 4078f2 0184bc 986801"),
+            ("solarized", "268bd2 002b36 Reset 164b57 083e55 073642 586e75 002b36 586e75 657b83 93a1a1 839496 d33682 859900 b58900 dc322f 268bd2 2aa198 cb4b16"),
+            ("solarized-light", "268bd2 fdf6e3 Reset eee8d5 c9dcdf eee8d5 93a1a1 eee8d5 93a1a1 586e75 657b83 839496 d33682 859900 b58900 dc322f 268bd2 2aa198 cb4b16"),
+            ("kanagawa", "7e9cd8 1f1f28 Reset 363646 32384b 2a2a37 363646 1f1f28 727169 87867d dcd7ba c8c3aa 957fb8 76946a c0a36e c34043 7e9cd8 7fb4ca ffa066"),
+            ("kanagawa-lotus", "4d699b f2ecbc Reset d5cea3 dcd5ac dcd5ac c9cbd1 d5cea3 a09cac 8a8980 545464 43436c 624c83 6f894e 77713f c84053 4d699b 4e8ca2 cc6d00"),
+            ("rose-pine", "c4a7e7 191724 Reset 26233a 3b344b 1f1d2e 26233a 26233a 6e6a86 908caa e0def4 c8c5dc c4a7e7 31748f f6c177 eb6f92 31748f 9ccfd8 ea9a97"),
+            ("rose-pine-dawn", "907aa9 faf4ed Reset e3d9cf f2e9e1 f2e9e1 fffaf3 f2e9e1 9893a5 797593 464261 797593 907aa9 286983 ea9d34 b4637a 286983 56949f d7827e"),
+            ("vesper", "ffc799 1a1a1a Reset 101010 232323 232323 282828 101010 5c5c5c 7e7e7e ffffff a0a0a0 ffd1a8 99ffe4 ffc799 ff8080 b0b0b0 66ddcc ffc799"),
+        ] {
+            let palette = Palette::from_name(name).unwrap();
+            let actual = palette_fields(&palette)
+                .iter()
+                .map(|(_, color)| color_token(*color))
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert_eq!(actual, expected, "{name} colors changed");
+        }
     }
 
     #[test]

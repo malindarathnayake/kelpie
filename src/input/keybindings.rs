@@ -72,6 +72,8 @@ pub(crate) enum KeybindAction {
     OpenNavigator,
     /// Fork: arm a one-shot supervisor handoff on the focused pane.
     SupervisorHandoff,
+    /// Open the theme picker overlay.
+    ThemePicker,
 }
 
 pub(crate) fn resolve_direct_binding(
@@ -153,6 +155,7 @@ pub(crate) fn resolve_non_indexed_action(
             &keybinds.supervisor_handoff,
             KeybindAction::SupervisorHandoff,
         ),
+        (&keybinds.theme_picker, KeybindAction::ThemePicker),
         (&keybinds.reload_config, KeybindAction::ReloadConfig),
         (
             &keybinds.open_notification_target,

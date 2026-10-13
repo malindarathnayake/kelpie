@@ -12,6 +12,8 @@ __pycache__/
 # Fork: Kelpie brand kit is tracked.
 !/docs/Brand/
 /docs/Brand/.thumbnail
+# Fork: Windows Terminal schemes matching the built-in themes are tracked.
+!/docs/themes/
 !/docs/next/
 !/docs/next/**
 !/docs/preview/

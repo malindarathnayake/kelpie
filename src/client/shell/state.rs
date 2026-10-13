@@ -420,6 +420,8 @@ pub(super) struct ClientSettingsOverlay {
     pub(super) integration_messages: Vec<String>,
     pub(super) loading_integrations: bool,
     pub(super) installing_integrations: bool,
+    /// Opened by the `theme_picker` binding: a themes-only list grouped dark/light.
+    pub(super) theme_picker: bool,
 }
 
 #[derive(Debug)]
