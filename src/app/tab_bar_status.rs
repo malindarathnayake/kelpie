@@ -482,11 +482,22 @@ async fn run_status_command(
     }
     crate::platform::configure_status_command(&mut process);
 
-    let mut process = tokio::process::Command::from(process);
-    process.kill_on_drop(true);
-    let mut child = process.spawn().map_err(|error| error.to_string())?;
-    let process_group =
-        crate::platform::StatusCommandGuard::new(&child).map_err(|error| error.to_string())?;
+    // Spawning and job assignment are synchronous OS calls that can block for seconds under
+    // heavy process load; run them off the async thread so the deadline still applies. A launch
+    // that finishes after the deadline is dropped, which kills the child and closes its job.
+    let launch = tokio::task::spawn_blocking(move || {
+        let mut process = tokio::process::Command::from(process);
+        process.kill_on_drop(true);
+        let child = process.spawn().map_err(|error| error.to_string())?;
+        let process_group =
+            crate::platform::StatusCommandGuard::new(&child).map_err(|error| error.to_string())?;
+        Ok::<_, String>((child, process_group))
+    });
+    let (mut child, process_group) = match tokio::time::timeout_at(deadline, launch).await {
+        Ok(Ok(launched)) => launched?,
+        Ok(Err(error)) => return Err(error.to_string()),
+        Err(_) => return Err(format!("timed out after {}s", timeout.as_secs())),
+    };
     control.register(process_group);
     if control.is_terminated() {
         return Err("status command was cancelled".into());
@@ -554,28 +565,33 @@ mod tests {
     #[tokio::test]
     async fn status_command_reports_its_sanitized_last_line() {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
+        // Launching a shell can take seconds on a loaded Windows host (measured ~3.2 s during
+        // the full parallel suite), so the command budget leaves room for a slow launch.
         spawn_status_command(
             event_tx,
             7,
             3,
             MULTILINE_COMMAND.into(),
-            Duration::from_secs(2),
+            Duration::from_secs(10),
             Vec::new(),
             None,
         );
 
-        let event = tokio::time::timeout(Duration::from_secs(3), event_rx.recv())
+        let event = tokio::time::timeout(Duration::from_secs(12), event_rx.recv())
             .await
             .expect("status command timed out")
             .expect("status command event channel closed");
-        assert!(matches!(
-            event,
-            AppEvent::TabBarCommandFinished {
-                generation: 7,
-                segment_index: 3,
-                result: Ok(Some(ref output)),
-            } if output == "final"
-        ));
+        assert!(
+            matches!(
+                event,
+                AppEvent::TabBarCommandFinished {
+                    generation: 7,
+                    segment_index: 3,
+                    result: Ok(Some(ref output)),
+                } if output == "final"
+            ),
+            "{event:?}"
+        );
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
