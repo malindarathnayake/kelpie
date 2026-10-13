@@ -70,6 +70,9 @@ pub struct SupervisorState {
     event_seq: u64,
     /// `agent.submit` receipts (fork, S2/S3).
     pub submits: crate::supervisor::submit::SubmitLedger,
+    /// Normalized session start source of the session report App is applying right now
+    /// (`AgentSessionReported` only); None for every other mutation.
+    mutation_start_source: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +178,16 @@ impl PaneSupervisorState {
     }
 }
 
+/// Why `agent.answer` rejected a question id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnswerReject {
+    /// Unknown, resolved or superseded, not the newest open question, or no longer
+    /// re-detected on screen.
+    NotCurrent,
+    /// A structured approval or dialog: the owner answers in the pane.
+    NotAnswerable,
+}
+
 /// target_ref validator error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaleTarget {
@@ -213,6 +226,11 @@ impl SupervisorState {
             pane,
             crate::supervisor::fence::FenceReason::GenerationChanged,
         );
+        if reason != GenerationReason::PaneMoved {
+            // A conversation replacement other than an already-classified clear: a written
+            // reset still pending can no longer be verified.
+            self.submits.note_other_replacement(pane);
+        }
         let state = self.pane_mut(pane);
         let old = state.generation;
         state.generation += 1;
@@ -303,6 +321,18 @@ impl SupervisorState {
         let session_changed =
             self.observe_session_ref(pane, facts.session_before, facts.session_after.clone());
         let reason = generation_reason(session_changed, facts.agent_released, facts.agent_started)?;
+        if reason == GenerationReason::SessionChanged
+            && self.mutation_start_source.as_deref() == Some("clear")
+        {
+            if let Some(after) = facts.session_after.as_ref() {
+                // Classify before the bump trips the fences, so an `agent.reset` write the
+                // clear interrupted maps to `written` instead of indeterminate.
+                let seq = self.next_event_seq();
+                let new_generation = self.pane_mut(pane).generation + 1;
+                self.submits
+                    .note_clear_session(pane, after, new_generation, seq);
+            }
+        }
         self.record_generation_change(pane, reason, now_ms);
         if reason == GenerationReason::AgentStarted {
             // A new agent's first session ref is enrichment, not a replacement of the
@@ -318,6 +348,12 @@ impl SupervisorState {
             state.pending_prose = true;
         }
         Some(reason)
+    }
+
+    /// Sets the normalized start source of the session report App is about to apply;
+    /// App clears it (None) right after that one mutation.
+    pub fn set_mutation_start_source(&mut self, source: Option<String>) {
+        self.mutation_start_source = source;
     }
 
     /// An accepted hook report whose final state is Working starts a new turn for
@@ -393,6 +429,50 @@ impl SupervisorState {
         true
     }
 
+    /// `agent.answer` question checks against a fresh grid snapshot (`screen_text`, the
+    /// same 24-row unwrapped text the scan reads). Pure; never resolves the question.
+    ///
+    /// Accepted only when the id names an open `prose_question` of this pane that is the
+    /// newest open question, and a prose question re-detected on screen now hashes to the
+    /// same id (same question epoch, same normalized text). A structured question is not
+    /// answerable (the owner acts in the pane).
+    pub fn check_answer(
+        &self,
+        pane: PaneId,
+        id: &str,
+        screen_text: &str,
+    ) -> Result<(), AnswerReject> {
+        let state = self.panes.get(&pane).ok_or(AnswerReject::NotCurrent)?;
+        let question = state
+            .questions
+            .iter()
+            .find(|q| q.question_id == id)
+            .ok_or(AnswerReject::NotCurrent)?;
+        if question.resolution.is_some() {
+            return Err(AnswerReject::NotCurrent);
+        }
+        if question.kind != QuestionKind::ProseQuestion {
+            return Err(AnswerReject::NotAnswerable);
+        }
+        let newest_open = state
+            .questions
+            .iter()
+            .rev()
+            .find(|q| q.resolution.is_none())
+            .map(|q| q.question_id.as_str());
+        if newest_open != Some(id) {
+            return Err(AnswerReject::NotCurrent);
+        }
+        let rows = content_rows(screen_text);
+        let on_screen = detect_prose_question(&rows).is_some_and(|text| {
+            question_id(pane.raw(), state.question_epoch, "prose", &normalize(&text)) == id
+        });
+        if !on_screen {
+            return Err(AnswerReject::NotCurrent);
+        }
+        Ok(())
+    }
+
     /// Records that a `background_jobs` token was reported in the current generation,
     /// with its event sequence and report time.
     pub fn note_background_hook(&mut self, pane: PaneId, now_ms: u64) {
@@ -462,6 +542,11 @@ impl SupervisorState {
         let seq = matches!(new, AgentState::Working).then(|| self.next_event_seq());
         if let Some(seq) = seq {
             self.submits.note_turn_start(pane, seq, now_ms);
+        }
+        if matches!(new, AgentState::Idle | AgentState::Blocked) {
+            // Idle or AwaitingHuman edge: the order-based effect of an `agent.interrupt`.
+            let end_seq = self.next_event_seq();
+            self.submits.note_turn_end(pane, end_seq, now_ms);
         }
         let state = self.pane_mut(pane);
         state.last_transition_ms = Some(now_ms);

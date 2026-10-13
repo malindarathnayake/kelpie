@@ -1,19 +1,23 @@
-//! Fork-only `agent.submit` / `agent.submit_status` handlers (S2/S3). Disabled unless
-//! `[supervisor] enabled`. Every rejection happens before any PTY call and records nothing.
+//! Fork-only `agent.submit`, `agent.answer`, `agent.interrupt`, `agent.reset` and
+//! `agent.submit_status` handlers (S2/S3, S7-S9). Disabled unless `[supervisor] enabled`.
+//! Every rejection happens before any PTY call and records nothing.
 
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 
 use crate::api::schema::supervisor::{
-    AgentSubmitParams, AgentSubmitStatusParams, DraftState, SubmitReceipt,
+    AgentAnswerParams, AgentControlParams, AgentSubmitParams, AgentSubmitStatusParams, DraftState,
+    SubmitKind, SubmitReceipt, TargetRef,
 };
 use crate::api::schema::ResponseResult;
 use crate::app::App;
 use crate::events::AppEvent;
 use crate::supervisor::fence::SubmitFence;
+use crate::supervisor::registry::AnswerReject;
 use crate::supervisor::submit::{
-    text_sha256_16, valid_submit_id, valid_submit_text, Repeat, SubmitEvent, SUBMIT_DEADLINE,
+    text_sha256_16, valid_submit_id, valid_submit_text, NewReceipt, Repeat, RequestKey,
+    SubmitEvent, INTERRUPT_HASH_TEXT, RESET_TEXT, SUBMIT_DEADLINE,
 };
 
 use super::agents::agent_not_found;
@@ -22,6 +26,18 @@ use super::supervisor::RequestLog;
 
 /// Same paste-to-Enter delay as `agent.prompt`.
 const SUBMIT_ENTER_DELAY: Duration = Duration::from_millis(300);
+/// Upper bound on an `agent.answer` question_id (ids are short hashes; this only bounds
+/// garbage input).
+const MAX_QUESTION_ID_BYTES: usize = 128;
+
+/// The Esc key as the pane's terminal encodes it (the bytes an owner pressing Esc sends).
+fn encode_interrupt_key(runtime: &crate::terminal::TerminalRuntime) -> Vec<u8> {
+    let esc = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::NONE,
+    );
+    runtime.encode_terminal_key(esc.into())
+}
 
 /// Debug builds only: delays a submission write so a fixture can trip the fence while it
 /// is queued. Never compiled into release builds.
@@ -57,6 +73,21 @@ fn receipt_response(id: String, receipt: SubmitReceipt) -> String {
     encode_success(id, ResponseResult::AgentSubmitReceipt { receipt })
 }
 
+/// One supervised write request (`agent.submit`, `agent.answer`, `agent.interrupt`,
+/// `agent.reset`). All kinds share validation, ledger, fence, latch and handoff rules.
+struct WriteRequest {
+    /// Bounded method name for logs and messages.
+    method: &'static str,
+    kind: SubmitKind,
+    target_ref: TargetRef,
+    submit_id: String,
+    /// `answer` only.
+    question_id: Option<String>,
+    /// Text sent through the submit path (text, 300 ms, Enter); None sends the Esc key
+    /// alone as one fenced write with no Enter (`interrupt`).
+    text: Option<String>,
+}
+
 impl App {
     pub(super) fn handle_agent_submit(&mut self, id: String, params: AgentSubmitParams) -> String {
         let hold = dev_submit_hold();
@@ -69,7 +100,100 @@ impl App {
         params: AgentSubmitParams,
         hold: Option<Duration>,
     ) -> String {
-        let log = RequestLog::new("agent.submit", &id);
+        self.handle_supervised_write(
+            id,
+            WriteRequest {
+                method: "agent.submit",
+                kind: SubmitKind::Submit,
+                target_ref: params.target_ref,
+                submit_id: params.submit_id,
+                question_id: None,
+                text: Some(params.text),
+            },
+            hold,
+        )
+    }
+
+    /// S7: `agent.submit` that answers the newest open prose question still on screen.
+    pub(super) fn handle_agent_answer(&mut self, id: String, params: AgentAnswerParams) -> String {
+        let hold = dev_submit_hold();
+        self.handle_supervised_write(
+            id,
+            WriteRequest {
+                method: "agent.answer",
+                kind: SubmitKind::Answer,
+                target_ref: params.target_ref,
+                submit_id: params.submit_id,
+                question_id: Some(params.question_id),
+                text: Some(params.text),
+            },
+            hold,
+        )
+    }
+
+    /// S8: one fenced Esc to a Working Claude pane.
+    pub(super) fn handle_agent_interrupt(
+        &mut self,
+        id: String,
+        params: AgentControlParams,
+    ) -> String {
+        let hold = dev_submit_hold();
+        self.handle_agent_interrupt_with_hold(id, params, hold)
+    }
+
+    fn handle_agent_interrupt_with_hold(
+        &mut self,
+        id: String,
+        params: AgentControlParams,
+        hold: Option<Duration>,
+    ) -> String {
+        self.handle_supervised_write(
+            id,
+            WriteRequest {
+                method: "agent.interrupt",
+                kind: SubmitKind::Interrupt,
+                target_ref: params.target_ref,
+                submit_id: params.submit_id,
+                question_id: None,
+                text: None,
+            },
+            hold,
+        )
+    }
+
+    /// S9: submits `/clear` through the submit path.
+    pub(super) fn handle_agent_reset(&mut self, id: String, params: AgentControlParams) -> String {
+        let hold = dev_submit_hold();
+        self.handle_agent_reset_with_hold(id, params, hold)
+    }
+
+    fn handle_agent_reset_with_hold(
+        &mut self,
+        id: String,
+        params: AgentControlParams,
+        hold: Option<Duration>,
+    ) -> String {
+        self.handle_supervised_write(
+            id,
+            WriteRequest {
+                method: "agent.reset",
+                kind: SubmitKind::Reset,
+                target_ref: params.target_ref,
+                submit_id: params.submit_id,
+                question_id: None,
+                text: Some(RESET_TEXT.to_string()),
+            },
+            hold,
+        )
+    }
+
+    fn handle_supervised_write(
+        &mut self,
+        id: String,
+        req: WriteRequest,
+        hold: Option<Duration>,
+    ) -> String {
+        let log = RequestLog::new(req.method, &id);
         let reject = |id: String, code: &str, message: String| {
             let response = encode_error(id, code, message);
             log.error(code, &response);
@@ -83,21 +207,40 @@ impl App {
                     .into(),
             );
         }
-        if !valid_submit_id(&params.submit_id) {
+        if !valid_submit_id(&req.submit_id) {
             return reject(
                 id,
                 "invalid_request",
                 "submit_id must be 1-64 characters of [A-Za-z0-9._:-]".into(),
             );
         }
-        if !valid_submit_text(&params.text) {
+        if req
+            .text
+            .as_deref()
+            .is_some_and(|text| !valid_submit_text(text))
+        {
             return reject(id, "invalid_request", "text must be 1-8192 bytes".into());
         }
-        let text_hash = text_sha256_16(&params.text);
+        if req
+            .question_id
+            .as_deref()
+            .is_some_and(|question| question.is_empty() || question.len() > MAX_QUESTION_ID_BYTES)
+        {
+            return reject(
+                id,
+                "invalid_request",
+                format!("question_id must be 1-{MAX_QUESTION_ID_BYTES} bytes"),
+            );
+        }
+        let text_hash = text_sha256_16(req.text.as_deref().unwrap_or(INTERRUPT_HASH_TEXT));
         match self.state.supervisor.submits.repeat(
-            &params.submit_id,
-            &params.target_ref,
-            &text_hash,
+            &req.submit_id,
+            RequestKey {
+                kind: req.kind,
+                question_id: req.question_id.as_deref(),
+                target_ref: &req.target_ref,
+                text_sha256_16: &text_hash,
+            },
         ) {
             Repeat::Same(receipt) => {
                 let response = receipt_response(id, *receipt);
@@ -105,11 +248,12 @@ impl App {
                 return response;
             }
             Repeat::Conflict => {
-                return reject(
-                    id,
-                    "submit_id_conflict",
-                    "submit_id was already used with a different target_ref or text".into(),
-                );
+                let message = if req.kind == SubmitKind::Submit {
+                    "submit_id was already used with a different target_ref or text"
+                } else {
+                    "submit_id was already used with a different method, target_ref, question or text"
+                };
+                return reject(id, "submit_id_conflict", message.into());
             }
             Repeat::New => {}
         }
@@ -120,11 +264,11 @@ impl App {
                 "submit receipt ledger is full for this server process".into(),
             );
         }
-        let parsed = self.parse_current_public_pane_id(&params.target_ref.pane_id);
+        let parsed = self.parse_current_public_pane_id(&req.target_ref.pane_id);
         if let Err(stale) = self
             .state
             .supervisor
-            .check_target_ref(&params.target_ref, parsed.map(|(_, pane)| pane))
+            .check_target_ref(&req.target_ref, parsed.map(|(_, pane)| pane))
         {
             let current = stale
                 .current_generation
@@ -142,7 +286,7 @@ impl App {
                 "target_ref is stale; current_generation=none".into(),
             );
         };
-        let validated = match self.validate_agent_target(id, &params.target_ref.pane_id, false) {
+        let validated = match self.validate_agent_target(id, &req.target_ref.pane_id, false) {
             Ok(validated) => validated,
             Err(response) => {
                 log.error("agent_target_rejected", &response);
@@ -151,7 +295,7 @@ impl App {
         };
         let id = validated.id;
         if validated.ws_idx != ws_idx || validated.pane_id != pane_id {
-            let response = agent_not_found(id, &params.target_ref.pane_id);
+            let response = agent_not_found(id, &req.target_ref.pane_id);
             log.error("agent_not_found", &response);
             return response;
         }
@@ -160,9 +304,56 @@ impl App {
                 id,
                 "unsupported_agent",
                 format!(
-                    "agent.submit supports claude only, not {}",
+                    "{} supports claude only, not {}",
+                    req.method,
                     crate::detect::agent_label(validated.expected_agent)
                 ),
+            );
+        }
+        if let Some(question_id) = req.question_id.as_deref() {
+            // Structured approvals and a Blocked agent are answered by the owner in the pane.
+            if validated.blocked {
+                return reject(
+                    id,
+                    "question_not_answerable",
+                    "agent is blocked on a structured prompt; the owner answers it in the pane"
+                        .into(),
+                );
+            }
+            // Fresh scan of the current rows: the question must still be on screen now.
+            let screen = self
+                .state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+                .map(|runtime| runtime.recent_unwrapped_text_snapshot(24).text)
+                .unwrap_or_default();
+            match self
+                .state
+                .supervisor
+                .check_answer(pane_id, question_id, &screen)
+            {
+                Ok(()) => {}
+                Err(AnswerReject::NotAnswerable) => {
+                    return reject(
+                        id,
+                        "question_not_answerable",
+                        "question is a structured prompt; the owner answers it in the pane".into(),
+                    );
+                }
+                Err(AnswerReject::NotCurrent) => {
+                    return reject(
+                        id,
+                        "question_not_current",
+                        "question is not the newest open prose question still shown on screen"
+                            .into(),
+                    );
+                }
+            }
+        }
+        if req.kind == SubmitKind::Interrupt && !validated.working {
+            return reject(
+                id,
+                "agent_not_working",
+                "agent is not working; interrupt needs a working foreground".into(),
             );
         }
         if validated.blocked {
@@ -173,15 +364,16 @@ impl App {
             );
         }
         let Some(runtime) = self.lookup_runtime_sender(ws_idx, pane_id) else {
-            let response = agent_not_found(id, &params.target_ref.pane_id);
+            let response = agent_not_found(id, &req.target_ref.pane_id);
             log.error("agent_not_found", &response);
             return response;
         };
         let activity = std::sync::Arc::clone(runtime.supervisor_activity());
         let now = crate::supervisor::now_ms();
         // A valid one-shot operator handoff lifts the sticky owner-input latch for this one
-        // submit; the screen rule (and the equal-ms rule) still decide the draft.
-        let operator_handoff = activity.valid_handoff(params.target_ref.generation, now);
+        // write; the screen rule (and the equal-ms rule) still decide the draft. Esc can
+        // discard a typed draft, so `interrupt` applies the same rule.
+        let operator_handoff = activity.valid_handoff(req.target_ref.generation, now);
         let latched = activity.draft_latched() && operator_handoff.is_none();
         let draft = self.pane_draft_state(
             ws_idx,
@@ -205,7 +397,7 @@ impl App {
         // Accept. The waiter starts first so a refused thread fails while nothing is
         // recorded or sent.
         let fence = SubmitFence::new();
-        let handoff = match self.spawn_submit_waiter(params.submit_id.clone(), fence.clone()) {
+        let handoff = match self.spawn_submit_waiter(req.submit_id.clone(), fence.clone()) {
             Ok(handoff) => handoff,
             Err(err) => {
                 return reject(
@@ -216,12 +408,16 @@ impl App {
             }
         };
         let Some(receipt) = self.state.supervisor.submits.insert_accepted(
-            &params.submit_id,
-            pane_id,
-            params.target_ref.clone(),
-            text_hash,
+            &req.submit_id,
+            NewReceipt {
+                kind: req.kind,
+                question_id: req.question_id.clone(),
+                pane: pane_id,
+                target_ref: req.target_ref.clone(),
+                text_sha256_16: text_hash,
+                handoff: operator_handoff.is_some(),
+            },
             fence.clone(),
-            operator_handoff.is_some(),
             now,
         ) else {
             return reject(
@@ -238,15 +434,23 @@ impl App {
             }
         }
         activity.arm_submit_fence(fence.clone());
-        let Some((text, enter)) = self.lookup_runtime_sender(ws_idx, pane_id).map(|runtime| {
-            crate::app::api_helpers::encode_api_submission_parts(runtime, &params.text)
-        }) else {
+        let encoded =
+            self.lookup_runtime_sender(ws_idx, pane_id)
+                .map(|runtime| match req.text.as_deref() {
+                    Some(text) => {
+                        let (text, enter) =
+                            crate::app::api_helpers::encode_api_submission_parts(runtime, text);
+                        (text, enter, SUBMIT_ENTER_DELAY)
+                    }
+                    None => (encode_interrupt_key(runtime), Vec::new(), Duration::ZERO),
+                });
+        let Some((text, enter, delay)) = encoded else {
             // Unreachable in practice: the runtime was resolved above on this thread.
             let receipt = self
                 .state
                 .supervisor
                 .submits
-                .mark_queue_failed(&params.submit_id)
+                .mark_queue_failed(&req.submit_id)
                 .unwrap_or(receipt);
             let response = receipt_response(id, receipt);
             log.ok(1, &response);
@@ -257,19 +461,20 @@ impl App {
         #[cfg(debug_assertions)]
         if let Some(hold) = hold {
             self.state.supervisor.submits.hold(
-                &params.submit_id,
+                &req.submit_id,
                 crate::supervisor::submit::HeldWrite {
                     text: Bytes::from(text),
                     enter: Bytes::from(enter),
+                    delay,
                     deadline,
                 },
             );
             self.state
                 .supervisor
                 .submits
-                .attach_handoff(&params.submit_id, handoff);
+                .attach_handoff(&req.submit_id, handoff);
             let event_tx = self.event_tx.clone();
-            let submit_id = params.submit_id.clone();
+            let submit_id = req.submit_id.clone();
             let spawned = crate::thread_spawn::spawn_named("herdr-submit-hold", move || {
                 std::thread::sleep(hold);
                 let _ = event_tx.blocking_send(AppEvent::SupervisorSubmit(SubmitEvent::Release {
@@ -277,7 +482,7 @@ impl App {
                 }));
             });
             if spawned.is_err() {
-                self.release_held_submit(&params.submit_id);
+                self.release_held_submit(&req.submit_id);
             }
             let response = receipt_response(id, receipt);
             log.ok(1, &response);
@@ -290,7 +495,7 @@ impl App {
             Some(runtime) => runtime.queue_fenced_user_input_submission(
                 Bytes::from(text),
                 Bytes::from(enter),
-                SUBMIT_ENTER_DELAY,
+                delay,
                 Some(deadline),
                 fence,
             ),
@@ -308,7 +513,7 @@ impl App {
                 .state
                 .supervisor
                 .submits
-                .mark_queue_failed(&params.submit_id)
+                .mark_queue_failed(&req.submit_id)
                 .unwrap_or(receipt),
         };
         let response = receipt_response(id, receipt);
@@ -474,7 +679,7 @@ impl App {
             Some(runtime) => runtime.queue_fenced_user_input_submission(
                 held.text,
                 held.enter,
-                SUBMIT_ENTER_DELAY,
+                held.delay,
                 Some(held.deadline),
                 fence,
             ),
@@ -498,7 +703,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::schema::supervisor::{SubmitReason, SubmitState, TargetRef};
+    use crate::api::schema::supervisor::{ResetEvidence, SubmitReason, SubmitState, TargetRef};
     use crate::api::schema::{ErrorResponse, Method, Request, SuccessResponse};
     use crate::detect::{Agent, AgentState};
     use crate::layout::PaneId;
@@ -786,6 +991,9 @@ mod tests {
         let params = f.params("run-1", "hello");
         let first = receipt(&f.submit(params.clone()));
         assert_eq!(first.state, SubmitState::Accepted);
+        assert_eq!(first.kind, SubmitKind::Submit);
+        assert_eq!(first.question_id, None);
+        assert_eq!(first.reset, None);
         assert_eq!(first.text_sha256_16, text_sha256_16("hello"));
         assert_eq!(
             first.acknowledged,
@@ -1102,6 +1310,477 @@ mod tests {
         f.arm_handoff(crate::supervisor::now_ms());
         f.assert_rejected_unknown("ho-equal");
         assert!(f.handoff_valid());
+        f.assert_no_write().await;
+    }
+
+    // --- S7-S9: agent.answer / agent.interrupt / agent.reset -----------------------------
+
+    const QUESTION: &str = "Should I start the brief?";
+
+    fn screen_above(above: &str) -> Vec<u8> {
+        format!("{above}\r\n\r\n{RULE}\r\n❯ \r\n{RULE}\r\n  ? for shortcuts").into_bytes()
+    }
+
+    impl Fixture {
+        /// Replaces the pane runtime with one showing `bytes` (fresh, unlatched activity).
+        fn set_screen(&mut self, bytes: &[u8]) {
+            let (runtime, rx) =
+                crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                    80, 24, 0, bytes, 8,
+                );
+            runtime.supervisor_activity().set_stamps_for_test(100, 0);
+            self.app.state.insert_test_runtime(self.pane_id, runtime);
+            self.rx = rx;
+        }
+
+        /// Runs the Idle prose scan against the current screen.
+        fn scan_prose(&mut self) {
+            self.app
+                .state
+                .supervisor
+                .pane_mut(self.pane_id)
+                .pending_prose = true;
+            self.app.run_supervisor_scans();
+        }
+
+        fn open_questions(&self) -> Vec<String> {
+            self.app
+                .state
+                .supervisor
+                .pane(self.pane_id)
+                .map(|p| {
+                    p.questions
+                        .iter()
+                        .filter(|q| q.resolution.is_none())
+                        .map(|q| q.question_id.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
+        fn answer(&mut self, submit_id: &str, question_id: &str, text: &str) -> String {
+            let params = AgentAnswerParams {
+                target_ref: self.target(),
+                question_id: question_id.into(),
+                text: text.into(),
+                submit_id: submit_id.into(),
+            };
+            self.app.handle_api_request(Request {
+                id: "a".into(),
+                method: Method::AgentAnswer(params),
+            })
+        }
+
+        fn control(&mut self, submit_id: &str) -> AgentControlParams {
+            AgentControlParams {
+                target_ref: self.target(),
+                submit_id: submit_id.into(),
+            }
+        }
+
+        fn interrupt(&mut self, submit_id: &str) -> String {
+            let params = self.control(submit_id);
+            self.app.handle_api_request(Request {
+                id: "i".into(),
+                method: Method::AgentInterrupt(params),
+            })
+        }
+
+        fn reset(&mut self, submit_id: &str) -> String {
+            let params = self.control(submit_id);
+            self.app.handle_api_request(Request {
+                id: "r".into(),
+                method: Method::AgentReset(params),
+            })
+        }
+
+        fn state_changed(&mut self, state: AgentState) {
+            self.app.handle_internal_event(AppEvent::StateChanged {
+                pane_id: self.pane_id,
+                agent: Some(Agent::Claude),
+                state,
+                visible_blocker: false,
+                visible_working: state == AgentState::Working,
+                process_exited: false,
+                observed_at: Instant::now(),
+            });
+        }
+
+        /// A Claude SessionStart report, as the shipped hook sends it.
+        fn report_session(&mut self, value: &str, start_source: &str, seq: u64) {
+            self.app
+                .handle_internal_event(AppEvent::AgentSessionReported {
+                    pane_id: self.pane_id,
+                    source: "herdr:claude".into(),
+                    agent_label: "claude".into(),
+                    seq: Some(seq),
+                    session_ref: Some(crate::agent_resume::AgentSessionRef {
+                        kind: crate::agent_resume::AgentSessionRefKind::Id,
+                        value: value.into(),
+                    }),
+                    session_start_source: Some(start_source.into()),
+                });
+        }
+
+        fn assert_nothing_recorded(&self) {
+            assert_eq!(self.app.state.supervisor.submits.len(), 0);
+        }
+    }
+
+    /// Fixture with a prose question on screen and recorded as the open question.
+    fn question_fixture(state: AgentState) -> (Fixture, String) {
+        let mut f = fixture_with(Agent::Claude, state, "❯ ");
+        f.set_screen(&screen_above(QUESTION));
+        f.scan_prose();
+        let open = f.open_questions();
+        assert_eq!(open.len(), 1, "question recorded");
+        (f, open[0].clone())
+    }
+
+    #[tokio::test]
+    async fn answer_accepts_newest_on_screen_prose_question_once() {
+        let (mut f, question) = question_fixture(AgentState::Idle);
+        let first = receipt(&f.answer("ans-1", &question, "yes"));
+        assert_eq!(first.state, SubmitState::Accepted);
+        assert_eq!(first.kind, SubmitKind::Answer);
+        assert_eq!(first.question_id.as_deref(), Some(question.as_str()));
+        assert_eq!(first.text_sha256_16, text_sha256_16("yes"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"yes"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.pump_submit_event().await;
+        let written = receipt(&f.status("ans-1"));
+        assert_eq!(written.state, SubmitState::Written);
+        // The answer does not resolve the question.
+        assert_eq!(f.open_questions(), vec![question.clone()]);
+        // Idempotent: same receipt, no second write; a different question conflicts.
+        assert_eq!(receipt(&f.answer("ans-1", &question, "yes")), written);
+        assert_eq!(
+            error_code(&f.answer("ans-1", "other-question", "yes")),
+            "submit_id_conflict"
+        );
+        let params = f.params("ans-1", "yes");
+        assert_eq!(error_code(&f.submit(params)), "submit_id_conflict");
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn answer_rejects_unknown_resolved_and_off_screen_questions() {
+        let (mut f, question) = question_fixture(AgentState::Idle);
+        assert_eq!(
+            error_code(&f.answer("a-unknown", "0123456789abcdef", "yes")),
+            "question_not_current"
+        );
+        // The question scrolls away: no longer re-detected on screen now.
+        f.set_screen(&screen("❯ "));
+        assert_eq!(
+            error_code(&f.answer("a-offscreen", &question, "yes")),
+            "question_not_current"
+        );
+        // Back on screen, but superseded by a conversation-replacing bump.
+        f.set_screen(&screen_above(QUESTION));
+        f.app.state.supervisor.bump_generation(
+            f.pane_id,
+            crate::api::schema::supervisor::GenerationReason::SessionChanged,
+            5,
+        );
+        assert_eq!(
+            error_code(&f.answer("a-superseded", &question, "yes")),
+            "question_not_current"
+        );
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn answer_rejects_an_older_question_and_accepts_the_newer() {
+        let (mut f, older) = question_fixture(AgentState::Idle);
+        f.set_screen(&screen_above("Do you want the long version?"));
+        f.scan_prose();
+        let open = f.open_questions();
+        assert_eq!(open.len(), 2, "{open:?}");
+        let newer = open[1].clone();
+        assert_ne!(older, newer);
+        assert_eq!(
+            error_code(&f.answer("a-old", &older, "yes")),
+            "question_not_current"
+        );
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+        assert_eq!(
+            receipt(&f.answer("a-new", &newer, "short")).state,
+            SubmitState::Accepted
+        );
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"short"));
+    }
+
+    #[tokio::test]
+    async fn answer_rejects_structured_approval_and_blocked_agent() {
+        let (mut f, _) = question_fixture(AgentState::Idle);
+        f.app.state.supervisor.insert_question(
+            f.pane_id,
+            crate::api::schema::supervisor::PendingQuestion {
+                question_id: "approval-1".into(),
+                kind: crate::api::schema::supervisor::QuestionKind::StructuredApproval,
+                excerpt: String::new(),
+                asked_at_ms: 1,
+                source: crate::api::schema::supervisor::FactSource::ManifestRule,
+                confidence: crate::api::schema::supervisor::Confidence::High,
+                possible_response_at_ms: None,
+                resolution: None,
+            },
+        );
+        assert_eq!(
+            error_code(&f.answer("a-approval", "approval-1", "1")),
+            "question_not_answerable"
+        );
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+
+        let (mut blocked, question) = question_fixture(AgentState::Blocked);
+        assert_eq!(
+            error_code(&blocked.answer("a-blocked", &question, "yes")),
+            "question_not_answerable"
+        );
+        blocked.assert_nothing_recorded();
+        blocked.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn answer_keeps_submit_validation_and_draft_rule() {
+        let (mut f, question) = question_fixture(AgentState::Idle);
+        assert_eq!(
+            error_code(&f.answer("bad id", &question, "yes")),
+            "invalid_request"
+        );
+        assert_eq!(
+            error_code(&f.answer("a-1", &question, "")),
+            "invalid_request"
+        );
+        assert_eq!(error_code(&f.answer("a-1", "", "yes")), "invalid_request");
+        f.owner_input_then_output(1_000, 1_002);
+        let raw = f.answer("a-latched", &question, "yes");
+        assert_eq!(error_code(&raw), "draft_not_clean", "{raw}");
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn interrupt_writes_exactly_one_esc_and_records_the_idle_edge() {
+        let mut f = fixture_with(Agent::Claude, AgentState::Working, "❯ ");
+        let first = receipt(&f.interrupt("int-1"));
+        assert_eq!(first.state, SubmitState::Accepted);
+        assert_eq!(first.kind, SubmitKind::Interrupt);
+        assert_eq!(first.text_sha256_16, text_sha256_16(INTERRUPT_HASH_TEXT));
+        // The pane's terminal encoding of Esc (a win32-input press/release pair on Windows),
+        // exactly as an owner pressing Esc would send it.
+        let expected = {
+            let runtime = f
+                .app
+                .lookup_runtime_sender(0, f.pane_id)
+                .expect("pane runtime");
+            Bytes::from(encode_interrupt_key(runtime))
+        };
+        assert!(!expected.is_empty());
+        assert_eq!(f.rx.recv().await.unwrap(), expected);
+        f.pump_submit_event().await;
+        let written = receipt(&f.status("int-1"));
+        assert_eq!(written.state, SubmitState::Written);
+        assert_eq!(written.effect_observed_at_ms, None);
+        f.assert_no_write().await; // no Enter follows the key
+
+        f.state_changed(AgentState::Idle);
+        let effect = receipt(&f.status("int-1"));
+        assert_eq!(effect.state, SubmitState::Written, "never `started`");
+        assert!(effect.effect_observed_at_ms.is_some());
+
+        // Idempotent: same receipt, no second Esc.
+        assert_eq!(receipt(&f.interrupt("int-1")), effect);
+        let params = f.params("int-1", "hello");
+        assert_eq!(error_code(&f.submit(params)), "submit_id_conflict");
+        assert_eq!(f.app.state.supervisor.submits.len(), 1);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn interrupt_rejects_when_not_working_and_when_latched() {
+        for state in [AgentState::Idle, AgentState::Blocked] {
+            let mut f = fixture_with(Agent::Claude, state, "❯ ");
+            let raw = f.interrupt("int-x");
+            assert_eq!(error_code(&raw), "agent_not_working", "{state:?}: {raw}");
+            f.assert_nothing_recorded();
+            f.assert_no_write().await;
+        }
+        let mut codex = fixture_with(Agent::Codex, AgentState::Working, "❯ ");
+        assert_eq!(error_code(&codex.interrupt("int-c")), "unsupported_agent");
+        codex.assert_no_write().await;
+
+        let mut f = fixture_with(Agent::Claude, AgentState::Working, "❯ ");
+        f.owner_input_then_output(1_000, 1_002);
+        let raw = f.interrupt("int-latched");
+        assert_eq!(error_code(&raw), "draft_not_clean", "{raw}");
+        assert!(raw.contains("draft=unknown"), "{raw}");
+        let mut dirty = fixture_with(Agent::Claude, AgentState::Working, "❯ typed");
+        assert_eq!(error_code(&dirty.interrupt("int-dirty")), "draft_not_clean");
+        f.assert_nothing_recorded();
+        dirty.assert_nothing_recorded();
+        f.assert_no_write().await;
+        dirty.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn interrupt_fenced_during_hold_writes_zero_bytes() {
+        let mut f = fixture_with(Agent::Claude, AgentState::Working, "❯ ");
+        let params = f.control("int-held");
+        let raw = f.app.handle_agent_interrupt_with_hold(
+            "i".into(),
+            params,
+            Some(Duration::from_millis(30)),
+        );
+        assert_eq!(receipt(&raw).state, SubmitState::Accepted);
+        f.activity().trip_submit_fences();
+        f.pump_submit_event().await;
+        f.pump_submit_event().await;
+        let r = receipt(&f.status("int-held"));
+        assert_eq!(
+            (r.state, r.reason),
+            (SubmitState::Fenced, Some(SubmitReason::OwnerInput))
+        );
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn reset_submits_clear_and_verifies_on_a_new_clear_session() {
+        let mut f = fixture();
+        f.report_session("sess-old", "startup", 1);
+        assert_eq!(f.target().generation, 1, "first session id is enrichment");
+        let first = receipt(&f.reset("rst-1"));
+        assert_eq!(first.kind, SubmitKind::Reset);
+        assert_eq!(first.reset, Some(ResetEvidence::Pending));
+        assert_eq!(first.text_sha256_16, text_sha256_16(RESET_TEXT));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"/clear"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.pump_submit_event().await;
+        let written = receipt(&f.status("rst-1"));
+        assert_eq!(written.state, SubmitState::Written);
+        assert_eq!(written.reset, Some(ResetEvidence::Pending));
+        assert!(written.new_session.is_none() && written.new_generation.is_none());
+
+        f.report_session("sess-new", "clear", 2);
+        assert_eq!(
+            f.target().generation,
+            2,
+            "clear replacement bumps the generation"
+        );
+        let verified = receipt(&f.status("rst-1"));
+        assert_eq!(verified.reset, Some(ResetEvidence::Verified));
+        let session = verified.new_session.as_ref().expect("new session");
+        assert_eq!(session.value, "sess-new");
+        assert_eq!(verified.new_generation, Some(2));
+        // The receipt keeps its original target_ref.
+        assert_eq!(verified.target_ref.generation, 1);
+
+        // Idempotent with the original target: same receipt, no second write.
+        let again = f.app.handle_api_request(Request {
+            id: "r".into(),
+            method: Method::AgentReset(AgentControlParams {
+                target_ref: first.target_ref.clone(),
+                submit_id: "rst-1".into(),
+            }),
+        });
+        assert_eq!(receipt(&again), verified);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn reset_without_clear_evidence_stays_pending_or_unverified() {
+        let mut f = fixture();
+        f.report_session("sess-a", "startup", 1);
+        receipt(&f.reset("rst-p"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"/clear"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.pump_submit_event().await;
+        // A turn and an idle edge are not reset evidence.
+        f.state_changed(AgentState::Working);
+        f.state_changed(AgentState::Idle);
+        let pending = receipt(&f.status("rst-p"));
+        assert_eq!(pending.reset, Some(ResetEvidence::Pending));
+        assert!(pending.new_session.is_none());
+        // A replacement with another start source is not this reset: unverified, no id.
+        f.report_session("sess-b", "resume", 2);
+        assert_eq!(f.target().generation, 2);
+        let other = receipt(&f.status("rst-p"));
+        assert_eq!(other.reset, Some(ResetEvidence::Unverified));
+        assert!(other.new_session.is_none() && other.new_generation.is_none());
+    }
+
+    #[tokio::test]
+    async fn reset_late_trip_from_clear_session_maps_to_written() {
+        let mut f = fixture();
+        f.report_session("sess-a", "startup", 1);
+        receipt(&f.reset("rst-late"));
+        // The text is written (fence committed); the clear SessionStart lands during the
+        // 300 ms Enter delay and its generation bump trips the fence late.
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"/clear"));
+        f.report_session("sess-b", "clear", 2);
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.pump_submit_event().await;
+        let r = receipt(&f.status("rst-late"));
+        assert_eq!((r.state, r.reason), (SubmitState::Written, None));
+        assert_eq!(r.reset, Some(ResetEvidence::Verified));
+        assert_eq!(r.new_session.as_ref().unwrap().value, "sess-b");
+        assert_eq!(r.new_generation, Some(2));
+    }
+
+    #[tokio::test]
+    async fn reset_late_trip_from_other_bump_stays_indeterminate() {
+        let mut f = fixture();
+        receipt(&f.reset("rst-gen"));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"/clear"));
+        f.app.state.supervisor.bump_generation(
+            f.pane_id,
+            crate::api::schema::supervisor::GenerationReason::PaneMoved,
+            9,
+        );
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+        f.pump_submit_event().await;
+        let r = receipt(&f.status("rst-gen"));
+        assert_eq!(
+            (r.state, r.reason, r.reset),
+            (
+                SubmitState::Indeterminate,
+                Some(SubmitReason::GenerationChangedDuringWrite),
+                Some(ResetEvidence::Unverified)
+            )
+        );
+        assert!(r.new_session.is_none());
+    }
+
+    #[tokio::test]
+    async fn reset_keeps_submit_rejections() {
+        for (agent, state, row, code) in [
+            (Agent::Codex, AgentState::Idle, "❯ ", "unsupported_agent"),
+            (Agent::Claude, AgentState::Blocked, "❯ ", "agent_blocked"),
+            (
+                Agent::Claude,
+                AgentState::Idle,
+                "❯ typed",
+                "draft_not_clean",
+            ),
+        ] {
+            let mut f = fixture_with(agent, state, row);
+            assert_eq!(error_code(&f.reset("rst-x")), code);
+            f.assert_nothing_recorded();
+            f.assert_no_write().await;
+        }
+        let mut f = fixture();
+        let mut stale = f.control("rst-stale");
+        stale.target_ref.generation += 1;
+        let raw = f.app.handle_api_request(Request {
+            id: "r".into(),
+            method: Method::AgentReset(stale),
+        });
+        assert_eq!(error_code(&raw), "stale_target");
+        f.assert_nothing_recorded();
         f.assert_no_write().await;
     }
 

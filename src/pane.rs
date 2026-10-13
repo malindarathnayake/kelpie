@@ -1704,6 +1704,9 @@ impl PaneRuntimeIo {
                         .try_send(text)
                         .map_err(std::io::Error::other)
                         .and_then(|()| {
+                            if enter.is_empty() {
+                                return Ok(());
+                            }
                             std::thread::sleep(delay);
                             sender.try_send(enter).map_err(std::io::Error::other)
                         });

@@ -1564,18 +1564,26 @@ impl AppState {
                 seq,
                 session_ref,
                 session_start_source,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_session_ref_for_session_start(
-                        source,
-                        agent_label,
-                        session_ref,
-                        seq,
-                        session_start_source,
-                    )
-                })
-                .into_iter()
-                .collect(),
+            } => {
+                // Fork: the supervisor registry classifies a clear-sourced replacement for
+                // `agent.reset`; scoped to this one mutation.
+                self.supervisor
+                    .set_mutation_start_source(session_start_source.clone());
+                let updates = self
+                    .update_terminal_state(pane_id, |terminal| {
+                        terminal.set_agent_session_ref_for_session_start(
+                            source,
+                            agent_label,
+                            session_ref,
+                            seq,
+                            session_start_source,
+                        )
+                    })
+                    .into_iter()
+                    .collect();
+                self.supervisor.set_mutation_start_source(None);
+                updates
+            }
             AppEvent::HookMetadataReported {
                 pane_id,
                 source,

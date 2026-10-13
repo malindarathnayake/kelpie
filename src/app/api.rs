@@ -1152,6 +1152,11 @@ impl App {
                 );
             }
             Method::AgentSubmit(params) => return self.handle_agent_submit(request.id, params),
+            Method::AgentAnswer(params) => return self.handle_agent_answer(request.id, params),
+            Method::AgentInterrupt(params) => {
+                return self.handle_agent_interrupt(request.id, params);
+            }
+            Method::AgentReset(params) => return self.handle_agent_reset(request.id, params),
             Method::AgentSubmitStatus(params) => {
                 return self.handle_agent_submit_status(request.id, params);
             }

@@ -3,7 +3,8 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 
 use crate::api::schema::supervisor::{
-    AgentSubmitParams, AgentSubmitStatusParams, AgentsDigestParams, DigestFilter, TargetRef,
+    AgentAnswerParams, AgentControlParams, AgentSubmitParams, AgentSubmitStatusParams,
+    AgentsDigestParams, DigestFilter, TargetRef,
 };
 use crate::api::schema::{
     AgentPromptParams, AgentPromptWaitOptions, AgentReadParams, AgentRenameParams,
@@ -25,6 +26,9 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         "digest" => agent_digest(&args[1..]),
         "watch" => agent_watch(&args[1..]),
         "submit" => agent_submit(&args[1..]),
+        "answer" => agent_answer(&args[1..]),
+        "interrupt" => agent_interrupt(&args[1..]),
+        "reset" => agent_reset(&args[1..]),
         "submit-status" => agent_submit_status(&args[1..]),
         "get" => agent_get(&args[1..]),
         "read" => agent_read(&args[1..]),
@@ -501,6 +505,11 @@ const WATCH_USAGE: &str =
     "herdr agent watch [--pane ID] [--interval-ms N] [--max-changes N] [--timeout-ms N]";
 const SUBMIT_USAGE: &str =
     "herdr agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID <TEXT>";
+const ANSWER_USAGE: &str = "herdr agent answer --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --question-id Q --submit-id ID <TEXT>";
+const INTERRUPT_USAGE: &str =
+    "herdr agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
+const RESET_USAGE: &str =
+    "herdr agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
 const SUBMIT_STATUS_USAGE: &str = "herdr agent submit-status <SUBMIT_ID>";
 const WATCH_DEFAULT_INTERVAL_MS: u64 = 500;
 const WATCH_MIN_INTERVAL_MS: u64 = 100;
@@ -794,31 +803,54 @@ fn parse_target_ref(value: &str) -> Result<TargetRef, String> {
     })
 }
 
-fn parse_agent_submit_args(args: &[String]) -> Result<AgentSubmitParams, String> {
-    let args = super::expand_equals_args(args, &["--target-ref", "--submit-id"]);
-    let usage = || format!("usage: {SUBMIT_USAGE}");
+/// Flags and positional text of one supervised write command.
+#[derive(Debug, PartialEq)]
+struct SupervisedArgs {
+    target_ref: TargetRef,
+    submit_id: String,
+    question_id: Option<String>,
+    text: Option<String>,
+}
+
+/// Shared parser for `agent submit|answer|interrupt|reset`: `--target-ref` (complete,
+/// never refreshed) and `--submit-id` are required; `--question-id` only when
+/// `question`; exactly one positional text only when `text` names the command.
+fn parse_supervised_args(
+    args: &[String],
+    usage_text: &str,
+    question: bool,
+    text_command: Option<&str>,
+) -> Result<SupervisedArgs, String> {
+    let flags: &[&str] = if question {
+        &["--target-ref", "--submit-id", "--question-id"]
+    } else {
+        &["--target-ref", "--submit-id"]
+    };
+    let args = super::expand_equals_args(args, flags);
+    let usage = || format!("usage: {usage_text}");
     let mut target_ref = None;
     let mut submit_id: Option<String> = None;
+    let mut question_id: Option<String> = None;
     let mut text: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
         match arg {
-            "--target-ref" | "--submit-id" => {
+            "--target-ref" | "--submit-id" | "--question-id" if flags.contains(&arg) => {
                 let Some(value) = args.get(index + 1) else {
                     return Err(format!("missing value for {arg}"));
                 };
-                let repeated = if arg == "--target-ref" {
-                    target_ref.replace(parse_target_ref(value)?).is_some()
-                } else {
-                    submit_id.replace(value.clone()).is_some()
+                let repeated = match arg {
+                    "--target-ref" => target_ref.replace(parse_target_ref(value)?).is_some(),
+                    "--submit-id" => submit_id.replace(value.clone()).is_some(),
+                    _ => question_id.replace(value.clone()).is_some(),
                 };
                 if repeated {
                     return Err(usage());
                 }
                 index += 2;
             }
-            "--" => {
+            "--" if text_command.is_some() => {
                 let [value] = &args[index + 1..] else {
                     return Err(usage());
                 };
@@ -829,7 +861,7 @@ fn parse_agent_submit_args(args: &[String]) -> Result<AgentSubmitParams, String>
             }
             value if value.starts_with('-') && value != "-" => return Err(usage()),
             value => {
-                if text.replace(value.to_string()).is_some() {
+                if text_command.is_none() || text.replace(value.to_string()).is_some() {
                     return Err(usage());
                 }
                 index += 1;
@@ -842,30 +874,94 @@ fn parse_agent_submit_args(args: &[String]) -> Result<AgentSubmitParams, String>
     let Some(submit_id) = submit_id else {
         return Err("missing required --submit-id".into());
     };
-    let Some(text) = text else {
-        return Err("agent submit requires text".into());
-    };
-    Ok(AgentSubmitParams {
+    if question && question_id.is_none() {
+        return Err("missing required --question-id".into());
+    }
+    if let Some(command) = text_command {
+        if text.is_none() {
+            return Err(format!("agent {command} requires text"));
+        }
+    }
+    Ok(SupervisedArgs {
         target_ref,
-        text,
         submit_id,
+        question_id,
+        text,
     })
 }
 
-/// `herdr agent submit`: one submission to the exact, caller-supplied target.
-/// The CLI never reads or refreshes the epoch or generation itself.
-fn agent_submit(args: &[String]) -> std::io::Result<i32> {
-    let params = match parse_agent_submit_args(args) {
-        Ok(params) => params,
+fn parse_agent_submit_args(args: &[String]) -> Result<AgentSubmitParams, String> {
+    let parsed = parse_supervised_args(args, SUBMIT_USAGE, false, Some("submit"))?;
+    Ok(AgentSubmitParams {
+        target_ref: parsed.target_ref,
+        text: parsed.text.unwrap_or_default(),
+        submit_id: parsed.submit_id,
+    })
+}
+
+fn parse_agent_answer_args(args: &[String]) -> Result<AgentAnswerParams, String> {
+    let parsed = parse_supervised_args(args, ANSWER_USAGE, true, Some("answer"))?;
+    Ok(AgentAnswerParams {
+        target_ref: parsed.target_ref,
+        question_id: parsed.question_id.unwrap_or_default(),
+        text: parsed.text.unwrap_or_default(),
+        submit_id: parsed.submit_id,
+    })
+}
+
+fn parse_agent_control_args(args: &[String], usage: &str) -> Result<AgentControlParams, String> {
+    let parsed = parse_supervised_args(args, usage, false, None)?;
+    Ok(AgentControlParams {
+        target_ref: parsed.target_ref,
+        submit_id: parsed.submit_id,
+    })
+}
+
+fn send_supervised(id: &str, parsed: Result<Method, String>) -> std::io::Result<i32> {
+    let method = match parsed {
+        Ok(method) => method,
         Err(message) => {
             eprintln!("{message}");
             return Ok(2);
         }
     };
     super::print_response(&super::send_request(&Request {
-        id: "cli:agent:submit".into(),
-        method: Method::AgentSubmit(params),
+        id: id.into(),
+        method,
     })?)
+}
+
+/// `herdr agent submit`: one submission to the exact, caller-supplied target.
+/// The CLI never reads or refreshes the epoch or generation itself.
+fn agent_submit(args: &[String]) -> std::io::Result<i32> {
+    send_supervised(
+        "cli:agent:submit",
+        parse_agent_submit_args(args).map(Method::AgentSubmit),
+    )
+}
+
+/// `herdr agent answer`: answers the newest open prose question still on screen.
+fn agent_answer(args: &[String]) -> std::io::Result<i32> {
+    send_supervised(
+        "cli:agent:answer",
+        parse_agent_answer_args(args).map(Method::AgentAnswer),
+    )
+}
+
+/// `herdr agent interrupt`: one fenced Esc to a working agent.
+fn agent_interrupt(args: &[String]) -> std::io::Result<i32> {
+    send_supervised(
+        "cli:agent:interrupt",
+        parse_agent_control_args(args, INTERRUPT_USAGE).map(Method::AgentInterrupt),
+    )
+}
+
+/// `herdr agent reset`: submits `/clear` through the submit path.
+fn agent_reset(args: &[String]) -> std::io::Result<i32> {
+    send_supervised(
+        "cli:agent:reset",
+        parse_agent_control_args(args, RESET_USAGE).map(Method::AgentReset),
+    )
 }
 
 fn agent_submit_status(args: &[String]) -> std::io::Result<i32> {
@@ -1373,6 +1469,9 @@ fn print_agent_help() {
     eprintln!("  herdr agent digest [--page-cursor C] [--trace-id T]");
     eprintln!("  {WATCH_USAGE}");
     eprintln!("  {SUBMIT_USAGE}");
+    eprintln!("  {ANSWER_USAGE}");
+    eprintln!("  {INTERRUPT_USAGE}");
+    eprintln!("  {RESET_USAGE}");
     eprintln!("  {SUBMIT_STATUS_USAGE}");
     eprintln!("  herdr agent get <target>");
     eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
@@ -1403,8 +1502,9 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_agent_digest_args, parse_agent_submit_args, parse_agent_watch_args, parse_target_ref,
-        watch_view, watch_view_changed,
+        parse_agent_answer_args, parse_agent_control_args, parse_agent_digest_args,
+        parse_agent_submit_args, parse_agent_watch_args, parse_target_ref, watch_view,
+        watch_view_changed, INTERRUPT_USAGE, RESET_USAGE,
     };
     use std::time::Duration;
 
@@ -1530,6 +1630,109 @@ mod tests {
             ]),
         ] {
             assert!(parse_agent_submit_args(&bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn answer_args_require_question_id_and_text() {
+        let params = parse_agent_answer_args(&args(&[
+            "--target-ref",
+            "e:w1:p1:2",
+            "--question-id",
+            "q-1",
+            "--submit-id",
+            "a-1",
+            "yes please",
+        ]))
+        .unwrap();
+        assert_eq!(params.target_ref.pane_id, "w1:p1");
+        assert_eq!(params.question_id, "q-1");
+        assert_eq!(params.submit_id, "a-1");
+        assert_eq!(params.text, "yes please");
+        let eq = parse_agent_answer_args(&args(&[
+            "--question-id=q-2",
+            "--submit-id=a-2",
+            "--target-ref=e:p:1",
+            "--",
+            "-x",
+        ]))
+        .unwrap();
+        assert_eq!((eq.question_id.as_str(), eq.text.as_str()), ("q-2", "-x"));
+        assert_eq!(
+            parse_agent_answer_args(&args(&[
+                "--target-ref",
+                "e:p:1",
+                "--submit-id",
+                "a",
+                "text"
+            ]))
+            .unwrap_err(),
+            "missing required --question-id"
+        );
+        for bad in [
+            args(&[
+                "--target-ref",
+                "e:p:1",
+                "--question-id",
+                "q",
+                "--submit-id",
+                "a",
+            ]),
+            args(&["--question-id", "q", "--submit-id", "a", "text"]),
+            args(&[
+                "--target-ref",
+                "e:p:1",
+                "--question-id",
+                "q",
+                "--question-id",
+                "q",
+                "--submit-id",
+                "a",
+                "text",
+            ]),
+        ] {
+            assert!(parse_agent_answer_args(&bad).is_err(), "{bad:?}");
+        }
+        // `agent submit` does not take a question id.
+        assert!(parse_agent_submit_args(&args(&[
+            "--target-ref",
+            "e:p:1",
+            "--submit-id",
+            "s",
+            "--question-id",
+            "q",
+            "text",
+        ]))
+        .is_err());
+    }
+
+    #[test]
+    fn interrupt_and_reset_args_take_no_text() {
+        for usage in [INTERRUPT_USAGE, RESET_USAGE] {
+            let params = parse_agent_control_args(
+                &args(&["--target-ref", "e:w1:p1:4", "--submit-id", "c-1"]),
+                usage,
+            )
+            .unwrap();
+            assert_eq!(params.target_ref.generation, 4);
+            assert_eq!(params.submit_id, "c-1");
+            for bad in [
+                args(&["--target-ref", "e:w1:p1:4", "--submit-id", "c", "text"]),
+                args(&["--target-ref", "e:w1:p1:4"]),
+                args(&["--submit-id", "c"]),
+                args(&["--target-ref", "w1:p1", "--submit-id", "c"]),
+                args(&["--target-ref", "e:p:1", "--submit-id", "c", "--", "x"]),
+                args(&[
+                    "--target-ref",
+                    "e:p:1",
+                    "--submit-id",
+                    "c",
+                    "--question-id",
+                    "q",
+                ]),
+            ] {
+                assert!(parse_agent_control_args(&bad, usage).is_err(), "{bad:?}");
+            }
         }
     }
 

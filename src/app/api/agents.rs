@@ -178,6 +178,7 @@ impl App {
             return Err(agent_not_found(id, target));
         };
         let blocked = terminal.state == crate::detect::AgentState::Blocked;
+        let working = terminal.state == crate::detect::AgentState::Working;
         if reject_blocked && blocked {
             return Err(encode_error(
                 id,
@@ -211,6 +212,7 @@ impl App {
             expected_agent,
             agent,
             blocked,
+            working,
         })
     }
 
@@ -443,6 +445,8 @@ pub(super) struct ValidatedAgentPrompt {
     pub(super) agent: crate::api::schema::AgentInfo,
     /// Set only when the caller deferred the Blocked rejection.
     pub(super) blocked: bool,
+    /// Effective agent state is Working (fork: `agent.interrupt` precondition).
+    pub(super) working: bool,
 }
 
 fn agent_not_ready(id: String, target: &str) -> String {

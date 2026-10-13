@@ -369,6 +369,72 @@ fn agent_command() -> Command {
                 ),
         )
         .subcommand(
+            Command::new("answer")
+                .about("Answer the newest open prose question of an exact agent target")
+                .override_usage(
+                    "herdr agent answer --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --question-id <Q> --submit-id <ID> <TEXT>",
+                )
+                .arg(
+                    option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
+                        .required(true)
+                        .help("Complete target_ref from agent digest; never refreshed by the CLI"),
+                )
+                .arg(
+                    option("question-id", "Q")
+                        .required(true)
+                        .help("question_id of the newest open prose_question from agent digest"),
+                )
+                .arg(
+                    option("submit-id", "ID")
+                        .required(true)
+                        .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
+                )
+                .arg(required("text", "TEXT"))
+                .after_help(
+                    "Same checks as agent submit. The question must still be shown on screen, otherwise question_not_current; structured approvals are question_not_answerable. The answer does not resolve the question.\n\nnext: herdr agent submit-status <ID>",
+                ),
+        )
+        .subcommand(
+            Command::new("interrupt")
+                .about("Send one Esc to a working agent target")
+                .override_usage(
+                    "herdr agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
+                )
+                .arg(
+                    option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
+                        .required(true)
+                        .help("Complete target_ref from agent digest; never refreshed by the CLI"),
+                )
+                .arg(
+                    option("submit-id", "ID")
+                        .required(true)
+                        .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
+                )
+                .after_help(
+                    "Claude only. The agent must be working (else agent_not_working) and the draft clean. The receipt's effect_observed_at_ms is the first idle or awaiting-human edge after the write (order-based, not causal).\n\nnext: herdr agent submit-status <ID>",
+                ),
+        )
+        .subcommand(
+            Command::new("reset")
+                .about("Submit /clear to an exact agent target")
+                .override_usage(
+                    "herdr agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
+                )
+                .arg(
+                    option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
+                        .required(true)
+                        .help("Complete target_ref from agent digest; never refreshed by the CLI"),
+                )
+                .arg(
+                    option("submit-id", "ID")
+                        .required(true)
+                        .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
+                )
+                .after_help(
+                    "Same checks as agent submit. The receipt's reset is verified only when a new session with start source clear is reported after the write; otherwise it stays pending (unverified when the write failed or another replacement came first).\n\nnext: herdr agent submit-status <ID>",
+                ),
+        )
+        .subcommand(
             Command::new("submit-status")
                 .about("Show the receipt for a submit_id")
                 .arg(required("submit_id", "SUBMIT_ID")),
@@ -1160,6 +1226,78 @@ mod tests {
 
         let status = command_path(&cmd, &["agent", "submit-status"]);
         assert!(argument(status, "submit_id").is_required_set());
+    }
+
+    #[test]
+    fn spec_lists_agent_answer_interrupt_and_reset_with_required_flags() {
+        let cmd = super::command();
+        let answer = command_path(&cmd, &["agent", "answer"]);
+        for option in ["target-ref", "question-id", "submit-id"] {
+            assert!(
+                option_arg(answer, option).is_required_set(),
+                "answer --{option}"
+            );
+        }
+        assert!(argument(answer, "text").is_required_set());
+        assert!(super::command()
+            .try_get_matches_from([
+                "herdr",
+                "agent",
+                "answer",
+                "--target-ref",
+                "e:w1:p1:3",
+                "--question-id",
+                "q1",
+                "--submit-id",
+                "a1",
+                "yes",
+            ])
+            .is_ok());
+        assert!(super::command()
+            .try_get_matches_from([
+                "herdr",
+                "agent",
+                "answer",
+                "--target-ref",
+                "e:w1:p1:3",
+                "--submit-id",
+                "a1",
+                "yes",
+            ])
+            .is_err());
+
+        for name in ["interrupt", "reset"] {
+            let sub = command_path(&cmd, &["agent", name]);
+            assert!(option_arg(sub, "target-ref").is_required_set(), "{name}");
+            assert!(option_arg(sub, "submit-id").is_required_set(), "{name}");
+            assert!(!has_option(sub, "question-id"), "{name}");
+            assert!(super::command()
+                .try_get_matches_from([
+                    "herdr",
+                    "agent",
+                    name,
+                    "--target-ref",
+                    "e:w1:p1:3",
+                    "--submit-id",
+                    "c1",
+                ])
+                .is_ok());
+            assert!(super::command()
+                .try_get_matches_from([
+                    "herdr",
+                    "agent",
+                    name,
+                    "--target-ref",
+                    "e:w1:p1:3",
+                    "--submit-id",
+                    "c1",
+                    "extra",
+                ])
+                .is_err());
+            assert!(super::command()
+                .try_get_matches_from(["herdr", "agent", name, "--submit-id", "c1"])
+                .is_err());
+        }
     }
 
     fn has_option(cmd: &Command, option: &str) -> bool {

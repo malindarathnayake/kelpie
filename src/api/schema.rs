@@ -144,6 +144,12 @@ pub enum Method {
     AgentWait(AgentWaitParams),
     #[serde(rename = "agent.submit")]
     AgentSubmit(supervisor::AgentSubmitParams),
+    #[serde(rename = "agent.answer")]
+    AgentAnswer(supervisor::AgentAnswerParams),
+    #[serde(rename = "agent.interrupt")]
+    AgentInterrupt(supervisor::AgentControlParams),
+    #[serde(rename = "agent.reset")]
+    AgentReset(supervisor::AgentControlParams),
     #[serde(rename = "agent.submit_status")]
     AgentSubmitStatus(supervisor::AgentSubmitStatusParams),
     #[serde(rename = "pane.split")]

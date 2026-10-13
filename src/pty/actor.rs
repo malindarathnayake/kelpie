@@ -402,6 +402,11 @@ mod windows {
                                 fence,
                             )
                             .await?;
+                            if enter.is_empty() {
+                                // Fork: key-only fenced write (`agent.interrupt`): the key
+                                // bytes are the fenced part; no delay and no Enter follow.
+                                return Ok(());
+                            }
                             // A started text write is committed. Finish Enter even if the caller
                             // stops waiting so a timeout cannot leave a partial prompt.
                             if !delay.is_zero() {
@@ -847,6 +852,80 @@ mod windows {
                 "no text and no Enter from the fenced submission; later input still written"
             );
             assert!(!fence.close().committed, "the fence was never committed");
+        }
+
+        /// Runs one fenced key-only submission (empty Enter, as `agent.interrupt` queues)
+        /// followed by ordinary input; returns the recorded writes and the reply.
+        fn run_key_only_submission(
+            fence: crate::supervisor::fence::SubmitFence,
+        ) -> (Vec<Vec<u8>>, std::io::Result<()>) {
+            let (flushed_tx, _flushed_rx) = std_mpsc::channel();
+            let mut writer = RecordingWriter {
+                writes: Vec::new(),
+                flushes: Vec::new(),
+                fail_after: None,
+                flushed: flushed_tx,
+            };
+            let (data_tx, mut data_rx) = mpsc::channel(2);
+            let (write_tx, write_rx) = std_mpsc::channel();
+            let (reply_tx, reply_rx) = std_mpsc::channel();
+            data_tx
+                .try_send(PtyIoDataCommand::SubmitUserInput {
+                    text: Bytes::from_static(b"\x1b"),
+                    enter: Bytes::new(),
+                    delay: Duration::ZERO,
+                    deadline: Some(Instant::now() + Duration::from_secs(5)),
+                    reply: reply_tx,
+                    fence: Some(fence),
+                })
+                .unwrap();
+            data_tx
+                .try_send(PtyIoDataCommand::WriteUserInput(Bytes::from_static(
+                    b"after",
+                )))
+                .unwrap();
+            let writer_thread = std::thread::spawn(move || {
+                run_writer(&mut writer, write_rx);
+                writer
+            });
+            let input_write_tx = write_tx.clone();
+            let runtime = test_runtime();
+            let input_task = runtime.spawn(async move {
+                run_input_forwarder(&mut data_rx, input_write_tx, input_acceptance(true)).await
+            });
+            let result = reply_rx.recv().expect("submission reply");
+            drop(data_tx);
+            runtime.block_on(input_task).unwrap();
+            drop(write_tx);
+            let writer = writer_thread.join().unwrap();
+            (
+                writer.writes.into_iter().map(|write| write.0).collect(),
+                result,
+            )
+        }
+
+        #[test]
+        fn key_only_fenced_submission_writes_the_key_once_without_enter() {
+            let fence = crate::supervisor::fence::SubmitFence::new();
+            let (writes, result) = run_key_only_submission(fence.clone());
+            result.expect("key-only submission succeeds");
+            assert_eq!(
+                writes,
+                vec![b"\x1b".to_vec(), b"after".to_vec()],
+                "exactly the key bytes, no Enter, then later input"
+            );
+            assert!(fence.close().committed);
+        }
+
+        #[test]
+        fn tripped_key_only_submission_writes_zero_bytes() {
+            let fence = crate::supervisor::fence::SubmitFence::new();
+            fence.trip(crate::supervisor::fence::FenceReason::OwnerInput);
+            let (writes, result) = run_key_only_submission(fence.clone());
+            let err = result.unwrap_err();
+            assert!(crate::supervisor::fence::is_fenced_error(&err));
+            assert_eq!(writes, vec![b"after".to_vec()]);
+            assert!(!fence.close().committed);
         }
 
         #[tokio::test]

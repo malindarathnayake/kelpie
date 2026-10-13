@@ -289,6 +289,26 @@ pub struct AgentSubmitParams {
     pub submit_id: String,
 }
 
+/// Parameters for `agent.answer`: `agent.submit` plus the open prose question it answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentAnswerParams {
+    pub target_ref: TargetRef,
+    /// The newest open `prose_question` of the pane, still shown on screen.
+    pub question_id: String,
+    /// Answer text, 1-8192 bytes.
+    pub text: String,
+    /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    pub submit_id: String,
+}
+
+/// Parameters for `agent.interrupt` and `agent.reset`: no text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentControlParams {
+    pub target_ref: TargetRef,
+    /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    pub submit_id: String,
+}
+
 /// Parameters for `agent.submit_status`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentSubmitStatusParams {
@@ -331,6 +351,41 @@ pub enum SubmitReason {
     Unknown,
 }
 
+/// Which verb created a receipt. All kinds share one ledger and one idempotency space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmitKind {
+    Submit,
+    Answer,
+    Interrupt,
+    Reset,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Evidence state of an `agent.reset` receipt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResetEvidence {
+    /// No replacement session has been observed (yet); the reader decides.
+    Pending,
+    /// A new session ref (different from the old one) with start source `clear` was
+    /// observed after the write.
+    Verified,
+    /// The write did not complete cleanly, or another conversation replacement was
+    /// observed first. Never carries a session.
+    Unverified,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Session identity (kind and value) recorded by a verified reset.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ReceiptSession {
+    pub kind: crate::agent_resume::AgentSessionRefKind,
+    pub value: String,
+}
+
 /// Whether the agent acknowledged the submission natively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -340,7 +395,8 @@ pub enum SubmitAcknowledged {
     Unknown,
 }
 
-/// Receipt for one `agent.submit`. Never contains the submitted text.
+/// Receipt for one `agent.submit`, `agent.answer`, `agent.interrupt` or `agent.reset`.
+/// Never contains the submitted text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SubmitReceipt {
     pub submit_id: String,
@@ -359,6 +415,29 @@ pub struct SubmitReceipt {
     /// True when acceptance consumed a one-shot operator handoff.
     #[serde(default)]
     pub handoff: bool,
+    /// Verb that created the receipt.
+    #[serde(default = "default_submit_kind")]
+    pub kind: SubmitKind,
+    /// `answer` only: the question the text answers. The question is not resolved by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question_id: Option<String>,
+    /// `interrupt` only: first Idle or AwaitingHuman edge ordered after the write
+    /// (order-based, not causal).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_observed_at_ms: Option<u64>,
+    /// `reset` only: evidence state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset: Option<ResetEvidence>,
+    /// `reset` only, when `verified`: the observed new session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_session: Option<ReceiptSession>,
+    /// `reset` only, when `verified`: the target generation after the session change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_generation: Option<u64>,
+}
+
+fn default_submit_kind() -> SubmitKind {
+    SubmitKind::Submit
 }
 
 #[cfg(test)]

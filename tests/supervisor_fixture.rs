@@ -1990,3 +1990,317 @@ fn s6h_operator_handoff_allows_exactly_one_submit() {
     assert_eq!(fixture.screen_count(&pane, "w2-handoff-second"), 0);
     drop(owner);
 }
+
+// ---------------------------------------------------------------------------
+// Local slice part 2 S7-S9: `agent answer`, `agent interrupt`, `agent reset`.
+// ---------------------------------------------------------------------------
+
+/// Stand-in for the receipt text check of verbs that send no caller text.
+const NO_TEXT: &str = "w3-no-caller-text";
+
+impl Fixture {
+    fn answer_args<'a>(
+        target_ref: &'a str,
+        question_id: &'a str,
+        submit_id: &'a str,
+        text: &'a str,
+    ) -> [&'a str; 9] {
+        [
+            "agent",
+            "answer",
+            "--target-ref",
+            target_ref,
+            "--question-id",
+            question_id,
+            "--submit-id",
+            submit_id,
+            text,
+        ]
+    }
+
+    fn answer_ok(
+        &self,
+        target_ref: &str,
+        question_id: &str,
+        submit_id: &str,
+        text: &str,
+    ) -> serde_json::Value {
+        let response = self.cli_json(&Self::answer_args(target_ref, question_id, submit_id, text));
+        receipt_of(&response, text)
+    }
+
+    fn answer_error(
+        &self,
+        target_ref: &str,
+        question_id: &str,
+        submit_id: &str,
+        text: &str,
+    ) -> serde_json::Value {
+        let error = self.cli_error(&Self::answer_args(target_ref, question_id, submit_id, text));
+        assert!(
+            !error.to_string().contains(text),
+            "error leaked the answer text: {error}"
+        );
+        error
+    }
+
+    /// `agent interrupt|reset --target-ref T --submit-id ID`, success receipt.
+    fn control_ok(&self, verb: &str, target_ref: &str, submit_id: &str) -> serde_json::Value {
+        let response = self.cli_json(&[
+            "agent",
+            verb,
+            "--target-ref",
+            target_ref,
+            "--submit-id",
+            submit_id,
+        ]);
+        receipt_of(&response, NO_TEXT)
+    }
+
+    fn control_error(&self, verb: &str, target_ref: &str, submit_id: &str) -> serde_json::Value {
+        self.cli_error(&[
+            "agent",
+            verb,
+            "--target-ref",
+            target_ref,
+            "--submit-id",
+            submit_id,
+        ])
+    }
+
+    /// Report a Claude SessionStart the way the shipped hook does, with an explicit
+    /// session id and start source.
+    fn report_session_start(&mut self, pane: &str, session_id: &str, start_source: &str) {
+        self.seq += 1;
+        let seq = self.seq.to_string();
+        self.cli_json(&[
+            "pane",
+            "report-agent-session",
+            pane,
+            "--source",
+            "herdr:claude",
+            "--agent",
+            "claude",
+            "--agent-session-id",
+            session_id,
+            "--session-start-source",
+            start_source,
+            "--seq",
+            &seq,
+        ]);
+    }
+
+    /// The open question ids of a digest entry, oldest first.
+    fn open_question_ids(agent: &serde_json::Value) -> Vec<String> {
+        agent["pending_questions"]
+            .as_array()
+            .map(|questions| {
+                questions
+                    .iter()
+                    .filter(|q| q.get("resolution").is_none_or(|r| r.is_null()))
+                    .filter_map(|q| q["question_id"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// S7: a prose question shown with chrome and an empty box is answered once
+/// (the text reaches the stand-in once; a retry writes nothing); once a newer
+/// question is shown, the old question id is rejected `question_not_current`
+/// before any write.
+#[test]
+fn s7_answer_newest_question_once_then_old_id_is_not_current() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    fixture.launch_stand_in_claude(&pane);
+    fixture.report(&pane, "claude", "working");
+    fixture.show_question_with_chrome(&pane, "Should I start the brief?", "footer-s7-q1");
+    fixture.report(&pane, "claude", "idle");
+    let asked = fixture.digest_agent_until(&pane, "an open question and a clean draft", |agent| {
+        Fixture::open_question_ids(agent).len() == 1 && agent["owner_input"]["draft"] == "clean"
+    });
+    let question = Fixture::open_question_ids(&asked).remove(0);
+    let target = target_ref_arg(&asked);
+
+    let marker = "w3-answer-once-marker";
+    let text = comment_line(marker);
+    let accepted = fixture.answer_ok(&target, &question, "s7-a", &text);
+    assert_eq!(accepted["kind"], "answer", "{accepted}");
+    assert_eq!(accepted["question_id"], question.as_str(), "{accepted}");
+    let written = fixture.wait_receipt("s7-a", &text, "written", |receipt| {
+        matches!(receipt["state"].as_str(), Some("written" | "started"))
+    });
+    assert!(fixture.wait_output(&pane, marker), "answer never shown");
+    assert_eq!(fixture.screen_count(&pane, marker), 1);
+    let again = fixture.answer_ok(&target, &question, "s7-a", &text);
+    assert_eq!(
+        again["accepted_at_ms"], written["accepted_at_ms"],
+        "{again}"
+    );
+    thread::sleep(Duration::from_millis(SUBMIT_ENTER_DELAY_MS + 1200));
+    assert_eq!(
+        fixture.screen_count(&pane, marker),
+        1,
+        "retry delivered the answer again"
+    );
+
+    // A newer question: the old id is no longer the newest open question.
+    fixture.report(&pane, "claude", "working");
+    fixture.show_question_with_chrome(&pane, "Do you want the long version?", "footer-s7-q2");
+    fixture.report(&pane, "claude", "idle");
+    let newer = fixture.digest_agent_until(&pane, "a second open question", |agent| {
+        Fixture::open_question_ids(agent).len() == 2
+    });
+    assert_eq!(
+        Fixture::open_question_ids(&newer)[0],
+        question,
+        "an answer does not resolve the question: {newer}"
+    );
+    let stale_marker = "w3-answer-stale-marker";
+    let stale_text = comment_line(stale_marker);
+    let error = fixture.answer_error(&target_ref_arg(&newer), &question, "s7-old", &stale_text);
+    assert_eq!(error["error"]["code"], "question_not_current", "{error}");
+    thread::sleep(Duration::from_millis(SUBMIT_ENTER_DELAY_MS + 1000));
+    assert_eq!(fixture.screen_count(&pane, stale_marker), 0);
+    let unknown = fixture.cli_error(&["agent", "submit-status", "s7-old"]);
+    assert_eq!(unknown["error"]["code"], "submit_not_found", "{unknown}");
+}
+
+/// S8: interrupt is accepted only while working; the Esc write completes once
+/// (`written`), the next idle report records `effect_observed_at_ms`, a retry
+/// returns the same receipt without a second write, and an idle agent is
+/// rejected `agent_not_working`.
+///
+/// Limit: Esc has no visible echo in the stand-in shell, so "reached the
+/// stand-in" is the writer's own completion (`written`), not screen evidence.
+#[test]
+fn s8_interrupt_working_agent_once_then_effect_on_idle() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    fixture.ready_clean_claude(&pane, "s8");
+    fixture.report(&pane, "claude", "working");
+    let working = fixture.digest_agent_until(&pane, "working with a clean draft", |agent| {
+        agent["agent_status"] == "working" && agent["owner_input"]["draft"] == "clean"
+    });
+    let target = target_ref_arg(&working);
+
+    let accepted = fixture.control_ok("interrupt", &target, "s8-i");
+    assert_eq!(accepted["kind"], "interrupt", "{accepted}");
+    assert!(
+        matches!(accepted["state"].as_str(), Some("accepted" | "written")),
+        "{accepted}"
+    );
+    let written = fixture.wait_receipt("s8-i", NO_TEXT, "written", |receipt| {
+        receipt["state"] == "written"
+    });
+    assert!(written["written_at_ms"].is_u64(), "{written}");
+    assert!(
+        written
+            .get("effect_observed_at_ms")
+            .is_none_or(|v| v.is_null()),
+        "{written}"
+    );
+
+    fixture.report(&pane, "claude", "idle");
+    let effect = fixture.wait_receipt("s8-i", NO_TEXT, "an observed effect", |receipt| {
+        receipt["effect_observed_at_ms"].is_u64()
+    });
+    assert_eq!(
+        effect["state"], "written",
+        "an interrupt never reads started"
+    );
+
+    let again = fixture.control_ok("interrupt", &target, "s8-i");
+    assert_eq!(again, effect, "retry returns the same receipt");
+
+    let idle = fixture.digest_agent(&pane);
+    let error = fixture.control_error("interrupt", &target_ref_arg(&idle), "s8-idle");
+    assert_eq!(error["error"]["code"], "agent_not_working", "{error}");
+    let unknown = fixture.cli_error(&["agent", "submit-status", "s8-idle"]);
+    assert_eq!(unknown["error"]["code"], "submit_not_found", "{unknown}");
+}
+
+/// S9: reset submits `/clear` once; a reported SessionStart with a new session
+/// id and source `clear` verifies it with the new session and generation; a
+/// retry with the original target writes nothing.
+#[test]
+fn s9_reset_writes_clear_once_and_verifies_on_clear_session() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    fixture.ready_clean_claude(&pane, "s9");
+    fixture.report_session_start(&pane, "s9-session-old", "startup");
+    let agent =
+        fixture.digest_agent_until(&pane, "a clean draft after the session report", |agent| {
+            agent["owner_input"]["draft"] == "clean"
+        });
+    let generation = agent["target_ref"]["generation"].as_u64().unwrap();
+    let target = target_ref_arg(&agent);
+    let before = fixture.screen_count(&pane, "/clear");
+
+    let accepted = fixture.control_ok("reset", &target, "s9-r");
+    assert_eq!(accepted["kind"], "reset", "{accepted}");
+    assert_eq!(accepted["reset"], "pending", "{accepted}");
+    let written = fixture.wait_receipt("s9-r", NO_TEXT, "written", |receipt| {
+        matches!(receipt["state"].as_str(), Some("written" | "started"))
+    });
+    assert_eq!(written["reset"], "pending", "{written}");
+    assert!(fixture.wait_output(&pane, "/clear"), "/clear never shown");
+    let echoed = fixture.screen_count(&pane, "/clear");
+    assert!(echoed > before, "/clear was not echoed");
+
+    fixture.report_session_start(&pane, "s9-session-new", "clear");
+    let verified = fixture.wait_receipt("s9-r", NO_TEXT, "verified", |receipt| {
+        receipt["reset"] == "verified"
+    });
+    assert_eq!(
+        verified["new_session"]["value"], "s9-session-new",
+        "{verified}"
+    );
+    assert_eq!(verified["new_session"]["kind"], "id", "{verified}");
+    assert_eq!(
+        verified["new_generation"].as_u64(),
+        Some(generation + 1),
+        "{verified}"
+    );
+    let bumped = fixture.digest_agent(&pane);
+    assert_eq!(
+        bumped["target_ref"]["generation"].as_u64(),
+        Some(generation + 1),
+        "{bumped}"
+    );
+
+    let again = fixture.control_ok("reset", &target, "s9-r");
+    assert_eq!(again, verified, "retry returns the same receipt");
+    thread::sleep(Duration::from_millis(SUBMIT_ENTER_DELAY_MS + 1200));
+    assert_eq!(
+        fixture.screen_count(&pane, "/clear"),
+        echoed,
+        "retry wrote /clear again"
+    );
+}
+
+/// S9: without a clear SessionStart report the reset stays `pending` and
+/// never carries a session or generation.
+#[test]
+fn s9_reset_without_clear_session_stays_pending() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let agent = fixture.ready_clean_claude(&pane, "s9p");
+    let accepted = fixture.control_ok("reset", &target_ref_arg(&agent), "s9p-r");
+    assert_eq!(accepted["reset"], "pending", "{accepted}");
+    fixture.wait_receipt("s9p-r", NO_TEXT, "written", |receipt| {
+        matches!(receipt["state"].as_str(), Some("written" | "started"))
+    });
+    thread::sleep(Duration::from_millis(SUBMIT_ENTER_DELAY_MS + 1000));
+    let receipt = fixture.submit_status("s9p-r", NO_TEXT);
+    assert_eq!(receipt["reset"], "pending", "{receipt}");
+    assert!(
+        receipt.get("new_session").is_none_or(|v| v.is_null()),
+        "{receipt}"
+    );
+    assert!(
+        receipt.get("new_generation").is_none_or(|v| v.is_null()),
+        "{receipt}"
+    );
+}

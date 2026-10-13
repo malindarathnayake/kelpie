@@ -1228,6 +1228,50 @@
     },
     "request": {
       "$defs": {
+        "AgentAnswerParams": {
+          "description": "Parameters for `agent.answer`: `agent.submit` plus the open prose question it answers.",
+          "properties": {
+            "question_id": {
+              "description": "The newest open `prose_question` of the pane, still shown on screen.",
+              "type": "string"
+            },
+            "submit_id": {
+              "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "type": "string"
+            },
+            "target_ref": {
+              "$ref": "#/schemas/request/$defs/TargetRef"
+            },
+            "text": {
+              "description": "Answer text, 1-8192 bytes.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target_ref",
+            "question_id",
+            "text",
+            "submit_id"
+          ],
+          "type": "object"
+        },
+        "AgentControlParams": {
+          "description": "Parameters for `agent.interrupt` and `agent.reset`: no text.",
+          "properties": {
+            "submit_id": {
+              "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "type": "string"
+            },
+            "target_ref": {
+              "$ref": "#/schemas/request/$defs/TargetRef"
+            }
+          },
+          "required": [
+            "target_ref",
+            "submit_id"
+          ],
+          "type": "object"
+        },
         "AgentPromptParams": {
           "properties": {
             "target": {
@@ -5567,6 +5611,54 @@
         {
           "properties": {
             "method": {
+              "const": "agent.answer",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentAnswerParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.interrupt",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentControlParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.reset",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentControlParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "agent.submit_status",
               "type": "string"
             },
@@ -9824,6 +9916,48 @@
           ],
           "type": "string"
         },
+        "ReceiptSession": {
+          "description": "Session identity (kind and value) recorded by a verified reset.",
+          "properties": {
+            "kind": {
+              "$ref": "#/schemas/success_response/$defs/AgentSessionRefKind"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        "ResetEvidence": {
+          "description": "Evidence state of an `agent.reset` receipt.",
+          "oneOf": [
+            {
+              "enum": [
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "pending",
+              "description": "No replacement session has been observed (yet); the reader decides.",
+              "type": "string"
+            },
+            {
+              "const": "verified",
+              "description": "A new session ref (different from the old one) with start source `clear` was\nobserved after the write.",
+              "type": "string"
+            },
+            {
+              "const": "unverified",
+              "description": "The write did not complete cleanly, or another conversation replacement was\nobserved first. Never carries a session.",
+              "type": "string"
+            }
+          ]
+        },
         "ResolutionBy": {
           "description": "Who or what resolved a question.",
           "enum": [
@@ -11246,6 +11380,17 @@
           ],
           "type": "string"
         },
+        "SubmitKind": {
+          "description": "Which verb created a receipt. All kinds share one ledger and one idempotency space.",
+          "enum": [
+            "submit",
+            "answer",
+            "interrupt",
+            "reset",
+            "unknown"
+          ],
+          "type": "string"
+        },
         "SubmitReason": {
           "description": "Why a receipt is `fenced` or `indeterminate`.",
           "enum": [
@@ -11264,7 +11409,7 @@
           "type": "string"
         },
         "SubmitReceipt": {
-          "description": "Receipt for one `agent.submit`. Never contains the submitted text.",
+          "description": "Receipt for one `agent.submit`, `agent.answer`, `agent.interrupt` or `agent.reset`.\nNever contains the submitted text.",
           "properties": {
             "accepted_at_ms": {
               "format": "uint64",
@@ -11274,10 +11419,51 @@
             "acknowledged": {
               "$ref": "#/schemas/success_response/$defs/SubmitAcknowledged"
             },
+            "effect_observed_at_ms": {
+              "description": "`interrupt` only: first Idle or AwaitingHuman edge ordered after the write\n(order-based, not causal).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "handoff": {
               "default": false,
               "description": "True when acceptance consumed a one-shot operator handoff.",
               "type": "boolean"
+            },
+            "kind": {
+              "$ref": "#/schemas/success_response/$defs/SubmitKind",
+              "default": "submit",
+              "description": "Verb that created the receipt."
+            },
+            "new_generation": {
+              "description": "`reset` only, when `verified`: the target generation after the session change.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "new_session": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/ReceiptSession"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`reset` only, when `verified`: the observed new session."
+            },
+            "question_id": {
+              "description": "`answer` only: the question the text answers. The question is not resolved by it.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "reason": {
               "anyOf": [
@@ -11288,6 +11474,17 @@
                   "type": "null"
                 }
               ]
+            },
+            "reset": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/ResetEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`reset` only: evidence state."
             },
             "started_at_ms": {
               "format": "uint64",
