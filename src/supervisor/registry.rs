@@ -68,6 +68,8 @@ pub struct SupervisorState {
     /// Registry-wide monotonic event counter; orders hook reports against turn
     /// starts without relying on wall-clock milliseconds.
     event_seq: u64,
+    /// `agent.submit` receipts (fork, S2/S3).
+    pub submits: crate::supervisor::submit::SubmitLedger,
 }
 
 #[derive(Debug, Clone)]
@@ -173,8 +175,7 @@ impl PaneSupervisorState {
     }
 }
 
-// target_ref validator error; first caller is step-3 write verbs.
-#[allow(dead_code)]
+/// target_ref validator error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaleTarget {
     pub current_generation: Option<u64>,
@@ -207,6 +208,11 @@ impl SupervisorState {
     /// questions, pending scans and turn/idle markers are kept and the question
     /// epoch is unchanged. Every other reason replaces the conversation.
     pub fn bump_generation(&mut self, pane: PaneId, reason: GenerationReason, now_ms: u64) -> u64 {
+        // Any generation change fences this pane's queued submissions before their first byte.
+        self.submits.trip_pane(
+            pane,
+            crate::supervisor::fence::FenceReason::GenerationChanged,
+        );
         let state = self.pane_mut(pane);
         let old = state.generation;
         state.generation += 1;
@@ -320,6 +326,8 @@ impl SupervisorState {
     pub fn note_working_report(&mut self, pane: PaneId) {
         let seq = self.next_event_seq();
         self.pane_mut(pane).turn_seq = Some(seq);
+        self.submits
+            .note_turn_start(pane, seq, crate::supervisor::now_ms());
     }
 
     /// Bumps the generation and records whether the new generation is an exit.
@@ -343,8 +351,7 @@ impl SupervisorState {
         }
     }
 
-    // target_ref validator; first caller is step-3 write verbs.
-    #[allow(dead_code)]
+    /// Full target_ref check (epoch, pane, generation) used by `agent.submit`.
     pub fn check_target_ref(
         &self,
         target: &TargetRef,
@@ -413,8 +420,33 @@ impl SupervisorState {
         self.panes.get(&pane).and_then(|s| s.background_hook_ms)
     }
 
+    /// Note: `App::handle_pane_died` does not call this; a dying pane's submissions are
+    /// fenced by the AgentExited generation bump, or end `indeterminate{pty_closed}` when
+    /// the writer fails.
     pub fn remove_pane(&mut self, pane: PaneId) {
+        self.submits
+            .trip_pane(pane, crate::supervisor::fence::FenceReason::PaneClosed);
         self.panes.remove(&pane);
+    }
+
+    /// Registry order and current generation for an operator handoff armed now.
+    /// Returns `(generation, armed_seq)`.
+    pub fn note_handoff_armed(&mut self, pane: PaneId) -> (u64, u64) {
+        let seq = self.next_event_seq();
+        (self.pane_mut(pane).generation, seq)
+    }
+
+    /// Applies a submission's write result, ordered on the registry event counter so a
+    /// later turn start can be recognised as following the write.
+    pub fn complete_submit(
+        &mut self,
+        submit_id: &str,
+        result: &std::io::Result<()>,
+        fence: crate::supervisor::fence::FenceSnapshot,
+        now_ms: u64,
+    ) {
+        let seq = self.next_event_seq();
+        self.submits.complete(submit_id, result, fence, seq, now_ms);
     }
 
     /// Records an agent state transition and marks the scan App performs after the event.
@@ -428,6 +460,9 @@ impl SupervisorState {
         now_ms: u64,
     ) {
         let seq = matches!(new, AgentState::Working).then(|| self.next_event_seq());
+        if let Some(seq) = seq {
+            self.submits.note_turn_start(pane, seq, now_ms);
+        }
         let state = self.pane_mut(pane);
         state.last_transition_ms = Some(now_ms);
         state.last_state = Some(new);

@@ -1,6 +1,10 @@
+use std::collections::BTreeMap;
+use std::io::Write;
 use std::time::{Duration, Instant};
 
-use crate::api::schema::supervisor::AgentsDigestParams;
+use crate::api::schema::supervisor::{
+    AgentSubmitParams, AgentSubmitStatusParams, AgentsDigestParams, DigestFilter, TargetRef,
+};
 use crate::api::schema::{
     AgentPromptParams, AgentPromptWaitOptions, AgentReadParams, AgentRenameParams,
     AgentSendKeysParams, AgentStartParams, AgentTarget, AgentWaitParams, EmptyParams, ErrorBody,
@@ -19,6 +23,9 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
     match subcommand {
         "list" => agent_list(&args[1..]),
         "digest" => agent_digest(&args[1..]),
+        "watch" => agent_watch(&args[1..]),
+        "submit" => agent_submit(&args[1..]),
+        "submit-status" => agent_submit_status(&args[1..]),
         "get" => agent_get(&args[1..]),
         "read" => agent_read(&args[1..]),
         "send-keys" => agent_send_keys(&args[1..]),
@@ -487,6 +494,394 @@ fn agent_digest(args: &[String]) -> std::io::Result<i32> {
     super::print_response(&super::send_request(&Request {
         id: "cli:agent:digest".into(),
         method: Method::AgentsDigest(params),
+    })?)
+}
+
+const WATCH_USAGE: &str =
+    "herdr agent watch [--pane ID] [--interval-ms N] [--max-changes N] [--timeout-ms N]";
+const SUBMIT_USAGE: &str =
+    "herdr agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID <TEXT>";
+const SUBMIT_STATUS_USAGE: &str = "herdr agent submit-status <SUBMIT_ID>";
+const WATCH_DEFAULT_INTERVAL_MS: u64 = 500;
+const WATCH_MIN_INTERVAL_MS: u64 = 100;
+/// Bound on digest pages fetched per poll; a larger herd than this is truncated.
+const WATCH_MAX_PAGES: usize = 256;
+/// Bound on page-1 restarts per poll after a `stale page_cursor` error.
+const WATCH_MAX_CURSOR_RESTARTS: usize = 3;
+/// Bound on the `reason` text of a `stale` line.
+const WATCH_MAX_REASON_CHARS: usize = 160;
+
+#[derive(Debug, PartialEq)]
+struct WatchArgs {
+    pane: Option<String>,
+    interval: Duration,
+    max_changes: Option<u64>,
+    timeout: Option<Duration>,
+}
+
+fn parse_agent_watch_args(args: &[String]) -> Result<WatchArgs, String> {
+    let args = super::expand_equals_args(
+        args,
+        &["--pane", "--interval-ms", "--max-changes", "--timeout-ms"],
+    );
+    let usage = || format!("usage: {WATCH_USAGE}");
+    let mut pane = None;
+    let mut interval_ms = None;
+    let mut max_changes = None;
+    let mut timeout_ms = None;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        if !matches!(
+            flag,
+            "--pane" | "--interval-ms" | "--max-changes" | "--timeout-ms"
+        ) {
+            return Err(usage());
+        }
+        let Some(value) = args.get(index + 1) else {
+            return Err(format!("missing value for {flag}"));
+        };
+        let number = || {
+            value
+                .parse::<u64>()
+                .map_err(|_| format!("invalid value for {flag}: {value}"))
+        };
+        let repeated = match flag {
+            "--pane" => pane.replace(super::normalize_pane_id(value)).is_some(),
+            "--interval-ms" => interval_ms.replace(number()?).is_some(),
+            "--max-changes" => max_changes.replace(number()?).is_some(),
+            _ => timeout_ms.replace(number()?).is_some(),
+        };
+        if repeated {
+            return Err(usage());
+        }
+        index += 2;
+    }
+    let interval_ms = interval_ms.unwrap_or(WATCH_DEFAULT_INTERVAL_MS);
+    if interval_ms < WATCH_MIN_INTERVAL_MS {
+        return Err(format!(
+            "--interval-ms must be at least {WATCH_MIN_INTERVAL_MS}"
+        ));
+    }
+    if max_changes == Some(0) {
+        return Err("--max-changes must be at least 1".into());
+    }
+    if timeout_ms == Some(0) {
+        return Err("--timeout-ms must be at least 1".into());
+    }
+    Ok(WatchArgs {
+        pane,
+        interval: Duration::from_millis(interval_ms),
+        max_changes,
+        timeout: timeout_ms.map(Duration::from_millis),
+    })
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
+fn bounded_reason(reason: &str) -> String {
+    reason.chars().take(WATCH_MAX_REASON_CHARS).collect()
+}
+
+/// The bounded field set `agent watch` compares between polls.
+fn watch_view(agent: &serde_json::Value) -> serde_json::Value {
+    let open_question_ids: Vec<serde_json::Value> = agent["pending_questions"]
+        .as_array()
+        .map(|questions| {
+            questions
+                .iter()
+                .filter(|question| question.get("resolution").is_none_or(|r| r.is_null()))
+                .map(|question| question["question_id"].clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::json!({
+        "target_ref": agent["target_ref"],
+        "agent_status": agent["agent_status"],
+        "foreground": agent["foreground"]["value"],
+        "background": agent["background"]["value"],
+        "completion": agent["completion"],
+        "blocking_reason": agent["blocking_reason"],
+        "open_question_ids": open_question_ids,
+        "draft": agent["owner_input"]["draft"],
+        "handoff_armed": agent["owner_input"]["handoff_armed"].as_bool().unwrap_or(false),
+    })
+}
+
+/// True when a pane's bounded view differs from the last one printed.
+fn watch_view_changed(last: Option<&serde_json::Value>, view: &serde_json::Value) -> bool {
+    last != Some(view)
+}
+
+/// One read-only `agents.digest` poll across every page. Returns the highest
+/// `as_of_seq` seen and the bounded view of each agent keyed by pane id, or a
+/// bounded failure reason. A `stale page_cursor` restarts paging from page 1.
+fn poll_watch_digest(
+    pane: Option<&str>,
+) -> Result<(u64, BTreeMap<String, serde_json::Value>), String> {
+    let mut restarts = 0;
+    'restart: loop {
+        let mut views = BTreeMap::new();
+        let mut as_of_seq = 0;
+        let mut page_cursor = None;
+        for _ in 0..WATCH_MAX_PAGES {
+            let request = Request {
+                id: "cli:agent:watch".into(),
+                method: Method::AgentsDigest(AgentsDigestParams {
+                    filter: pane.map(|pane| DigestFilter {
+                        pane_ids: Some(vec![pane.to_string()]),
+                    }),
+                    page_cursor: page_cursor.take(),
+                    trace_id: None,
+                }),
+            };
+            let response = match super::send_request_unchecked(&request) {
+                Ok(response) => response,
+                Err(err) => {
+                    return Err(match super::server_not_running_reported_response(&err) {
+                        Some(reported) => reported.error.code.clone(),
+                        None => bounded_reason(&format!("transport: {err}")),
+                    });
+                }
+            };
+            if let Some(error) = response.get("error") {
+                let message = error["message"].as_str().unwrap_or_default();
+                if message == "stale page_cursor" && restarts < WATCH_MAX_CURSOR_RESTARTS {
+                    restarts += 1;
+                    continue 'restart;
+                }
+                let code = error["code"].as_str().unwrap_or("error");
+                return Err(bounded_reason(&format!("{code}: {message}")));
+            }
+            let result = &response["result"];
+            as_of_seq = as_of_seq.max(result["as_of_seq"].as_u64().unwrap_or_default());
+            for agent in result["agents"].as_array().into_iter().flatten() {
+                let Some(pane_id) = agent["target_ref"]["pane_id"].as_str() else {
+                    continue;
+                };
+                if pane.is_some_and(|pane| pane != pane_id) {
+                    continue;
+                }
+                views.insert(pane_id.to_string(), watch_view(agent));
+            }
+            match result["next_page"].as_str() {
+                Some(next) => page_cursor = Some(next.to_string()),
+                None => return Ok((as_of_seq, views)),
+            }
+        }
+        return Ok((as_of_seq, views));
+    }
+}
+
+/// Prints one JSON line; false when stdout is gone (the reader quit).
+fn emit_watch_line(line: &serde_json::Value) -> bool {
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{line}").and_then(|()| out.flush()).is_ok()
+}
+
+/// `herdr agent watch`: read-only. Polls `agents.digest` and prints one JSON
+/// line per agent whose bounded field set changed, `stale`/`recovered` lines
+/// around request failures, and a final `timeout` line when `--timeout-ms`
+/// elapses. Sends no writes of any kind.
+fn agent_watch(args: &[String]) -> std::io::Result<i32> {
+    let watch = match parse_agent_watch_args(args) {
+        Ok(watch) => watch,
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(2);
+        }
+    };
+    let deadline = watch.timeout.map(|timeout| Instant::now() + timeout);
+    let mut last: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut changes: u64 = 0;
+    let mut stale_since: Option<Instant> = None;
+    let mut last_as_of_seq: Option<u64> = None;
+    let mut last_ok_ms: Option<u64> = None;
+    loop {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            emit_watch_line(&serde_json::json!({"type": "timeout", "changes": changes}));
+            return Ok(0);
+        }
+        match poll_watch_digest(watch.pane.as_deref()) {
+            Ok((as_of_seq, views)) => {
+                if let Some(since) = stale_since.take() {
+                    let line = serde_json::json!({
+                        "type": "recovered",
+                        "as_of_seq": as_of_seq,
+                        "stale_ms": u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    });
+                    if !emit_watch_line(&line) {
+                        return Ok(0);
+                    }
+                }
+                last_as_of_seq = Some(as_of_seq);
+                last_ok_ms = Some(unix_now_ms());
+                let mut lines = Vec::new();
+                for (pane_id, view) in &views {
+                    if watch_view_changed(last.get(pane_id), view) {
+                        let mut line = view.clone();
+                        line["type"] = "change".into();
+                        line["pane_id"] = pane_id.as_str().into();
+                        line["as_of_seq"] = as_of_seq.into();
+                        lines.push(line);
+                    }
+                }
+                for pane_id in last.keys().filter(|pane_id| !views.contains_key(*pane_id)) {
+                    lines.push(serde_json::json!({
+                        "type": "removed",
+                        "pane_id": pane_id,
+                        "as_of_seq": as_of_seq,
+                    }));
+                }
+                for line in lines {
+                    if !emit_watch_line(&line) {
+                        return Ok(0);
+                    }
+                    changes += 1;
+                    if watch.max_changes.is_some_and(|max| changes >= max) {
+                        return Ok(0);
+                    }
+                }
+                last = views;
+            }
+            Err(reason) => {
+                if stale_since.is_none() {
+                    stale_since = Some(Instant::now());
+                    let line = serde_json::json!({
+                        "type": "stale",
+                        "reason": reason,
+                        "last_as_of_seq": last_as_of_seq,
+                        "last_ok_ms": last_ok_ms,
+                    });
+                    if !emit_watch_line(&line) {
+                        return Ok(0);
+                    }
+                }
+            }
+        }
+        let pause = match deadline {
+            Some(deadline) => watch
+                .interval
+                .min(deadline.saturating_duration_since(Instant::now())),
+            None => watch.interval,
+        };
+        std::thread::sleep(pause);
+    }
+}
+
+/// Parses `<server_epoch>:<pane_id>:<generation>`. Pane ids contain `:`
+/// (`w1:p1`), so the epoch is the first segment, the generation the last, and
+/// the pane id everything between.
+fn parse_target_ref(value: &str) -> Result<TargetRef, String> {
+    let invalid = || {
+        format!("invalid --target-ref: {value} (expected <server_epoch>:<pane_id>:<generation>)")
+    };
+    let (server_epoch, rest) = value.split_once(':').ok_or_else(invalid)?;
+    let (pane_id, generation) = rest.rsplit_once(':').ok_or_else(invalid)?;
+    if server_epoch.is_empty() || pane_id.is_empty() {
+        return Err(invalid());
+    }
+    let generation = generation.parse::<u64>().map_err(|_| invalid())?;
+    Ok(TargetRef {
+        server_epoch: server_epoch.to_string(),
+        pane_id: pane_id.to_string(),
+        generation,
+    })
+}
+
+fn parse_agent_submit_args(args: &[String]) -> Result<AgentSubmitParams, String> {
+    let args = super::expand_equals_args(args, &["--target-ref", "--submit-id"]);
+    let usage = || format!("usage: {SUBMIT_USAGE}");
+    let mut target_ref = None;
+    let mut submit_id: Option<String> = None;
+    let mut text: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        match arg {
+            "--target-ref" | "--submit-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(format!("missing value for {arg}"));
+                };
+                let repeated = if arg == "--target-ref" {
+                    target_ref.replace(parse_target_ref(value)?).is_some()
+                } else {
+                    submit_id.replace(value.clone()).is_some()
+                };
+                if repeated {
+                    return Err(usage());
+                }
+                index += 2;
+            }
+            "--" => {
+                let [value] = &args[index + 1..] else {
+                    return Err(usage());
+                };
+                if text.replace(value.clone()).is_some() {
+                    return Err(usage());
+                }
+                index = args.len();
+            }
+            value if value.starts_with('-') && value != "-" => return Err(usage()),
+            value => {
+                if text.replace(value.to_string()).is_some() {
+                    return Err(usage());
+                }
+                index += 1;
+            }
+        }
+    }
+    let Some(target_ref) = target_ref else {
+        return Err("missing required --target-ref".into());
+    };
+    let Some(submit_id) = submit_id else {
+        return Err("missing required --submit-id".into());
+    };
+    let Some(text) = text else {
+        return Err("agent submit requires text".into());
+    };
+    Ok(AgentSubmitParams {
+        target_ref,
+        text,
+        submit_id,
+    })
+}
+
+/// `herdr agent submit`: one submission to the exact, caller-supplied target.
+/// The CLI never reads or refreshes the epoch or generation itself.
+fn agent_submit(args: &[String]) -> std::io::Result<i32> {
+    let params = match parse_agent_submit_args(args) {
+        Ok(params) => params,
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(2);
+        }
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:submit".into(),
+        method: Method::AgentSubmit(params),
+    })?)
+}
+
+fn agent_submit_status(args: &[String]) -> std::io::Result<i32> {
+    let [submit_id] = args else {
+        eprintln!("usage: {SUBMIT_STATUS_USAGE}");
+        return Ok(2);
+    };
+    if submit_id.starts_with('-') {
+        eprintln!("usage: {SUBMIT_STATUS_USAGE}");
+        return Ok(2);
+    }
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:submit-status".into(),
+        method: Method::AgentSubmitStatus(AgentSubmitStatusParams {
+            submit_id: submit_id.clone(),
+        }),
     })?)
 }
 
@@ -976,6 +1371,9 @@ fn print_agent_help() {
     eprintln!("herdr agent commands:");
     eprintln!("  herdr agent list");
     eprintln!("  herdr agent digest [--page-cursor C] [--trace-id T]");
+    eprintln!("  {WATCH_USAGE}");
+    eprintln!("  {SUBMIT_USAGE}");
+    eprintln!("  {SUBMIT_STATUS_USAGE}");
     eprintln!("  herdr agent get <target>");
     eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
     eprintln!("  herdr agent send-keys <target> <key> [key ...]");
@@ -1004,7 +1402,11 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_agent_digest_args;
+    use super::{
+        parse_agent_digest_args, parse_agent_submit_args, parse_agent_watch_args, parse_target_ref,
+        watch_view, watch_view_changed,
+    };
+    use std::time::Duration;
 
     const USAGE: &str = "usage: herdr agent digest [--page-cursor C] [--trace-id T]";
 
@@ -1050,5 +1452,170 @@ mod tests {
         ] {
             assert_eq!(parse_agent_digest_args(&bad).unwrap_err(), USAGE);
         }
+    }
+
+    #[test]
+    fn target_ref_splits_epoch_first_and_generation_last() {
+        let target = parse_target_ref("abc123:w1:p1:7").unwrap();
+        assert_eq!(target.server_epoch, "abc123");
+        assert_eq!(target.pane_id, "w1:p1");
+        assert_eq!(target.generation, 7);
+        let plain = parse_target_ref("e:p:0").unwrap();
+        assert_eq!(plain.pane_id, "p");
+    }
+
+    #[test]
+    fn target_ref_rejects_incomplete_values() {
+        for bad in [
+            "",
+            "e",
+            "e:7",
+            ":w1:p1:1",
+            "e::1",
+            "e:w1:p1:",
+            "e:w1:p1:x",
+            "e:w1:p1:-1",
+        ] {
+            assert!(parse_target_ref(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn submit_args_require_full_target_ref_id_and_text() {
+        let params = parse_agent_submit_args(&args(&[
+            "--target-ref",
+            "e:w1:p1:2",
+            "--submit-id",
+            "s-1",
+            "hello there",
+        ]))
+        .unwrap();
+        assert_eq!(params.target_ref.pane_id, "w1:p1");
+        assert_eq!(params.target_ref.generation, 2);
+        assert_eq!(params.submit_id, "s-1");
+        assert_eq!(params.text, "hello there");
+
+        let dashed = parse_agent_submit_args(&args(&[
+            "--submit-id=s-2",
+            "--target-ref=e:w1:p1:2",
+            "--",
+            "--not-a-flag",
+        ]))
+        .unwrap();
+        assert_eq!(dashed.text, "--not-a-flag");
+        assert_eq!(dashed.submit_id, "s-2");
+
+        for bad in [
+            args(&["--submit-id", "s", "text"]),
+            args(&["--target-ref", "e:w1:p1:2", "text"]),
+            args(&["--target-ref", "e:w1:p1:2", "--submit-id", "s"]),
+            args(&["--target-ref", "w1:p1", "--submit-id", "s", "text"]),
+            args(&["--target-ref", "e:w1:p1:2", "--submit-id", "s", "a", "b"]),
+            args(&[
+                "--target-ref",
+                "e:w1:p1:2",
+                "--submit-id",
+                "s",
+                "--json",
+                "a",
+            ]),
+            args(&[
+                "--target-ref",
+                "e:p:1",
+                "--target-ref",
+                "e:p:1",
+                "--submit-id",
+                "s",
+                "a",
+            ]),
+        ] {
+            assert!(parse_agent_submit_args(&bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn watch_args_defaults_and_bounds() {
+        let watch = parse_agent_watch_args(&[]).unwrap();
+        assert_eq!(watch.interval, Duration::from_millis(500));
+        assert!(watch.pane.is_none() && watch.max_changes.is_none() && watch.timeout.is_none());
+
+        let watch = parse_agent_watch_args(&args(&[
+            "--pane",
+            "w1:p1",
+            "--interval-ms=100",
+            "--max-changes",
+            "3",
+            "--timeout-ms",
+            "9000",
+        ]))
+        .unwrap();
+        assert_eq!(watch.pane.as_deref(), Some("w1:p1"));
+        assert_eq!(watch.interval, Duration::from_millis(100));
+        assert_eq!(watch.max_changes, Some(3));
+        assert_eq!(watch.timeout, Some(Duration::from_millis(9000)));
+
+        for bad in [
+            args(&["--interval-ms", "99"]),
+            args(&["--max-changes", "0"]),
+            args(&["--timeout-ms", "0"]),
+            args(&["--timeout-ms", "x"]),
+            args(&["--pane"]),
+            args(&["--pane", "a", "--pane", "b"]),
+            args(&["positional"]),
+        ] {
+            assert!(parse_agent_watch_args(&bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn watch_view_keeps_only_the_bounded_fields_and_open_question_ids() {
+        let agent = serde_json::json!({
+            "target_ref": {"server_epoch": "e", "pane_id": "w1:p1", "generation": 1},
+            "agent_status": "idle",
+            "foreground": {"value": "awaiting_human", "source": "screen_heuristic"},
+            "background": {"value": "unknown"},
+            "completion": "incomplete",
+            "blocking_reason": "awaiting_human",
+            "pending_questions": [
+                {"question_id": "q-open"},
+                {"question_id": "q-done", "resolution": {"at_ms": 1, "by": "owner"}}
+            ],
+            "owner_input": {"draft": "clean", "last_owner_input_at_ms": 5},
+            "last_output_at_ms": 9,
+            "state_change_seq": 4
+        });
+        let view = watch_view(&agent);
+        assert_eq!(view["foreground"], "awaiting_human");
+        assert_eq!(view["open_question_ids"], serde_json::json!(["q-open"]));
+        assert_eq!(view["draft"], "clean");
+        assert_eq!(view["handoff_armed"], false);
+        assert!(view.get("last_output_at_ms").is_none());
+        assert!(view.get("state_change_seq").is_none());
+    }
+
+    #[test]
+    fn watch_reports_handoff_armed_changes_while_draft_stays_unknown() {
+        let agent = |armed: bool| {
+            serde_json::json!({
+                "target_ref": {"server_epoch": "e", "pane_id": "w1:p1", "generation": 1},
+                "agent_status": "idle",
+                "owner_input": {"draft": "unknown", "handoff_armed": armed}
+            })
+        };
+        let unarmed = watch_view(&agent(false));
+        let armed = watch_view(&agent(true));
+        let consumed = watch_view(&agent(false));
+        assert_eq!(armed["handoff_armed"], true);
+        assert_eq!(armed["draft"], "unknown");
+        assert!(watch_view_changed(None, &unarmed));
+        assert!(!watch_view_changed(Some(&unarmed), &unarmed));
+        assert!(
+            watch_view_changed(Some(&unarmed), &armed),
+            "arming is a change"
+        );
+        assert!(
+            watch_view_changed(Some(&armed), &consumed),
+            "consumption is a change"
+        );
     }
 }

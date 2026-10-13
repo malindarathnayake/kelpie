@@ -330,6 +330,49 @@ fn agent_command() -> Command {
                 .arg(option("page-cursor", "CURSOR"))
                 .arg(option("trace-id", "TRACE_ID")),
         )
+        .subcommand(
+            Command::new("watch")
+                .about("Print one JSON line per supervisor fact change (read-only)")
+                .arg(option("pane", "ID").help("Watch only this pane"))
+                .arg(
+                    option("interval-ms", "N")
+                        .help("Poll interval in milliseconds (default: 500; min: 100)"),
+                )
+                .arg(option("max-changes", "N").help("Exit after this many change lines"))
+                .arg(
+                    option("timeout-ms", "N")
+                        .help("Exit after this many milliseconds with a final timeout line"),
+                )
+                .after_help(
+                    "Polls agents.digest. The first poll prints the current state. Request failures print one stale line per outage and polling continues; a recovered line follows the next successful poll.",
+                ),
+        )
+        .subcommand(
+            Command::new("submit")
+                .about("Submit a prompt to an exact agent target")
+                .override_usage(
+                    "herdr agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID> <TEXT>",
+                )
+                .arg(
+                    option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
+                        .required(true)
+                        .help("Complete target_ref from agent digest; never refreshed by the CLI"),
+                )
+                .arg(
+                    option("submit-id", "ID")
+                        .required(true)
+                        .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
+                )
+                .arg(required("text", "TEXT"))
+                .after_help(
+                    "Prints the receipt. Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: herdr agent submit-status <ID>",
+                ),
+        )
+        .subcommand(
+            Command::new("submit-status")
+                .about("Show the receipt for a submit_id")
+                .arg(required("submit_id", "SUBMIT_ID")),
+        )
         .subcommand(id_command("get", "target", "Show an agent"))
         .subcommand(
             Command::new("read")
@@ -1057,6 +1100,66 @@ mod tests {
         assert!(has_option(digest, "page-cursor"));
         assert!(has_option(digest, "trace-id"));
         assert!(!has_option(digest, "json"));
+    }
+
+    #[test]
+    fn spec_lists_agent_watch_with_bounded_options() {
+        let cmd = super::command();
+        let watch = command_path(&cmd, &["agent", "watch"]);
+        for option in ["pane", "interval-ms", "max-changes", "timeout-ms"] {
+            assert!(has_option(watch, option), "agent watch --{option}");
+            assert!(!option_arg(watch, option).is_required_set());
+        }
+        assert!(!has_option(watch, "json"));
+        assert!(super::command()
+            .try_get_matches_from(["herdr", "agent", "watch"])
+            .is_ok());
+    }
+
+    #[test]
+    fn spec_requires_full_target_ref_and_submit_id_for_agent_submit() {
+        let cmd = super::command();
+        let submit = command_path(&cmd, &["agent", "submit"]);
+        assert!(option_arg(submit, "target-ref").is_required_set());
+        assert!(option_arg(submit, "submit-id").is_required_set());
+        assert!(argument(submit, "text").is_required_set());
+        assert!(super::command()
+            .try_get_matches_from([
+                "herdr",
+                "agent",
+                "submit",
+                "--target-ref",
+                "e:w1:p1:3",
+                "--submit-id",
+                "s1",
+                "hello",
+            ])
+            .is_ok());
+        for missing in [
+            &["herdr", "agent", "submit", "--submit-id", "s1", "hello"][..],
+            &[
+                "herdr",
+                "agent",
+                "submit",
+                "--target-ref",
+                "e:w1:p1:3",
+                "hello",
+            ][..],
+            &[
+                "herdr",
+                "agent",
+                "submit",
+                "--target-ref",
+                "e:w1:p1:3",
+                "--submit-id",
+                "s1",
+            ][..],
+        ] {
+            assert!(super::command().try_get_matches_from(missing).is_err());
+        }
+
+        let status = command_path(&cmd, &["agent", "submit-status"]);
+        assert!(argument(status, "submit_id").is_required_set());
     }
 
     fn has_option(cmd: &Command, option: &str) -> bool {

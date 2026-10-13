@@ -70,6 +70,8 @@ pub(crate) enum KeybindAction {
     OpenNotificationTarget,
     Detach,
     OpenNavigator,
+    /// Fork: arm a one-shot supervisor handoff on the focused pane.
+    SupervisorHandoff,
 }
 
 pub(crate) fn resolve_direct_binding(
@@ -147,6 +149,10 @@ pub(crate) fn resolve_non_indexed_action(
         (&keybinds.resize_pane_up, KeybindAction::ResizePaneUp),
         (&keybinds.resize_pane_right, KeybindAction::ResizePaneRight),
         (&keybinds.toggle_sidebar, KeybindAction::ToggleSidebar),
+        (
+            &keybinds.supervisor_handoff,
+            KeybindAction::SupervisorHandoff,
+        ),
         (&keybinds.reload_config, KeybindAction::ReloadConfig),
         (
             &keybinds.open_notification_target,

@@ -2502,6 +2502,179 @@ async fn supervisor_activity_owner_input_not_stamped_when_disabled() {
     assert_eq!(forwarded_key_owner_input_stamp(false).await, None);
 }
 
+/// Shell client 91 viewing one pane whose runtime records its input; supervisor enabled.
+fn supervisor_shell_server(
+    name: &str,
+) -> (
+    HeadlessServer,
+    crate::layout::PaneId,
+    String,
+    tokio::sync::mpsc::Receiver<Bytes>,
+) {
+    crate::supervisor::set_enabled_for_test(Some(true));
+    let mut server = test_headless_server();
+    let mut workspace = crate::workspace::Workspace::test_new(name);
+    let pane = workspace.tabs[0].root_pane;
+    let (runtime, input) =
+        crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"", 4);
+    workspace.insert_test_runtime(pane, runtime);
+    server.app.state.workspaces = vec![workspace];
+    server.app.state.active = Some(0);
+    server.app.state.selected = 0;
+    server.app.state.mode = crate::app::Mode::Terminal;
+    let pane_id = server.app.public_pane_id(0, pane).unwrap();
+    let (control, _render) = connect_test_shell(&mut server, 91, 100, 30);
+    let _ = control.recv().expect("snapshot");
+    (server, pane, pane_id, input)
+}
+
+#[tokio::test]
+async fn supervisor_paste_records_owner_input_and_latches() {
+    let _reset = SupervisorOverrideReset;
+    let (mut server, pane, pane_id, mut input) = supervisor_shell_server("supervisor-paste");
+    let fence = crate::supervisor::fence::SubmitFence::new();
+    server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .arm_submit_fence(fence.clone());
+    server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 91,
+        pane_id,
+        events: vec![crate::protocol::ClientPaneInputEvent::Paste(
+            "pasted".into(),
+        )],
+    });
+    let forwarded = input.try_recv().expect("paste forwarded");
+    assert!(
+        forwarded.windows(6).any(|w| w == b"pasted"),
+        "{forwarded:?}"
+    );
+    let activity = server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .clone();
+    assert!(activity.last_owner_input_ms().is_some());
+    assert!(activity.draft_latched());
+    assert_eq!(
+        fence.close().reason,
+        Some(crate::supervisor::fence::FenceReason::OwnerInput)
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn supervisor_handoff_control_arms_without_input_or_latch() {
+    let _reset = SupervisorOverrideReset;
+    let (mut server, pane, pane_id, mut input) = supervisor_shell_server("supervisor-handoff");
+    assert!(
+        !server.handle_server_event(ServerEvent::ClientShellSupervisorHandoff {
+            client_id: 91,
+            pane_id: pane_id.clone(),
+        })
+    );
+    let activity = server.app.state.workspaces[0].test_runtimes[&pane]
+        .supervisor_activity()
+        .clone();
+    let generation = server
+        .app
+        .state
+        .supervisor
+        .target_ref(pane, &pane_id)
+        .generation;
+    let armed = activity
+        .valid_handoff(generation, crate::supervisor::now_ms())
+        .expect("handoff armed on the pane's activity");
+    assert_eq!(armed.generation, generation);
+    assert!(
+        input.try_recv().is_err(),
+        "the handoff key never reaches the pane"
+    );
+    assert!(!activity.draft_latched(), "arming is not owner input");
+    assert_eq!(activity.last_owner_input_ms(), None);
+
+    // Owner keys afterwards cancel it and latch.
+    server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 91,
+        pane_id: pane_id.clone(),
+        events: vec![crate::protocol::ClientPaneInputEvent::TextCommit(
+            "k".into(),
+        )],
+    });
+    assert!(activity
+        .valid_handoff(generation, crate::supervisor::now_ms())
+        .is_none());
+    assert!(activity.draft_latched());
+
+    // An unknown client cannot arm it.
+    assert!(
+        !server.handle_server_event(ServerEvent::ClientShellSupervisorHandoff {
+            client_id: 4242,
+            pane_id: pane_id.clone(),
+        })
+    );
+    assert!(activity
+        .valid_handoff(generation, crate::supervisor::now_ms())
+        .is_none());
+    shutdown_test_runtimes(&mut server);
+}
+
+#[test]
+fn supervisor_terminal_attach_input_trips_fences_and_latches() {
+    let _reset = SupervisorOverrideReset;
+    crate::supervisor::set_enabled_for_test(Some(true));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+    let _runtime_guard = rt.enter();
+    let mut server = test_headless_server();
+    let workspace = crate::workspace::Workspace::test_new("attach-owner");
+    let pane_id = workspace.tabs[0].root_pane;
+    let terminal_id = workspace.terminal_id(pane_id).expect("terminal id").clone();
+    let public_pane_id = format!("{}:p1", workspace.id);
+    server.app.state.workspaces = vec![workspace];
+    server.app.state.ensure_test_terminals();
+    let (runtime, mut input) =
+        crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"", 4);
+    let fence = crate::supervisor::fence::SubmitFence::new();
+    runtime
+        .supervisor_activity()
+        .arm_submit_fence(fence.clone());
+    let activity = runtime.supervisor_activity().clone();
+    server.app.terminal_runtimes.insert(terminal_id, runtime);
+
+    connect_pending_terminal_client(&mut server, 7);
+    assert!(
+        server.handle_server_event(ServerEvent::ClientControlTerminal {
+            client_id: 7,
+            target: public_pane_id,
+            takeover: false,
+        })
+    );
+    assert!(server.handle_server_event(ServerEvent::ClientInput {
+        client_id: 7,
+        data: b"typed".to_vec(),
+    }));
+    let mut forwarded = Vec::new();
+    while let Ok(bytes) = input.try_recv() {
+        forwarded.extend_from_slice(&bytes);
+    }
+    assert!(forwarded.windows(5).any(|w| w == b"typed"), "{forwarded:?}");
+    assert!(activity.last_owner_input_ms().is_some());
+    assert!(activity.draft_latched());
+    assert!(
+        !fence.try_commit(),
+        "attached-terminal input tripped the fence"
+    );
+    assert_eq!(
+        fence.close().reason,
+        Some(crate::supervisor::fence::FenceReason::OwnerInput)
+    );
+
+    shutdown_test_runtimes(&mut server);
+    drop(server);
+    drop(_runtime_guard);
+    rt.shutdown_timeout(Duration::from_millis(100));
+}
+
 #[tokio::test]
 async fn client_shell_tabs_render_accept_input_and_resize_independently() {
     let mut server = test_headless_server();

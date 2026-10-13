@@ -217,4 +217,6 @@ pub enum AppEvent {
     WorktreeRemoveFinished(Box<WorktreeRemoveResult>),
     /// Background worktree discovery completed for an API list/open request.
     WorktreeReadFinished(Box<WorktreeReadResult>),
+    /// Fork: an `agent.submit` write finished (or its dev hold elapsed).
+    SupervisorSubmit(crate::supervisor::submit::SubmitEvent),
 }

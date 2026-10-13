@@ -1661,15 +1661,33 @@ impl PaneRuntimeIo {
         enter: Bytes,
         delay: std::time::Duration,
         deadline: Option<std::time::Instant>,
+        fence: Option<crate::supervisor::fence::SubmitFence>,
     ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
         match self {
             PaneRuntimeIo::Actor(actor) => {
                 #[cfg(windows)]
-                return actor.queue_user_input_submission(text, enter, delay, deadline);
+                return match fence {
+                    None => actor.queue_user_input_submission(text, enter, delay, deadline),
+                    Some(fence) => actor.queue_fenced_user_input_submission(
+                        text,
+                        enter,
+                        delay,
+                        deadline,
+                        Some(fence),
+                    ),
+                };
                 #[cfg(unix)]
                 {
                     let _ = deadline;
-                    actor.queue_user_input_submission(text, enter, delay)
+                    match fence {
+                        None => actor.queue_user_input_submission(text, enter, delay),
+                        Some(fence) => actor.queue_fenced_user_input_submission(
+                            text,
+                            enter,
+                            delay,
+                            Some(fence),
+                        ),
+                    }
                 }
             }
             #[cfg(test)]
@@ -1678,6 +1696,10 @@ impl PaneRuntimeIo {
                 let sender = sender.clone();
                 let (reply_tx, reply_rx) = std::sync::mpsc::channel();
                 std::thread::spawn(move || {
+                    if !crate::supervisor::fence::admit(fence.as_ref()) {
+                        let _ = reply_tx.send(Err(crate::supervisor::fence::fenced_error()));
+                        return;
+                    }
                     let result = sender
                         .try_send(text)
                         .map_err(std::io::Error::other)
@@ -3739,7 +3761,20 @@ impl PaneRuntime {
         deadline: Option<std::time::Instant>,
     ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
         self.io
-            .queue_user_input_submission(text, enter, delay, deadline)
+            .queue_user_input_submission(text, enter, delay, deadline, None)
+    }
+
+    /// Fork: queues a submission whose first text byte is guarded by `fence`.
+    pub fn queue_fenced_user_input_submission(
+        &self,
+        text: Bytes,
+        enter: Bytes,
+        delay: std::time::Duration,
+        deadline: Option<std::time::Instant>,
+        fence: crate::supervisor::fence::SubmitFence,
+    ) -> std::io::Result<std::sync::mpsc::Receiver<std::io::Result<()>>> {
+        self.io
+            .queue_user_input_submission(text, enter, delay, deadline, Some(fence))
     }
 
     pub fn try_send_paste(&self, text: String) -> Result<(), mpsc::error::TrySendError<Bytes>> {

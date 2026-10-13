@@ -522,6 +522,8 @@ pub(crate) enum ServerEvent {
     ClientShellMouseCapture { client_id: u64, enabled: bool },
     /// The committed shell asks the server to replay presentation effects before input resumes.
     ClientShellPresentationSync { client_id: u64, token: String },
+    /// Fork: the operator pressed the supervisor handoff keybinding for one pane.
+    ClientShellSupervisorHandoff { client_id: u64, pane_id: String },
     /// A client-owned shell invoked one endpoint operation through this connection.
     ClientShellEndpointRequest {
         client_id: u64,
@@ -1344,6 +1346,18 @@ fn client_read_loop_with_endpoint_controls(
                 ServerEvent::ClientShellPresentationSync {
                     client_id,
                     token: data,
+                }
+            }
+            ClientMessage::EndpointControl { kind, data }
+                if kind == crate::supervisor::HANDOFF_CONTROL_KIND =>
+            {
+                if data.is_empty() || data.len() > crate::supervisor::HANDOFF_PANE_ID_MAX_BYTES {
+                    debug!(client_id, "ignoring malformed supervisor handoff control");
+                    continue;
+                }
+                ServerEvent::ClientShellSupervisorHandoff {
+                    client_id,
+                    pane_id: data,
                 }
             }
             ClientMessage::EndpointControl { kind, data } => {

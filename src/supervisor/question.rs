@@ -3,12 +3,12 @@
 
 use sha2::{Digest, Sha256};
 
-const WINDOW_LINES: usize = 24;
+pub(crate) const WINDOW_LINES: usize = 24;
 const MAX_CONTENT_ROWS: usize = 12;
 const MAX_EXCERPT_CHARS: usize = 200;
-const MAX_BOX_GAP: usize = 6;
+pub(crate) const MAX_BOX_GAP: usize = 6;
 
-fn is_rule_row(row: &str) -> bool {
+pub(crate) fn is_rule_row(row: &str) -> bool {
     let is_rule = |c: char| matches!(c, '─' | '━' | '═' | '-');
     let t = row.trim();
     let total = t.chars().count();

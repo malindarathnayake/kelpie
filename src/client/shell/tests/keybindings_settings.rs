@@ -965,3 +965,28 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
     assert!(state.handle_input_bytes(b"\r").actions.is_empty());
     assert_eq!(state.mode, ClientShellMode::Terminal);
 }
+
+#[test]
+fn supervisor_handoff_binding_sends_only_a_control_message_for_the_focused_pane() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let outcome = state.handle_raw_events(vec![
+        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+    ]);
+    assert!(outcome.actions.is_empty(), "{:?}", outcome.actions);
+    assert!(
+        matches!(
+            &outcome.requests[..],
+            [crate::protocol::ClientMessage::EndpointControl { kind, data }]
+                if kind == crate::supervisor::HANDOFF_CONTROL_KIND && data == "pane_1"
+        ),
+        "the key is consumed, never forwarded as pane input: {:?}",
+        outcome.requests
+    );
+    assert!(state
+        .copy_feedback
+        .as_ref()
+        .is_some_and(|feedback| feedback.message.contains("pane_1")));
+}

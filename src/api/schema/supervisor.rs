@@ -163,6 +163,10 @@ pub struct OwnerInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_owner_input_at_ms: Option<u64>,
     pub draft: DraftState,
+    /// A one-shot operator handoff is armed: the next `agent.submit` to this pane may be
+    /// accepted once while `draft` stays the latch result. Read-only.
+    #[serde(default)]
+    pub handoff_armed: bool,
 }
 
 /// Which view the pane is shown in.
@@ -275,6 +279,88 @@ pub struct AgentsDigest {
     pub truncated: DigestTruncation,
 }
 
+/// Parameters for `agent.submit`: one prompt submission to an exact target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentSubmitParams {
+    pub target_ref: TargetRef,
+    /// Prompt text, 1-8192 bytes.
+    pub text: String,
+    /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    pub submit_id: String,
+}
+
+/// Parameters for `agent.submit_status`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentSubmitStatusParams {
+    pub submit_id: String,
+}
+
+/// Lifecycle of one submission receipt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmitState {
+    /// Reserved; the write is queued or in progress.
+    Accepted,
+    /// Text and Enter were written to the pane.
+    Written,
+    /// The agent started a turn after the write.
+    Started,
+    /// Dropped by the write-boundary fence; zero bytes were written.
+    Fenced,
+    /// The outcome is not known; never resend automatically.
+    Indeterminate,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Why a receipt is `fenced` or `indeterminate`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmitReason {
+    OwnerInput,
+    GenerationChanged,
+    PaneClosed,
+    OwnerInputDuringWrite,
+    GenerationChangedDuringWrite,
+    PaneClosedDuringWrite,
+    DeadlineExpired,
+    QueueFailed,
+    WriteFailed,
+    PtyClosed,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Whether the agent acknowledged the submission natively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmitAcknowledged {
+    Unsupported,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Receipt for one `agent.submit`. Never contains the submitted text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SubmitReceipt {
+    pub submit_id: String,
+    pub target_ref: TargetRef,
+    pub state: SubmitState,
+    pub accepted_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<SubmitReason>,
+    pub acknowledged: SubmitAcknowledged,
+    /// First 16 lowercase hex chars of SHA-256 over the submitted text bytes.
+    pub text_sha256_16: String,
+    /// True when acceptance consumed a one-shot operator handoff.
+    #[serde(default)]
+    pub handoff: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,6 +440,7 @@ mod tests {
             owner_input: OwnerInput {
                 last_owner_input_at_ms: None,
                 draft: DraftState::Clean,
+                handoff_armed: false,
             },
             view: View::Main,
             last_activity_at_ms: None,

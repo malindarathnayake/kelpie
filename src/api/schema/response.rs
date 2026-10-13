@@ -108,6 +108,9 @@ pub enum ResponseResult {
         agents: Vec<AgentInfo>,
     },
     AgentsDigest(Box<super::supervisor::AgentsDigest>),
+    AgentSubmitReceipt {
+        receipt: super::supervisor::SubmitReceipt,
+    },
     AgentView {
         active: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]

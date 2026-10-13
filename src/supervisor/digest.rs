@@ -131,6 +131,10 @@ pub struct AgentFactInputs {
     /// Unresolved questions dropped at the registry cap; counts as an open question
     /// for completion only.
     pub unresolved_overflow: u32,
+    /// Owner-input draft state derived by `supervisor::draft` (S1).
+    pub draft: DraftState,
+    /// A valid one-shot operator handoff is armed on the pane (read-only).
+    pub handoff_armed: bool,
     pub now_ms: u64,
 }
 
@@ -153,6 +157,8 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
         state_change_seq,
         completion_seq,
         unresolved_overflow,
+        draft,
+        handoff_armed,
         now_ms,
     } = inputs;
 
@@ -209,7 +215,8 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
         pending_questions: questions,
         owner_input: OwnerInput {
             last_owner_input_at_ms: last_owner_input_ms,
-            draft: DraftState::Unknown,
+            draft,
+            handoff_armed,
         },
         view: View::Unknown,
         last_activity_at_ms: last_activity_ms(
@@ -428,6 +435,8 @@ mod tests {
             state_change_seq: 0,
             completion_seq: 0,
             unresolved_overflow: 0,
+            draft: DraftState::Unknown,
+            handoff_armed: false,
             now_ms: 100,
         }
     }
@@ -609,6 +618,21 @@ mod tests {
         assert_eq!(facts.owner_input.last_owner_input_at_ms, Some(50));
         assert_eq!(facts.owner_input.draft, DraftState::Unknown);
         assert_eq!(facts.view, View::Unknown);
+
+        let mut i = inputs(AgentStatus::Idle, vec![]);
+        i.draft = DraftState::Clean;
+        assert_eq!(build_agent_facts(i).owner_input.draft, DraftState::Clean);
+
+        assert!(
+            !build_agent_facts(inputs(AgentStatus::Idle, vec![]))
+                .owner_input
+                .handoff_armed
+        );
+        let mut i = inputs(AgentStatus::Idle, vec![]);
+        i.handoff_armed = true;
+        let facts = build_agent_facts(i);
+        assert!(facts.owner_input.handoff_armed);
+        assert_eq!(facts.owner_input.draft, DraftState::Unknown);
     }
 
     #[test]

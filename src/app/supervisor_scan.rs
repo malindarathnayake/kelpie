@@ -31,6 +31,38 @@ impl App {
         }
     }
 
+    /// Owner-input draft state for one pane (S1). Takes one 24-row snapshot, and only for
+    /// an unlatched Claude pane; every other case is Unknown without reading the grid.
+    /// `latched` is the pane runtime's sticky owner-input latch; `agent.submit` passes false
+    /// only while consuming a valid operator handoff.
+    pub(crate) fn pane_draft_state(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        agent: Option<&str>,
+        latched: bool,
+        last_owner_input_ms: Option<u64>,
+        last_output_ms: Option<u64>,
+    ) -> crate::api::schema::supervisor::DraftState {
+        if agent != Some(crate::supervisor::draft::DRAFT_AGENT) || latched {
+            return crate::api::schema::supervisor::DraftState::Unknown;
+        }
+        let Some(runtime) =
+            self.state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+        else {
+            return crate::api::schema::supervisor::DraftState::Unknown;
+        };
+        let text = runtime.recent_unwrapped_text_snapshot(24).text;
+        crate::supervisor::draft::derive_draft(
+            &text,
+            agent,
+            latched,
+            last_owner_input_ms,
+            last_output_ms,
+        )
+    }
+
     /// Whether the pane's agent manifest currently matches a background-work rule.
     ///
     /// Perf (tier standard): one manifest evaluation, called on demand from the digest

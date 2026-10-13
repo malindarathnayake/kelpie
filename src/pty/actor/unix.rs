@@ -78,6 +78,8 @@ enum PtyIoDataCommand {
         enter: Bytes,
         delay: Duration,
         reply: std_mpsc::Sender<std::io::Result<()>>,
+        /// Fork: write-boundary fence checked before the first text byte.
+        fence: Option<crate::supervisor::fence::SubmitFence>,
     },
 }
 
@@ -151,6 +153,17 @@ impl PtyIoActorHandle {
         enter: Bytes,
         delay: Duration,
     ) -> std::io::Result<std_mpsc::Receiver<std::io::Result<()>>> {
+        self.queue_fenced_user_input_submission(text, enter, delay, None)
+    }
+
+    /// Fork: as `queue_user_input_submission`, with an optional write-boundary fence.
+    pub(crate) fn queue_fenced_user_input_submission(
+        &self,
+        text: Bytes,
+        enter: Bytes,
+        delay: Duration,
+        fence: Option<crate::supervisor::fence::SubmitFence>,
+    ) -> std::io::Result<std_mpsc::Receiver<std::io::Result<()>>> {
         let user_writes = self
             .user_writes
             .lock()
@@ -168,6 +181,7 @@ impl PtyIoActorHandle {
                 enter,
                 delay,
                 reply: reply_tx,
+                fence,
             })
             .map_err(|err| match err {
                 mpsc::error::TrySendError::Full(_) => {
@@ -470,6 +484,7 @@ struct ActiveSubmission {
     delay: Duration,
     phase: SubmissionPhase,
     reply: std_mpsc::Sender<std::io::Result<()>>,
+    fence: Option<crate::supervisor::fence::SubmitFence>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -482,6 +497,8 @@ struct PendingWrite {
 enum SubmissionBoundary {
     Text,
     Enter,
+    /// Fork: the text part was dropped by its fence before any byte was written.
+    Fenced,
 }
 
 enum SubmissionPhase {
@@ -653,6 +670,7 @@ impl PtyIoActorRunner {
                 enter,
                 delay,
                 reply,
+                fence,
             } => {
                 if self.state == ActorState::Running {
                     let phase = if text.is_empty() {
@@ -666,6 +684,7 @@ impl PtyIoActorRunner {
                         delay,
                         phase,
                         reply,
+                        fence,
                     });
                 } else {
                     let _ = reply.send(Err(std::io::Error::new(
@@ -880,6 +899,13 @@ impl PtyIoActorRunner {
                 debug_assert!(matches!(submission.phase, SubmissionPhase::WritingEnter));
                 let _ = submission.reply.send(Ok(()));
             }
+            SubmissionBoundary::Fenced => {
+                if let Some(submission) = self.active_submission.take() {
+                    let _ = submission
+                        .reply
+                        .send(Err(crate::supervisor::fence::fenced_error()));
+                }
+            }
         }
     }
 
@@ -937,6 +963,18 @@ impl PtyIoActorRunner {
 
     fn flush_pending_writes_once(&mut self) -> std::io::Result<Option<SubmissionBoundary>> {
         while let Some(write) = self.pending_writes.front() {
+            // Fork write boundary: last check before the first text byte of a submission.
+            if self.current_write_offset == 0
+                && write.boundary == Some(SubmissionBoundary::Text)
+                && !crate::supervisor::fence::admit(
+                    self.active_submission
+                        .as_ref()
+                        .and_then(|submission| submission.fence.as_ref()),
+                )
+            {
+                self.pending_writes.pop_front();
+                return Ok(Some(SubmissionBoundary::Fenced));
+            }
             let chunk = &write.bytes[self.current_write_offset..];
             match self.file.as_ref().write(chunk) {
                 Ok(0) => {
@@ -1160,6 +1198,83 @@ mod tests {
         peer.read_exact(&mut buf).expect("peer receives write");
         assert_eq!(&buf, b"hello");
         handle.shutdown();
+    }
+
+    #[test]
+    fn tripped_fence_drops_submission_text_before_first_byte() {
+        let (handle, mut peer, _read_rx) = actor_with_socket_pair(false);
+        let fence = crate::supervisor::fence::SubmitFence::new();
+        fence.trip(crate::supervisor::fence::FenceReason::OwnerInput);
+
+        let completion = handle
+            .queue_fenced_user_input_submission(
+                Bytes::from_static(b"fenced"),
+                Bytes::from_static(b"\r"),
+                Duration::ZERO,
+                Some(fence),
+            )
+            .expect("submission queued");
+        let err = completion
+            .recv()
+            .expect("writer reports submission")
+            .unwrap_err();
+        assert!(crate::supervisor::fence::is_fenced_error(&err));
+
+        handle
+            .try_write_user_input(Bytes::from_static(b"after"))
+            .expect("pane stays writable");
+        let mut buf = [0u8; 5];
+        peer.read_exact(&mut buf)
+            .expect("peer receives later input");
+        assert_eq!(&buf, b"after", "a fenced submission writes zero bytes");
+        handle.shutdown();
+    }
+
+    /// Writer boundary: the fence trips after the submission is active with its text part
+    /// pending and before the flush checks it; the flush drops it with zero bytes.
+    #[test]
+    fn fence_tripped_after_enqueue_drops_pending_text_before_first_byte() {
+        let (mut runner, mut peer) = actor_runner_for_unit_test();
+        let fence = crate::supervisor::fence::SubmitFence::new();
+        let (reply_tx, reply_rx) = std_mpsc::channel();
+        assert!(
+            !runner.handle_data_command(PtyIoDataCommand::SubmitUserInput {
+                text: Bytes::from_static(b"fenced"),
+                enter: Bytes::from_static(b"\r"),
+                delay: Duration::ZERO,
+                reply: reply_tx,
+                fence: Some(fence.clone()),
+            })
+        );
+        assert!(runner.active_submission.is_some());
+        assert_eq!(
+            runner.pending_writes.front().map(|write| write.boundary),
+            Some(Some(SubmissionBoundary::Text))
+        );
+
+        assert!(fence.trip(crate::supervisor::fence::FenceReason::OwnerInput));
+        assert_eq!(
+            runner.flush_pending_writes_once().unwrap(),
+            Some(SubmissionBoundary::Fenced)
+        );
+        runner.complete_submission_boundary(SubmissionBoundary::Fenced);
+        runner.schedule_submission_enter();
+
+        let err = reply_rx.try_recv().expect("fenced reply sent").unwrap_err();
+        assert!(crate::supervisor::fence::is_fenced_error(&err));
+        assert!(runner.active_submission.is_none());
+        assert!(
+            runner.pending_writes.is_empty(),
+            "no text and no Enter queued"
+        );
+        assert!(!fence.close().committed, "the fence was never committed");
+
+        peer.set_nonblocking(true).expect("peer nonblocking");
+        let mut buf = [0u8; 16];
+        match peer.read(&mut buf) {
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+            other => panic!("peer read bytes from a fenced submission: {other:?}"),
+        }
     }
 
     #[test]

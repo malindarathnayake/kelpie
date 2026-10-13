@@ -4,9 +4,19 @@
 pub mod activity;
 pub mod background;
 pub mod digest;
+pub mod draft;
+pub mod fence;
 pub mod question;
 pub mod registry;
+pub mod submit;
 pub use registry::SupervisorState;
+
+/// Client-protocol `EndpointControl` kind an attached client sends when the operator presses
+/// the `supervisor_handoff` keybinding; `data` is the focused public pane id. There is no
+/// API method, CLI command or config path that arms a handoff.
+pub const HANDOFF_CONTROL_KIND: &str = "fork.supervisor.handoff.v1";
+/// Upper bound on the pane id carried by a handoff control message.
+pub const HANDOFF_PANE_ID_MAX_BYTES: usize = 128;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;

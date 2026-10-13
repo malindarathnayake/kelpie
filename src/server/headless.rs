@@ -2098,8 +2098,15 @@ impl HeadlessServer {
                     return false;
                 };
                 if let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) {
-                    if let Err(err) = apply_terminal_attach_input(runtime, data) {
-                        warn!(client_id, terminal_id = %terminal_id, err = %err);
+                    // Fork: raw attached-terminal input is owner input, like the shell path.
+                    let owner_input = !data.is_empty();
+                    if owner_input {
+                        runtime.supervisor_activity().trip_submit_fences();
+                    }
+                    match apply_terminal_attach_input(runtime, data) {
+                        Ok(()) if owner_input => runtime.supervisor_activity().record_owner_input(),
+                        Ok(()) => {}
+                        Err(err) => warn!(client_id, terminal_id = %terminal_id, err = %err),
                     }
                 }
                 true
@@ -2335,6 +2342,31 @@ impl HeadlessServer {
                 client.host_mouse_capture_active = None;
                 true
             }
+            ServerEvent::ClientShellSupervisorHandoff { client_id, pane_id } => {
+                // Fork: only an active attached shell client viewing the pane may arm it.
+                if self.handoff_in_progress
+                    || !self
+                        .clients
+                        .get(&client_id)
+                        .is_some_and(ClientConnection::is_active_shell_client)
+                {
+                    return false;
+                }
+                let Some((workspace_index, runtime_pane_id)) = self.app.parse_pane_id(&pane_id)
+                else {
+                    return false;
+                };
+                if !self.shell_client_views_pane(client_id, workspace_index, runtime_pane_id) {
+                    return false;
+                }
+                let _ = self.app.arm_supervisor_handoff(
+                    workspace_index,
+                    runtime_pane_id,
+                    &pane_id,
+                    crate::supervisor::now_ms(),
+                );
+                false
+            }
             ServerEvent::ClientShellPresentationSync { client_id, token } => {
                 let Some(client) = self.clients.get_mut(&client_id) else {
                     return false;
@@ -2439,6 +2471,13 @@ impl HeadlessServer {
                     return foreground_changed | geometry_changed;
                 };
                 let scroll_before = runtime.scroll_metrics();
+                // Fork: owner input fences an in-flight agent.submit before it is forwarded.
+                if events
+                    .iter()
+                    .any(|e| !matches!(e, protocol::ClientPaneInputEvent::Mouse { .. }))
+                {
+                    runtime.supervisor_activity().trip_submit_fences();
+                }
                 let mut keyboard_forwarded = false;
                 let input_result = apply_client_terminal_input_events(
                     runtime,
@@ -2447,8 +2486,15 @@ impl HeadlessServer {
                     &mut keyboard_forwarded,
                 );
                 let scroll_changed = runtime.scroll_metrics() != scroll_before;
-                if keyboard_forwarded {
+                // Fork: a paste is owner input too; it already tripped the fences above.
+                if keyboard_forwarded
+                    || events.iter().any(|e| {
+                        matches!(e, protocol::ClientPaneInputEvent::Paste(text) if !text.is_empty())
+                    })
+                {
                     runtime.supervisor_activity().record_owner_input();
+                }
+                if keyboard_forwarded {
                     self.note_interactive_input(runtime_pane_id, Instant::now());
                 }
                 if let Err(err) = input_result {

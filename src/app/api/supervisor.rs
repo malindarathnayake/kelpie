@@ -19,7 +19,7 @@ const REQUEST_ID_LOG_CHARS: usize = 128;
 
 /// Client-supplied value reduced to `[A-Za-z0-9-_.:]`, at most `max_chars` chars
 /// (CWE-117). Logged only; never echoed in a response or used as our trace id.
-fn sanitize_log_token(raw: Option<&str>, max_chars: usize) -> String {
+pub(super) fn sanitize_log_token(raw: Option<&str>, max_chars: usize) -> String {
     raw.unwrap_or_default()
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
@@ -28,19 +28,32 @@ fn sanitize_log_token(raw: Option<&str>, max_chars: usize) -> String {
 }
 
 /// Per-call context for the single `supervisor.request` event.
-struct RequestLog {
-    started: std::time::Instant,
-    trace_id: String,
-    client_trace_id: String,
-    request_id: String,
+pub(super) struct RequestLog {
+    /// Bounded: one of the supervisor method names.
+    pub(super) method: &'static str,
+    pub(super) started: std::time::Instant,
+    pub(super) trace_id: String,
+    pub(super) client_trace_id: String,
+    pub(super) request_id: String,
 }
 
 impl RequestLog {
-    fn ok(&self, agents: usize, response: &str) {
+    /// Log context for a request without a client trace id.
+    pub(super) fn new(method: &'static str, id: &str) -> Self {
+        Self {
+            method,
+            started: std::time::Instant::now(),
+            trace_id: crate::supervisor::next_trace_id(),
+            client_trace_id: String::new(),
+            request_id: sanitize_log_token(Some(id), REQUEST_ID_LOG_CHARS),
+        }
+    }
+
+    pub(super) fn ok(&self, agents: usize, response: &str) {
         tracing::debug!(
             event = "supervisor.request",
             subsystem = "supervisor",
-            method = "agents.digest",
+            method = self.method,
             outcome = "ok",
             trace_id = %self.trace_id,
             client_trace_id = %self.client_trace_id,
@@ -51,11 +64,11 @@ impl RequestLog {
         );
     }
 
-    fn error(&self, error_code: &str, response: &str) {
+    pub(super) fn error(&self, error_code: &str, response: &str) {
         tracing::warn!(
             event = "supervisor.request",
             subsystem = "supervisor",
-            method = "agents.digest",
+            method = self.method,
             outcome = "error",
             error_code = error_code,
             trace_id = %self.trace_id,
@@ -79,6 +92,7 @@ impl App {
         params: AgentsDigestParams,
     ) -> String {
         let log = RequestLog {
+            method: "agents.digest",
             started: std::time::Instant::now(),
             trace_id: crate::supervisor::next_trace_id(),
             client_trace_id: sanitize_log_token(
@@ -204,20 +218,23 @@ impl App {
                 ),
                 None => (Vec::new(), Vec::new(), None, false, 0),
             };
-        let (runtime_present, last_output_ms, last_owner_input_ms) = match self
-            .state
-            .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
-        {
-            Some(runtime) => {
-                let activity = runtime.supervisor_activity();
-                (
-                    true,
-                    activity.last_output_ms(),
-                    activity.last_owner_input_ms(),
-                )
-            }
-            None => (false, None, None),
-        };
+        let (runtime_present, last_output_ms, last_owner_input_ms, draft_latched, handoff_armed) =
+            match self
+                .state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+            {
+                Some(runtime) => {
+                    let activity = runtime.supervisor_activity();
+                    (
+                        true,
+                        activity.last_output_ms(),
+                        activity.last_owner_input_ms(),
+                        activity.draft_latched(),
+                        activity.valid_handoff(target_ref.generation, now).is_some(),
+                    )
+                }
+                None => (false, None, None, false, false),
+            };
         // Read-time TTL check on the pane's attached terminal; never sweeps or mutates.
         let background_validity = self
             .state
@@ -260,6 +277,15 @@ impl App {
             // matching how `state_change_seq` is defaulted.
             completion_seq: info.completion_seq.unwrap_or(0),
             unresolved_overflow,
+            draft: self.pane_draft_state(
+                ws_idx,
+                pane_id,
+                info.agent.as_deref(),
+                draft_latched,
+                last_owner_input_ms,
+                last_output_ms,
+            ),
+            handoff_armed,
             now_ms: now,
         }
     }

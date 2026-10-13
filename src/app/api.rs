@@ -9,6 +9,7 @@ mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
 mod session;
+mod submit;
 mod supervisor;
 mod tabs;
 mod workspaces;
@@ -121,6 +122,11 @@ impl App {
         } = ev
         {
             self.handle_git_status_refreshed(results, cache_updates);
+            return Vec::new();
+        }
+
+        if let AppEvent::SupervisorSubmit(event) = ev {
+            self.handle_supervisor_submit_event(event);
             return Vec::new();
         }
 
@@ -1144,6 +1150,10 @@ impl App {
                     "invalid_request",
                     "agent.prompt is handled asynchronously by the app runtime",
                 );
+            }
+            Method::AgentSubmit(params) => return self.handle_agent_submit(request.id, params),
+            Method::AgentSubmitStatus(params) => {
+                return self.handle_agent_submit_status(request.id, params);
             }
             Method::AgentWait(_) => {
                 return responses::encode_error(

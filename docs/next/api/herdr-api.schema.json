@@ -1382,6 +1382,40 @@
           ],
           "type": "string"
         },
+        "AgentSubmitParams": {
+          "description": "Parameters for `agent.submit`: one prompt submission to an exact target.",
+          "properties": {
+            "submit_id": {
+              "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "type": "string"
+            },
+            "target_ref": {
+              "$ref": "#/schemas/request/$defs/TargetRef"
+            },
+            "text": {
+              "description": "Prompt text, 1-8192 bytes.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target_ref",
+            "text",
+            "submit_id"
+          ],
+          "type": "object"
+        },
+        "AgentSubmitStatusParams": {
+          "description": "Parameters for `agent.submit_status`.",
+          "properties": {
+            "submit_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "submit_id"
+          ],
+          "type": "object"
+        },
         "AgentTarget": {
           "properties": {
             "target": {
@@ -4400,6 +4434,28 @@
           ],
           "type": "object"
         },
+        "TargetRef": {
+          "description": "Identifies one agent target by server epoch, pane, and generation.",
+          "properties": {
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "server_epoch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "server_epoch",
+            "pane_id",
+            "generation"
+          ],
+          "type": "object"
+        },
         "ToastHerdrPosition": {
           "enum": [
             "top-left",
@@ -5484,6 +5540,38 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentWaitParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.submit",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentSubmitParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.submit_status",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentSubmitStatusParams"
             }
           },
           "required": [
@@ -8256,6 +8344,11 @@
             "draft": {
               "$ref": "#/schemas/success_response/$defs/DraftState"
             },
+            "handoff_armed": {
+              "default": false,
+              "description": "A one-shot operator handoff is armed: the next `agent.submit` to this pane may be\naccepted once while `draft` stays the latch result. Read-only.",
+              "type": "boolean"
+            },
             "last_owner_input_at_ms": {
               "format": "uint64",
               "minimum": 0,
@@ -10103,6 +10196,22 @@
             },
             {
               "properties": {
+                "receipt": {
+                  "$ref": "#/schemas/success_response/$defs/SubmitReceipt"
+                },
+                "type": {
+                  "const": "agent_submit_receipt",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "receipt"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "active": {
                   "type": "boolean"
                 },
@@ -11128,6 +11237,133 @@
             "down"
           ],
           "type": "string"
+        },
+        "SubmitAcknowledged": {
+          "description": "Whether the agent acknowledged the submission natively.",
+          "enum": [
+            "unsupported",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "SubmitReason": {
+          "description": "Why a receipt is `fenced` or `indeterminate`.",
+          "enum": [
+            "owner_input",
+            "generation_changed",
+            "pane_closed",
+            "owner_input_during_write",
+            "generation_changed_during_write",
+            "pane_closed_during_write",
+            "deadline_expired",
+            "queue_failed",
+            "write_failed",
+            "pty_closed",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "SubmitReceipt": {
+          "description": "Receipt for one `agent.submit`. Never contains the submitted text.",
+          "properties": {
+            "accepted_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "acknowledged": {
+              "$ref": "#/schemas/success_response/$defs/SubmitAcknowledged"
+            },
+            "handoff": {
+              "default": false,
+              "description": "True when acceptance consumed a one-shot operator handoff.",
+              "type": "boolean"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/SubmitReason"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "started_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "state": {
+              "$ref": "#/schemas/success_response/$defs/SubmitState"
+            },
+            "submit_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "$ref": "#/schemas/success_response/$defs/TargetRef"
+            },
+            "text_sha256_16": {
+              "description": "First 16 lowercase hex chars of SHA-256 over the submitted text bytes.",
+              "type": "string"
+            },
+            "written_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "submit_id",
+            "target_ref",
+            "state",
+            "accepted_at_ms",
+            "acknowledged",
+            "text_sha256_16"
+          ],
+          "type": "object"
+        },
+        "SubmitState": {
+          "description": "Lifecycle of one submission receipt.",
+          "oneOf": [
+            {
+              "enum": [
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "accepted",
+              "description": "Reserved; the write is queued or in progress.",
+              "type": "string"
+            },
+            {
+              "const": "written",
+              "description": "Text and Enter were written to the pane.",
+              "type": "string"
+            },
+            {
+              "const": "started",
+              "description": "The agent started a turn after the write.",
+              "type": "string"
+            },
+            {
+              "const": "fenced",
+              "description": "Dropped by the write-boundary fence; zero bytes were written.",
+              "type": "string"
+            },
+            {
+              "const": "indeterminate",
+              "description": "The outcome is not known; never resend automatically.",
+              "type": "string"
+            }
+          ]
         },
         "TabInfo": {
           "properties": {

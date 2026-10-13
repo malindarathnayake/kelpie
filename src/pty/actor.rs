@@ -51,6 +51,8 @@ mod windows {
             delay: Duration,
             deadline: Option<Instant>,
             reply: std_mpsc::Sender<std::io::Result<()>>,
+            /// Fork: write-boundary fence checked before the first text byte.
+            fence: Option<crate::supervisor::fence::SubmitFence>,
         },
     }
 
@@ -61,6 +63,8 @@ mod windows {
             deadline: Option<Instant>,
             reply: oneshot::Sender<std::io::Result<()>>,
             enter_completion: Option<std_mpsc::Sender<()>>,
+            /// Fork: set only on the text part of a fenced submission.
+            fence: Option<crate::supervisor::fence::SubmitFence>,
         },
     }
 
@@ -121,6 +125,18 @@ mod windows {
             delay: Duration,
             deadline: Option<Instant>,
         ) -> std::io::Result<std_mpsc::Receiver<std::io::Result<()>>> {
+            self.queue_fenced_user_input_submission(text, enter, delay, deadline, None)
+        }
+
+        /// Fork: as `queue_user_input_submission`, with an optional write-boundary fence.
+        pub(crate) fn queue_fenced_user_input_submission(
+            &self,
+            text: Bytes,
+            enter: Bytes,
+            delay: Duration,
+            deadline: Option<Instant>,
+            fence: Option<crate::supervisor::fence::SubmitFence>,
+        ) -> std::io::Result<std_mpsc::Receiver<std::io::Result<()>>> {
             let accepting = self
                 .accepting
                 .lock()
@@ -139,6 +155,7 @@ mod windows {
                     delay,
                     deadline,
                     reply: reply_tx,
+                    fence,
                 })
                 .map_err(|err| match err {
                     mpsc::error::TrySendError::Full(_) => std::io::Error::new(
@@ -319,15 +336,20 @@ mod windows {
                     deadline,
                     reply,
                     enter_completion,
+                    fence,
                 } => {
                     let result = if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                         Err(input_submission_timed_out())
+                    } else if !crate::supervisor::fence::admit(fence.as_ref()) {
+                        // Fork write boundary: last check before the first text byte.
+                        Err(crate::supervisor::fence::fenced_error())
                     } else {
                         write_and_flush(writer, &bytes)
                     };
-                    let failed = result
-                        .as_ref()
-                        .is_err_and(|err| err.kind() != std::io::ErrorKind::TimedOut);
+                    let failed = result.as_ref().is_err_and(|err| {
+                        err.kind() != std::io::ErrorKind::TimedOut
+                            && !crate::supervisor::fence::is_fenced_error(err)
+                    });
                     // Wake synchronous shutdown directly; it may be blocking the executor
                     // worker that would otherwise receive the async acknowledgement.
                     drop(enter_completion);
@@ -362,6 +384,7 @@ mod windows {
                     delay,
                     deadline,
                     reply,
+                    fence,
                 } => {
                     let result = if deadline.is_some_and(|deadline| {
                         deadline.saturating_duration_since(Instant::now()) <= delay
@@ -371,7 +394,14 @@ mod windows {
                         let text_deadline =
                             deadline.and_then(|deadline| deadline.checked_sub(delay));
                         async {
-                            write_submission_part(&write_tx, text, text_deadline, None).await?;
+                            write_fenced_submission_part(
+                                &write_tx,
+                                text,
+                                text_deadline,
+                                None,
+                                fence,
+                            )
+                            .await?;
                             // A started text write is committed. Finish Enter even if the caller
                             // stops waiting so a timeout cannot leave a partial prompt.
                             if !delay.is_zero() {
@@ -381,9 +411,10 @@ mod windows {
                         }
                         .await
                     };
-                    let failed = result
-                        .as_ref()
-                        .is_err_and(|err| err.kind() != std::io::ErrorKind::TimedOut);
+                    let failed = result.as_ref().is_err_and(|err| {
+                        err.kind() != std::io::ErrorKind::TimedOut
+                            && !crate::supervisor::fence::is_fenced_error(err)
+                    });
                     let _ = reply.send(result);
                     if failed {
                         break;
@@ -398,6 +429,16 @@ mod windows {
         bytes: Bytes,
         deadline: Option<Instant>,
         accepting: Option<&Arc<Mutex<InputAcceptance>>>,
+    ) -> std::io::Result<()> {
+        write_fenced_submission_part(write_tx, bytes, deadline, accepting, None).await
+    }
+
+    async fn write_fenced_submission_part(
+        write_tx: &std_mpsc::Sender<PtyIoWriteCommand>,
+        bytes: Bytes,
+        deadline: Option<Instant>,
+        accepting: Option<&Arc<Mutex<InputAcceptance>>>,
+        fence: Option<crate::supervisor::fence::SubmitFence>,
     ) -> std::io::Result<()> {
         let completion = {
             let (reply, completion) = oneshot::channel();
@@ -422,6 +463,7 @@ mod windows {
                     deadline,
                     reply,
                     enter_completion,
+                    fence,
                 })
                 .map_err(|_| pty_actor_closed())?;
             completion
@@ -533,6 +575,7 @@ mod windows {
                     delay,
                     deadline,
                     reply: reply_tx,
+                    fence: None,
                 })
                 .unwrap();
             data_tx
@@ -624,6 +667,7 @@ mod windows {
                     delay: Duration::from_millis(30),
                     deadline: None,
                     reply: first_reply_tx,
+                    fence: None,
                 })
                 .unwrap();
             data_tx
@@ -633,6 +677,7 @@ mod windows {
                     delay: Duration::ZERO,
                     deadline: Some(Instant::now() + Duration::from_millis(10)),
                     reply: expired_reply_tx,
+                    fence: None,
                 })
                 .unwrap();
 
@@ -663,6 +708,147 @@ mod windows {
             );
         }
 
+        #[test]
+        fn tripped_fence_drops_submission_before_first_byte() {
+            let (flushed_tx, _flushed_rx) = std_mpsc::channel();
+            let mut writer = RecordingWriter {
+                writes: Vec::new(),
+                flushes: Vec::new(),
+                fail_after: None,
+                flushed: flushed_tx,
+            };
+            let (data_tx, mut data_rx) = mpsc::channel(2);
+            let (write_tx, write_rx) = std_mpsc::channel();
+            let (reply_tx, reply_rx) = std_mpsc::channel();
+            let fence = crate::supervisor::fence::SubmitFence::new();
+            fence.trip(crate::supervisor::fence::FenceReason::OwnerInput);
+            data_tx
+                .try_send(PtyIoDataCommand::SubmitUserInput {
+                    text: Bytes::from_static(b"fenced"),
+                    enter: Bytes::from_static(b"\r"),
+                    delay: Duration::ZERO,
+                    deadline: None,
+                    reply: reply_tx,
+                    fence: Some(fence.clone()),
+                })
+                .unwrap();
+            data_tx
+                .try_send(PtyIoDataCommand::WriteUserInput(Bytes::from_static(
+                    b"after",
+                )))
+                .unwrap();
+            let writer_thread = std::thread::spawn(move || {
+                run_writer(&mut writer, write_rx);
+                writer
+            });
+            let input_write_tx = write_tx.clone();
+            let runtime = test_runtime();
+            let input_task = runtime.spawn(async move {
+                run_input_forwarder(&mut data_rx, input_write_tx, input_acceptance(true)).await
+            });
+            let err = reply_rx.recv().unwrap().unwrap_err();
+            assert!(crate::supervisor::fence::is_fenced_error(&err));
+
+            drop(data_tx);
+            runtime.block_on(input_task).unwrap();
+            drop(write_tx);
+            let writer = writer_thread.join().unwrap();
+            assert_eq!(
+                writer
+                    .writes
+                    .iter()
+                    .map(|write| write.0.as_slice())
+                    .collect::<Vec<_>>(),
+                vec![b"after".as_slice()],
+                "a fenced submission writes zero bytes and keeps the pane writable"
+            );
+            assert!(!fence.close().committed);
+        }
+
+        /// Writer boundary: the fence trips after the forwarder handed the text part to the
+        /// writer queue and before the parked writer checks it; the writer still drops it.
+        #[test]
+        fn fence_tripped_after_handoff_to_parked_writer_drops_submission() {
+            let (flushed_tx, _flushed_rx) = std_mpsc::channel();
+            let writer = RecordingWriter {
+                writes: Vec::new(),
+                flushes: Vec::new(),
+                fail_after: None,
+                flushed: flushed_tx,
+            };
+            let (data_tx, mut data_rx) = mpsc::channel(2);
+            // Forwarder -> test (interposed queue), test -> writer.
+            let (forwarder_tx, forwarder_rx) = std_mpsc::channel();
+            let (writer_tx, writer_rx) = std_mpsc::channel();
+            let (gate_tx, gate_rx) = std_mpsc::channel::<()>();
+            let writer_thread = std::thread::spawn(move || {
+                let mut writer = writer;
+                // Parked: consumes nothing until the test opens the gate.
+                gate_rx.recv().expect("gate opened");
+                run_writer(&mut writer, writer_rx);
+                writer
+            });
+            let (reply_tx, reply_rx) = std_mpsc::channel();
+            let fence = crate::supervisor::fence::SubmitFence::new();
+            data_tx
+                .try_send(PtyIoDataCommand::SubmitUserInput {
+                    text: Bytes::from_static(b"fenced"),
+                    enter: Bytes::from_static(b"\r"),
+                    delay: Duration::from_millis(30),
+                    deadline: None,
+                    reply: reply_tx,
+                    fence: Some(fence.clone()),
+                })
+                .unwrap();
+            let runtime = test_runtime();
+            let input_task = runtime.spawn(async move {
+                run_input_forwarder(&mut data_rx, forwarder_tx, input_acceptance(true)).await
+            });
+
+            let handed = runtime.block_on(next_write_command(&forwarder_rx));
+            assert!(
+                matches!(
+                    &handed,
+                    PtyIoWriteCommand::SubmissionPart { fence: Some(_), .. }
+                ),
+                "the fenced text part reached the writer queue"
+            );
+            assert!(fence.trip(crate::supervisor::fence::FenceReason::OwnerInput));
+            writer_tx.send(handed).unwrap();
+            gate_tx.send(()).unwrap();
+
+            let err = reply_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("submission reply")
+                .unwrap_err();
+            assert!(crate::supervisor::fence::is_fenced_error(&err));
+
+            data_tx
+                .try_send(PtyIoDataCommand::WriteUserInput(Bytes::from_static(
+                    b"after",
+                )))
+                .unwrap();
+            let later = runtime.block_on(next_write_command(&forwarder_rx));
+            writer_tx.send(later).unwrap();
+            drop(data_tx);
+            runtime.block_on(input_task).unwrap();
+            while let Ok(command) = forwarder_rx.try_recv() {
+                writer_tx.send(command).unwrap();
+            }
+            drop(writer_tx);
+            let writer = writer_thread.join().unwrap();
+            assert_eq!(
+                writer
+                    .writes
+                    .iter()
+                    .map(|write| write.0.as_slice())
+                    .collect::<Vec<_>>(),
+                vec![b"after".as_slice()],
+                "no text and no Enter from the fenced submission; later input still written"
+            );
+            assert!(!fence.close().committed, "the fence was never committed");
+        }
+
         #[tokio::test]
         async fn abandoned_committed_submission_finishes_without_blocking_executor() {
             let (data_tx, mut data_rx) = mpsc::channel(2);
@@ -676,6 +862,7 @@ mod windows {
                     delay: Duration::from_millis(20),
                     deadline: Some(deadline),
                     reply: reply_tx,
+                    fence: None,
                 })
                 .unwrap();
             data_tx
@@ -705,6 +892,7 @@ mod windows {
                 deadline,
                 reply,
                 enter_completion,
+                ..
             } = next_write_command(&write_rx).await
             else {
                 panic!("queued user input cannot overtake Enter");

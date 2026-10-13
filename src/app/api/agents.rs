@@ -149,7 +149,19 @@ impl App {
                 "agent prompt must not be empty",
             ));
         }
-        let resolved = match self.resolve_agent_target(&params.target) {
+        self.validate_agent_target(id, &params.target, true)
+    }
+
+    /// Agent-ready checks shared by `agent.prompt` and the fork's `agent.submit`. With
+    /// `reject_blocked` a Blocked agent is rejected exactly where `agent.prompt` always did;
+    /// without it the state is returned in `blocked` so the caller can order the check.
+    pub(super) fn validate_agent_target(
+        &self,
+        id: String,
+        target: &str,
+        reject_blocked: bool,
+    ) -> Result<ValidatedAgentPrompt, String> {
+        let resolved = match self.resolve_agent_target(target) {
             Ok(resolved) => resolved,
             Err(err) => return Err(encode_error_body(id, self.agent_target_error_body(err))),
         };
@@ -160,42 +172,37 @@ impl App {
             .and_then(|workspace| workspace.terminal_id(resolved.pane_id))
             .cloned()
         else {
-            return Err(agent_not_found(id, &params.target));
+            return Err(agent_not_found(id, target));
         };
         let Some(terminal) = self.state.terminals.get(&terminal_id) else {
-            return Err(agent_not_found(id, &params.target));
+            return Err(agent_not_found(id, target));
         };
-        if terminal.state == crate::detect::AgentState::Blocked {
+        let blocked = terminal.state == crate::detect::AgentState::Blocked;
+        if reject_blocked && blocked {
             return Err(encode_error(
                 id,
                 "agent_blocked",
-                format!(
-                    "agent {} is blocked and requires interactive input",
-                    params.target
-                ),
+                format!("agent {} is blocked and requires interactive input", target),
             ));
         }
         let Some(expected_agent) = terminal.effective_known_agent() else {
-            return Err(agent_not_ready(id, &params.target));
+            return Err(agent_not_ready(id, target));
         };
         if terminal.managed_agent_launch_pending() {
-            return Err(agent_not_ready(id, &params.target));
+            return Err(agent_not_ready(id, target));
         }
         let Some(runtime) = self.lookup_runtime_sender(resolved.ws_idx, resolved.pane_id) else {
-            return Err(agent_not_found(id, &params.target));
+            return Err(agent_not_found(id, target));
         };
         if !super::super::agents::runtime_hosts_agent(runtime, expected_agent) {
             return Err(encode_error(
                 id,
                 "agent_not_ready",
-                format!(
-                    "agent {} is no longer the pane foreground process",
-                    params.target
-                ),
+                format!("agent {} is no longer the pane foreground process", target),
             ));
         }
         let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
-            return Err(agent_not_found(id, &params.target));
+            return Err(agent_not_found(id, target));
         };
         Ok(ValidatedAgentPrompt {
             id,
@@ -203,6 +210,7 @@ impl App {
             pane_id: resolved.pane_id,
             expected_agent,
             agent,
+            blocked,
         })
     }
 
@@ -224,6 +232,7 @@ impl App {
             pane_id,
             expected_agent,
             agent,
+            ..
         } = validated;
         let Some(runtime) = self.lookup_runtime_sender(ws_idx, pane_id) else {
             return Err(agent_not_found(id, &params.target));
@@ -426,12 +435,14 @@ impl App {
     }
 }
 
-struct ValidatedAgentPrompt {
-    id: String,
-    ws_idx: usize,
-    pane_id: crate::layout::PaneId,
-    expected_agent: crate::detect::Agent,
-    agent: crate::api::schema::AgentInfo,
+pub(super) struct ValidatedAgentPrompt {
+    pub(super) id: String,
+    pub(super) ws_idx: usize,
+    pub(super) pane_id: crate::layout::PaneId,
+    pub(super) expected_agent: crate::detect::Agent,
+    pub(super) agent: crate::api::schema::AgentInfo,
+    /// Set only when the caller deferred the Blocked rejection.
+    pub(super) blocked: bool,
 }
 
 fn agent_not_ready(id: String, target: &str) -> String {
@@ -442,7 +453,7 @@ fn agent_not_ready(id: String, target: &str) -> String {
     )
 }
 
-fn agent_not_found(id: String, target: &str) -> String {
+pub(super) fn agent_not_found(id: String, target: &str) -> String {
     encode_error(
         id,
         "agent_not_found",
