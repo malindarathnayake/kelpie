@@ -53,9 +53,10 @@ impl App {
         else {
             return crate::api::schema::supervisor::DraftState::Unknown;
         };
-        let text = runtime.recent_unwrapped_text_snapshot(24).text;
+        // Styled rows: the faint attribute separates Claude's placeholder from typed text.
+        let ansi = runtime.recent_unwrapped_styled_ansi(crate::supervisor::question::WINDOW_LINES);
         crate::supervisor::draft::derive_draft(
-            &text,
+            ansi.as_deref(),
             agent,
             latched,
             last_owner_input_ms,

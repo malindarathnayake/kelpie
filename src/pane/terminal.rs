@@ -540,6 +540,10 @@ impl PaneTerminal {
         self.ghostty.recent_unwrapped_ansi_snapshot(lines)
     }
 
+    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
+        self.ghostty.recent_unwrapped_styled_ansi(lines)
+    }
+
     pub fn extract_selection(&self, selection: &crate::selection::Selection) -> Option<String> {
         self.ghostty.extract_selection(selection)
     }
@@ -2269,6 +2273,14 @@ impl GhosttyPaneTerminal {
             .ok()
             .and_then(|mut core| ghostty_recent_ansi_snapshot(&mut core, lines, true).ok())
             .unwrap_or_default()
+    }
+
+    /// Recent unwrapped rows with SGR cell styles, read straight from the grid. Unlike the
+    /// recent snapshots there is no unstyled Windows fallback: `None` means the styles are
+    /// unavailable (lock poisoned or the formatter failed), never a plain-text substitute.
+    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
+        let core = self.core.lock().ok()?;
+        ghostty_recent_ansi_for_terminal(&core.terminal, lines, true).ok()
     }
 
     pub(crate) fn link_regions_at(

@@ -3639,6 +3639,13 @@ impl PaneRuntime {
         result
     }
 
+    /// Recent unwrapped rows with SGR cell styles; `None` when styles are unavailable.
+    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
+        let result = self.terminal.recent_unwrapped_styled_ansi(lines);
+        self.compression.wake();
+        result
+    }
+
     pub fn snapshot_history(&self) -> Option<String> {
         let ansi = self.recent_unwrapped_ansi(usize::MAX);
         (!ansi.trim().is_empty()).then_some(ansi)
