@@ -59,8 +59,10 @@ fn answer_host_facts_with(
     let reply_writer = writer.clone();
     let reply_in_flight = std::sync::Arc::clone(in_flight);
     let spawned = crate::thread_spawn::spawn_named("herdr-host-facts-reply", move || {
+        // Clears the flag even if `respond` panics, so the connection never stays busy.
+        let guard = InFlightGuard(reply_in_flight);
         let response = respond(request.id, request.refresh);
-        reply_in_flight.store(false, Ordering::Release);
+        drop(guard);
         send_host_facts_response(&reply_writer, response);
     });
     if let Err(err) = spawned {
@@ -74,6 +76,15 @@ fn answer_host_facts_with(
                 "could not start the host facts reply",
             ),
         );
+    }
+}
+
+/// Releases the per-connection host facts slot when dropped (normal return or unwind).
+struct InFlightGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -160,5 +171,45 @@ mod tests {
             .recv_timeout(std::time::Duration::from_millis(100))
             .is_err());
         assert!(!in_flight.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    fn panicking_reply(_id: String, _refresh: bool) -> String {
+        panic!("probe failed");
+    }
+
+    #[test]
+    fn panicking_reply_still_releases_the_in_flight_slot() {
+        let (control_tx, control_rx) = std::sync::mpsc::channel();
+        let (render_tx, _render_rx) = std::sync::mpsc::sync_channel(1);
+        let writer =
+            crate::server::client_transport::ClientWriter::test_channel(control_tx, render_tx);
+        let in_flight = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        answer_host_facts_with(
+            r#"{"id":"host-facts:1"}"#,
+            &writer.control,
+            &in_flight,
+            panicking_reply,
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while in_flight.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "a panicking reply must not leave the slot busy"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        // The next request is served, not answered busy.
+        answer_host_facts_with(
+            r#"{"id":"host-facts:2","refresh":false}"#,
+            &writer.control,
+            &in_flight,
+            slow_reply,
+        );
+        let (_, reply) = decode(
+            control_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+        );
+        assert_eq!(reply, r#"{"id":"host-facts:2","refresh":false}"#);
     }
 }

@@ -948,6 +948,11 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
+    /// Fork (Q1): the endpoint's Unix-ms clock when this snapshot was sent. Clients use it
+    /// to move `last_activity_ms` onto their own clock (remote endpoints may be skewed).
+    /// Set only by `snapshot_message`; None from older servers.
+    #[serde(default)]
+    pub server_now_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2872,6 +2877,7 @@ mod tests {
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
             }],
+            server_now_ms: None,
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
         let (decoded, _): (ServerMessage, _) =

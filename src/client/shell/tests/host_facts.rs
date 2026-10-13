@@ -87,6 +87,40 @@ fn host_panel_opens_with_one_async_request_and_shows_loading() {
 }
 
 #[test]
+fn reopening_while_a_request_runs_reuses_it_and_accepts_its_reply() {
+    let mut state = host_state(true);
+    let opened = state.handle_raw_events(prefix_i());
+    let first = host_requests(&opened).remove(0);
+    state.handle_raw_events(vec![key(KeyCode::Esc, KeyModifiers::NONE)]);
+    assert!(state.overlay.is_none());
+
+    let reopened = state.handle_raw_events(prefix_i());
+    assert!(
+        host_requests(&reopened).is_empty(),
+        "no second request that would be answered host_facts_busy: {:?}",
+        reopened.requests
+    );
+    assert_eq!(overlay(&state).pending.as_ref().unwrap().id, first.id);
+    assert!(state.receive_host_facts(&ClientEndpointId::Local, &success(&first.id)));
+    assert!(overlay(&state).pending.is_none());
+    assert!(overlay(&state).facts.is_some());
+
+    // Once answered (even while closed), the next open sends a fresh request.
+    state.handle_raw_events(vec![key(KeyCode::Esc, KeyModifiers::NONE)]);
+    let again = state.handle_raw_events(prefix_i());
+    let second = host_requests(&again).remove(0);
+    assert_ne!(second.id, first.id);
+    state.handle_raw_events(vec![key(KeyCode::Esc, KeyModifiers::NONE)]);
+    assert!(!state.receive_host_facts(&ClientEndpointId::Local, &success(&second.id)));
+    let third = state.handle_raw_events(prefix_i());
+    assert_eq!(
+        host_requests(&third).len(),
+        1,
+        "a reply while closed frees the slot"
+    );
+}
+
+#[test]
 fn host_panel_closes_with_esc_or_its_own_key() {
     let mut state = host_state(true);
     state.handle_raw_events(prefix_i());

@@ -89,10 +89,13 @@ fn ctx(
         now,
         now_ms: NOW_MS,
         stale_after_ms: STALE_AFTER,
+        endpoint: &LOCAL,
         attention,
         pulses,
     }
 }
+
+static LOCAL: ClientEndpointId = ClientEndpointId::Local;
 
 fn endpoint_methods(outcome: &ClientShellInput) -> Vec<&Method> {
     outcome
@@ -205,19 +208,27 @@ fn badges_carry_text_cues_not_only_colour() {
 fn waiting_row_pulses_for_five_seconds_then_stays_steady() {
     let start = Instant::now();
     let mut tracker = AttentionTracker::default();
-    tracker.sync(&activity_snapshot(), start);
+    tracker.sync(&LOCAL, &activity_snapshot(), start);
     let at = |ms: u64| start + Duration::from_millis(ms);
-    assert_eq!(tracker.pulse_phase("ws_2", at(0), true), Some(true));
-    assert_eq!(tracker.pulse_phase("ws_2", at(600), true), Some(false));
-    assert_eq!(tracker.pulse_phase("ws_2", at(1_100), true), Some(true));
-    assert!(tracker.pulse_phase("ws_2", at(4_999), true).is_some());
+    assert_eq!(tracker.pulse_phase(&LOCAL, "ws_2", at(0), true), Some(true));
     assert_eq!(
-        tracker.pulse_phase("ws_2", at(5_000), true),
+        tracker.pulse_phase(&LOCAL, "ws_2", at(600), true),
+        Some(false)
+    );
+    assert_eq!(
+        tracker.pulse_phase(&LOCAL, "ws_2", at(1_100), true),
+        Some(true)
+    );
+    assert!(tracker
+        .pulse_phase(&LOCAL, "ws_2", at(4_999), true)
+        .is_some());
+    assert_eq!(
+        tracker.pulse_phase(&LOCAL, "ws_2", at(5_000), true),
         None,
         "steady after 5 s"
     );
     assert_eq!(
-        tracker.pulse_phase("ws_3", at(0), true),
+        tracker.pulse_phase(&LOCAL, "ws_3", at(0), true),
         None,
         "idle row never pulses"
     );
@@ -243,13 +254,16 @@ fn waiting_row_pulses_for_five_seconds_then_stays_steady() {
     // A new question re-arms an already-waiting row; leaving waiting forgets it.
     let mut asked = projected.clone();
     asked.workspaces[1].open_questions = 1;
-    tracker.sync(&asked, at(9_000));
-    assert_eq!(tracker.pulse_phase("ws_2", at(9_000), true), Some(true));
+    tracker.sync(&LOCAL, &asked, at(9_000));
+    assert_eq!(
+        tracker.pulse_phase(&LOCAL, "ws_2", at(9_000), true),
+        Some(true)
+    );
     let mut resolved = asked;
     resolved.workspaces[1].agent_status = AgentStatus::Idle;
     resolved.workspaces[1].open_questions = 0;
-    tracker.sync(&resolved, at(9_100));
-    assert_eq!(tracker.pulse_phase("ws_2", at(9_100), true), None);
+    tracker.sync(&LOCAL, &resolved, at(9_100));
+    assert_eq!(tracker.pulse_phase(&LOCAL, "ws_2", at(9_100), true), None);
     assert_eq!(tracker.next_deadline(at(9_100), true), None);
 }
 
@@ -313,7 +327,7 @@ fn unfocused_window_pauses_the_pulse_and_refocus_rearms_it() {
     assert!(gained.repaint);
     assert!(state.attention_pulses_allowed());
     assert_eq!(
-        state.attention.pulse_phase("ws_2", later, true),
+        state.attention.pulse_phase(&LOCAL, "ws_2", later, true),
         Some(true),
         "refocus re-arms the pulse"
     );
@@ -324,7 +338,7 @@ fn unfocused_window_pauses_the_pulse_and_refocus_rearms_it() {
     assert_eq!(
         state
             .attention
-            .pulse_phase("ws_2", later + PULSE_WINDOW, true),
+            .pulse_phase(&LOCAL, "ws_2", later + PULSE_WINDOW, true),
         None
     );
 }
@@ -420,18 +434,19 @@ fn close_stale_defaults_exclude_risky_rows() {
     assert_eq!(
         summary,
         vec![
-            ("ws_4", true, vec![]),
+            ("ws_4", false, vec!["no background evidence"]),
             ("ws_5", false, vec!["background state unknown"]),
             ("ws_6", true, vec![]),
         ],
-        "working, waiting, fresh and background-active rows are not offered"
+        "working, waiting, fresh and background-active rows are not offered; only an agent \
+         that reported zero background jobs starts ticked"
     );
 
     let mut pending = projected;
-    pending.workspaces[3].pending_receipts = 1;
+    pending.workspaces[5].pending_receipts = 1;
     let rows = close_stale_rows(&pending, NOW_MS, STALE_AFTER);
-    assert!(!rows[0].ticked);
-    assert_eq!(rows[0].risks, vec!["supervisor submit pending"]);
+    assert!(!rows[2].ticked);
+    assert_eq!(rows[2].risks, vec!["supervisor submit pending"]);
 }
 
 #[test]
@@ -458,11 +473,12 @@ fn close_stale_dialog_closes_only_ticked_rows_through_workspace_close() {
     };
     println!("{text}");
     assert!(text.contains("Close stale workspaces (3)"), "{text}");
-    assert!(text.contains("[x] 4 docs-site"), "{text}");
+    assert!(text.contains("[ ] 4 docs-site"), "{text}");
+    assert!(text.contains("no background evidence"), "{text}");
     assert!(text.contains("[ ] 5 sandbox"), "{text}");
     assert!(text.contains("background state unknown"), "{text}");
     assert!(text.contains("[ ] also terminate (t)"), "{text}");
-    assert!(text.contains("2 to close"), "{text}");
+    assert!(text.contains("1 to close"), "{text}");
 
     // Tick the risky row without "also terminate": Enter refuses and closes nothing.
     state.handle_input_bytes(b"j");
@@ -473,8 +489,11 @@ fn close_stale_dialog_closes_only_ticked_rows_through_workspace_close() {
         state.overlay.as_ref(),
         Some(ClientShellOverlay::CloseStale(dialog)) if dialog.notice.is_some()
     ));
-    // Untick the safe row 6, keep risky row 5 with "also terminate", close.
+    // Confirm row 5, confirm the plain-shell row 4 too, untick the safe row 6, close.
     state.handle_input_bytes(b"t");
+    state.handle_input_bytes(b"k");
+    state.handle_input_bytes(b"t");
+    state.handle_input_bytes(b"j");
     state.handle_input_bytes(b"j");
     state.handle_input_bytes(b" ");
     let closed = state.handle_input_bytes(b"\r");
@@ -493,7 +512,7 @@ fn close_stale_dialog_closes_only_ticked_rows_through_workspace_close() {
     assert_eq!(
         state.last_close_audit.as_deref(),
         Some(
-            "workspace.close trigger=close_stale count=2 terminated_risky=1 \
+            "workspace.close trigger=close_stale count=2 terminated_risky=2 \
              workspaces=[ws_4:2h-6h,ws_5:2h-6h]"
         )
     );
@@ -592,4 +611,253 @@ fn close_stale_binding_does_not_collide_with_navigate_keys() {
 
 fn key(code: KeyCode, modifiers: KeyModifiers) -> RawInputEvent {
     RawInputEvent::Key(crate::input::TerminalKey::new(code, modifiers))
+}
+
+fn open_close_stale(state: &mut ClientShellState) {
+    let mut outcome = ClientShellInput::default();
+    state.open_close_stale_overlay(&mut outcome);
+    let Some(ClientShellOverlay::CloseStale(dialog)) = state.overlay.as_ref() else {
+        panic!("close stale dialog");
+    };
+    let ticked = dialog
+        .rows
+        .iter()
+        .map(|row| (row.workspace_id.as_str(), row.ticked))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ticked,
+        vec![("ws_4", false), ("ws_5", false), ("ws_6", true)]
+    );
+}
+
+fn closed_ids(outcome: &ClientShellInput) -> Vec<String> {
+    endpoint_methods(outcome)
+        .into_iter()
+        .filter_map(|method| match method {
+            Method::WorkspaceClose(params) => Some(params.workspace_id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn dialog_notice(state: &ClientShellState) -> Option<String> {
+    match state.overlay.as_ref() {
+        Some(ClientShellOverlay::CloseStale(dialog)) => dialog.notice.clone(),
+        _ => None,
+    }
+}
+
+/// Applies `change` to the live snapshot without the install hook, as if it changed
+/// between the last refresh and Enter.
+fn mutate_live(state: &mut ClientShellState, change: impl FnOnce(&mut ClientShellSnapshot)) {
+    change(state.snapshot.as_deref_mut().expect("snapshot"));
+}
+
+#[test]
+fn enter_rechecks_rows_that_became_working_after_open() {
+    let mut state = state_at(Instant::now(), activity_snapshot());
+    open_close_stale(&mut state);
+    // Confirm the plain-shell row 4 so two rows are ticked.
+    state.handle_input_bytes(b"t");
+    mutate_live(&mut state, |snapshot| {
+        snapshot.workspaces[5].agent_status = AgentStatus::Working;
+    });
+    let refused = state.handle_input_bytes(b"\r");
+    assert!(
+        closed_ids(&refused).is_empty(),
+        "nothing closes on a changed review"
+    );
+    assert!(dialog_notice(&state).is_some_and(|notice| notice.contains("changed")));
+    // The busy row is gone from the dialog; a second Enter closes only the rest.
+    let closed = state.handle_input_bytes(b"\r");
+    assert_eq!(closed_ids(&closed), vec!["ws_4".to_owned()]);
+    assert_eq!(
+        state.last_close_audit.as_deref(),
+        Some(
+            "workspace.close trigger=close_stale count=1 terminated_risky=1 workspaces=[ws_4:2h-6h]"
+        )
+    );
+}
+
+#[test]
+fn enter_rechecks_a_pending_receipt_or_question_after_open() {
+    // Pending receipt: the ticked safe row gains a risk and needs "also terminate".
+    let mut state = state_at(Instant::now(), activity_snapshot());
+    open_close_stale(&mut state);
+    mutate_live(&mut state, |snapshot| {
+        snapshot.workspaces[5].pending_receipts = 1
+    });
+    assert!(closed_ids(&state.handle_input_bytes(b"\r")).is_empty());
+    assert!(
+        closed_ids(&state.handle_input_bytes(b"\r")).is_empty(),
+        "still blocked until \"also terminate\" is ticked"
+    );
+    let Some(ClientShellOverlay::CloseStale(dialog)) = state.overlay.as_ref() else {
+        panic!("dialog stays open");
+    };
+    let row = dialog
+        .rows
+        .iter()
+        .find(|row| row.workspace_id == "ws_6")
+        .unwrap();
+    assert!(row.ticked && !row.terminate);
+    assert_eq!(row.risks, vec!["supervisor submit pending"]);
+
+    // Question: the row now waits on the owner, so it is no longer offered.
+    let mut state = state_at(Instant::now(), activity_snapshot());
+    open_close_stale(&mut state);
+    state.handle_input_bytes(b"t");
+    mutate_live(&mut state, |snapshot| {
+        snapshot.workspaces[3].open_questions = 1
+    });
+    assert!(closed_ids(&state.handle_input_bytes(b"\r")).is_empty());
+    assert_eq!(
+        closed_ids(&state.handle_input_bytes(b"\r")),
+        vec!["ws_6".to_owned()]
+    );
+}
+
+#[test]
+fn snapshot_install_refreshes_an_open_dialog() {
+    let mut state = state_at(Instant::now(), activity_snapshot());
+    open_close_stale(&mut state);
+    let mut next = activity_snapshot();
+    next.revision += 1;
+    // ws_6's agent starts working (the pane status and the roll-up both say so).
+    next.workspaces[5].agent_status = AgentStatus::Working;
+    next.agents[1].agent_status = AgentStatus::Working;
+    // A workspace that went stale after review appears unticked.
+    next.workspaces[2].last_activity_ms = Some(NOW_MS - 3 * HOUR);
+    state.set_snapshot(Box::new(next));
+    let Some(ClientShellOverlay::CloseStale(dialog)) = state.overlay.as_ref() else {
+        panic!("dialog");
+    };
+    let rows = dialog
+        .rows
+        .iter()
+        .map(|row| (row.workspace_id.as_str(), row.ticked))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        vec![("ws_3", false), ("ws_4", false), ("ws_5", false)]
+    );
+    assert!(dialog.notice.is_some());
+    let closed = state.handle_input_bytes(b"\r");
+    assert!(closed_ids(&closed).is_empty(), "nothing ticked any more");
+}
+
+#[test]
+fn a_working_pane_hidden_by_the_roll_up_keeps_the_workspace_busy() {
+    // The roll-up ranks an unseen Idle pane above Working; per-pane status still counts.
+    let mut projected = activity_snapshot();
+    let mut busy = agent(4, Some("0"));
+    busy.pane_id = "pane_4b".into();
+    busy.agent_status = AgentStatus::Working;
+    projected.agents.push(agent(4, Some("0")));
+    projected.agents.push(busy);
+    let workspace = &projected.workspaces[3];
+    assert_eq!(workspace.agent_status, AgentStatus::Idle);
+    assert!(!workspace_is_stale(
+        &projected,
+        workspace,
+        workspace.agent_status,
+        NOW_MS,
+        STALE_AFTER
+    ));
+    assert!(
+        crate::client::shell::sidebar_activity::close_risks(&projected, workspace)
+            .contains(&"agent working")
+    );
+    let badge = workspace_badge(
+        &projected,
+        workspace,
+        workspace.agent_status,
+        &ctx(None, Instant::now(), true),
+        &Palette::catppuccin(),
+    );
+    assert_eq!(badge, None, "busy rows carry no idle badge");
+
+    // A blocked pane behind the roll-up makes the row wait on the owner.
+    let mut blocked = activity_snapshot();
+    let mut waiting = agent(4, Some("0"));
+    waiting.agent_status = AgentStatus::Blocked;
+    blocked.agents.push(waiting);
+    let workspace = &blocked.workspaces[3];
+    let badge = workspace_badge(
+        &blocked,
+        workspace,
+        workspace.agent_status,
+        &ctx(None, Instant::now(), true),
+        &Palette::catppuccin(),
+    )
+    .unwrap();
+    assert_eq!(badge.text, "!! waiting");
+}
+
+#[test]
+fn attention_is_keyed_by_endpoint_and_workspace() {
+    let remote = ClientEndpointId::Ssh(
+        crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+    );
+    let start = Instant::now();
+    let mut tracker = AttentionTracker::default();
+    tracker.sync(&LOCAL, &activity_snapshot(), start);
+    assert_eq!(tracker.pulse_phase(&remote, "ws_2", start, true), None);
+    // The remote endpoint's own ws_2 arms later, independently.
+    let later = start + Duration::from_secs(10);
+    tracker.sync(&remote, &activity_snapshot(), later);
+    assert_eq!(
+        tracker.pulse_phase(&remote, "ws_2", later, true),
+        Some(true)
+    );
+    assert_eq!(tracker.pulse_phase(&LOCAL, "ws_2", later, true), None);
+    // Syncing one endpoint never forgets the other's rows.
+    let mut quiet = activity_snapshot();
+    quiet.workspaces[1].agent_status = AgentStatus::Idle;
+    tracker.sync(&remote, &quiet, later);
+    tracker.rearm_all(later);
+    assert_eq!(tracker.pulse_phase(&LOCAL, "ws_2", later, true), Some(true));
+    assert_eq!(tracker.pulse_phase(&remote, "ws_2", later, true), None);
+}
+
+#[test]
+fn label_deadline_saturates_on_huge_stale_after() {
+    let projected = activity_snapshot();
+    assert!(
+        crate::client::shell::sidebar_activity::next_label_change_ms(&projected, NOW_MS, u64::MAX)
+            .is_some()
+    );
+}
+
+#[test]
+fn quiet_plain_shell_starts_unticked_and_needs_also_terminate() {
+    // One stale workspace whose only pane is a plain shell (no agent, no background claim),
+    // e.g. a dev server that printed nothing for hours.
+    let mut projected = snapshot();
+    projected.workspaces = vec![ws(1, "dev-server", AgentStatus::Unknown, Some(5 * HOUR))];
+    projected.agents = Vec::new();
+    assert_eq!(projected.panes.len(), 1);
+    assert_eq!(projected.panes[0].workspace_id, "ws_1");
+    let rows = close_stale_rows(&projected, NOW_MS, STALE_AFTER);
+    assert_eq!(rows.len(), 1, "inactivity still makes it stale");
+    assert!(
+        !rows[0].ticked,
+        "no background evidence never starts ticked"
+    );
+    assert_eq!(rows[0].risks, vec!["no background evidence"]);
+
+    let mut state = state_at(Instant::now(), projected);
+    let mut outcome = ClientShellInput::default();
+    state.open_close_stale_overlay(&mut outcome);
+    assert!(closed_ids(&state.handle_input_bytes(b"\r")).is_empty());
+    state.handle_input_bytes(b" ");
+    assert!(
+        closed_ids(&state.handle_input_bytes(b"\r")).is_empty(),
+        "ticked without also-terminate closes nothing"
+    );
+    state.handle_input_bytes(b"t");
+    assert_eq!(
+        closed_ids(&state.handle_input_bytes(b"\r")),
+        vec!["ws_1".to_owned()]
+    );
 }

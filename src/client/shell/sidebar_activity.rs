@@ -55,11 +55,36 @@ pub(super) fn workspace_idle_ms(workspace: &ClientShellWorkspace, now_ms: u64) -
         .map(|last| now_ms.saturating_sub(last))
 }
 
-/// Waiting on the owner: an agent is blocked/awaiting input, or a question is open.
-pub(super) fn workspace_waiting(workspace: &ClientShellWorkspace, status: AgentStatus) -> bool {
+/// Any agent pane of the workspace currently reports `status`. The workspace roll-up can
+/// rank an unseen Idle pane above a Working one, so busy checks look at every pane.
+fn any_agent_pane(snapshot: &ClientShellSnapshot, workspace_id: &str, status: AgentStatus) -> bool {
+    snapshot
+        .agents
+        .iter()
+        .any(|agent| agent.workspace_id == workspace_id && agent.agent_status == status)
+}
+
+/// Waiting on the owner: any agent pane is blocked/awaiting input, or a question is open.
+pub(super) fn workspace_waiting(
+    snapshot: &ClientShellSnapshot,
+    workspace: &ClientShellWorkspace,
+    status: AgentStatus,
+) -> bool {
     status == AgentStatus::Blocked
         || workspace.agent_status == AgentStatus::Blocked
         || workspace.open_questions > 0
+        || any_agent_pane(snapshot, &workspace.workspace_id, AgentStatus::Blocked)
+}
+
+/// Any pane of the workspace is working, whatever the roll-up shows.
+pub(super) fn workspace_working(
+    snapshot: &ClientShellSnapshot,
+    workspace: &ClientShellWorkspace,
+    status: AgentStatus,
+) -> bool {
+    status == AgentStatus::Working
+        || workspace.agent_status == AgentStatus::Working
+        || any_agent_pane(snapshot, &workspace.workspace_id, AgentStatus::Working)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,20 +94,35 @@ pub(super) enum BackgroundWork {
     Active,
     /// An agent pane never reported a usable `background_jobs` count.
     Unknown,
+    /// A pane with no agent (plain shell) makes no background claim at all: herdr does not
+    /// track its child processes, so a quiet dev server looks exactly like an idle prompt.
+    NoEvidence,
 }
 
-/// Background work from the agents' `background_jobs` metadata token. Plain shell panes
-/// make no claim: herdr does not track their child processes.
+/// Background work from the agents' `background_jobs` metadata token. `None` only when
+/// every pane of the workspace is an agent that reported zero jobs; inactivity alone never
+/// proves a process is safe to end.
 pub(super) fn workspace_background(
     snapshot: &ClientShellSnapshot,
     workspace_id: &str,
 ) -> BackgroundWork {
-    let mut result = BackgroundWork::None;
-    for agent in snapshot
+    let agents = snapshot
         .agents
         .iter()
         .filter(|agent| agent.workspace_id == workspace_id && agent.agent.is_some())
-    {
+        .collect::<Vec<_>>();
+    let mut result = if agents.is_empty() {
+        BackgroundWork::NoEvidence
+    } else {
+        BackgroundWork::None
+    };
+    if snapshot.panes.iter().any(|pane| {
+        pane.workspace_id == workspace_id
+            && !agents.iter().any(|agent| agent.pane_id == pane.pane_id)
+    }) {
+        result = BackgroundWork::NoEvidence;
+    }
+    for agent in agents {
         let jobs = agent
             .tokens
             .iter()
@@ -91,7 +131,8 @@ pub(super) fn workspace_background(
         match jobs {
             Some(0) => {}
             Some(_) => return BackgroundWork::Active,
-            None => result = BackgroundWork::Unknown,
+            None if result == BackgroundWork::None => result = BackgroundWork::Unknown,
+            None => {}
         }
     }
     result
@@ -110,9 +151,8 @@ pub(super) fn workspace_is_stale(
         return false;
     };
     idle > stale_after_ms
-        && status != AgentStatus::Working
-        && workspace.agent_status != AgentStatus::Working
-        && !workspace_waiting(workspace, status)
+        && !workspace_working(snapshot, workspace, status)
+        && !workspace_waiting(snapshot, workspace, status)
         && workspace_background(snapshot, &workspace.workspace_id) != BackgroundWork::Active
 }
 
@@ -122,15 +162,16 @@ pub(super) fn close_risks(
     workspace: &ClientShellWorkspace,
 ) -> Vec<&'static str> {
     let mut risks = Vec::new();
-    if workspace.agent_status == AgentStatus::Working {
+    if workspace_working(snapshot, workspace, workspace.agent_status) {
         risks.push("agent working");
     }
-    if workspace_waiting(workspace, workspace.agent_status) {
+    if workspace_waiting(snapshot, workspace, workspace.agent_status) {
         risks.push("waiting on you");
     }
     match workspace_background(snapshot, &workspace.workspace_id) {
         BackgroundWork::Active => risks.push("background job running"),
         BackgroundWork::Unknown => risks.push("background state unknown"),
+        BackgroundWork::NoEvidence => risks.push("no background evidence"),
         BackgroundWork::None => {}
     }
     if workspace.pending_receipts > 0 {
@@ -158,7 +199,8 @@ pub(super) fn next_label_change_ms(
                 DAY_MS
             };
             let label = step - idle % step;
-            let stale = (idle <= stale_after_ms).then(|| stale_after_ms - idle + 1);
+            let stale = (idle <= stale_after_ms)
+                .then(|| stale_after_ms.saturating_sub(idle).saturating_add(1));
             Some(stale.map_or(label, |stale| stale.min(label)))
         })
         .min()
@@ -170,29 +212,37 @@ struct AttentionEntry {
     questions: u32,
 }
 
-/// When each waiting workspace (of the active endpoint) entered waiting or was re-armed.
+/// When each waiting workspace entered waiting or was re-armed, keyed by endpoint and
+/// workspace id (ids are only unique within one endpoint).
 #[derive(Debug, Default)]
 pub(crate) struct AttentionTracker {
-    entries: HashMap<String, AttentionEntry>,
+    entries: HashMap<(ClientEndpointId, String), AttentionEntry>,
 }
 
 impl AttentionTracker {
-    /// Arms rows that started waiting or gained a question; forgets rows no longer waiting.
-    pub(super) fn sync(&mut self, snapshot: &ClientShellSnapshot, now: Instant) {
-        self.entries.retain(|id, _| {
-            snapshot.workspaces.iter().any(|workspace| {
-                workspace.workspace_id == *id
-                    && workspace_waiting(workspace, workspace.agent_status)
-            })
+    /// Arms `endpoint`'s rows that started waiting or gained a question; forgets its rows no
+    /// longer waiting. Other endpoints' entries are left alone.
+    pub(super) fn sync(
+        &mut self,
+        endpoint: &ClientEndpointId,
+        snapshot: &ClientShellSnapshot,
+        now: Instant,
+    ) {
+        self.entries.retain(|(owner, id), _| {
+            owner != endpoint
+                || snapshot.workspaces.iter().any(|workspace| {
+                    workspace.workspace_id == *id
+                        && workspace_waiting(snapshot, workspace, workspace.agent_status)
+                })
         });
         for workspace in snapshot
             .workspaces
             .iter()
-            .filter(|workspace| workspace_waiting(workspace, workspace.agent_status))
+            .filter(|workspace| workspace_waiting(snapshot, workspace, workspace.agent_status))
         {
             let entry = self
                 .entries
-                .entry(workspace.workspace_id.clone())
+                .entry((endpoint.clone(), workspace.workspace_id.clone()))
                 .or_insert(AttentionEntry {
                     armed_at: now,
                     questions: workspace.open_questions,
@@ -218,6 +268,7 @@ impl AttentionTracker {
     /// `Some(on)` while the row is inside its pulse window and pulses are allowed.
     pub(super) fn pulse_phase(
         &self,
+        endpoint: &ClientEndpointId,
         workspace_id: &str,
         now: Instant,
         pulses: bool,
@@ -225,7 +276,9 @@ impl AttentionTracker {
         if !pulses {
             return None;
         }
-        let entry = self.entries.get(workspace_id)?;
+        let entry = self
+            .entries
+            .get(&(endpoint.clone(), workspace_id.to_owned()))?;
         let elapsed = now.checked_duration_since(entry.armed_at)?;
         (elapsed < PULSE_WINDOW)
             .then(|| (elapsed.as_millis() / PULSE_HALF_PERIOD.as_millis()).is_multiple_of(2))
@@ -258,7 +311,9 @@ pub(crate) struct SidebarActivityContext<'a> {
     pub(super) now: Instant,
     pub(super) now_ms: u64,
     pub(super) stale_after_ms: u64,
-    /// None for rows of a non-active endpoint: they show the steady marker.
+    /// Endpoint whose rows are being drawn (attention is keyed by it).
+    pub(super) endpoint: &'a ClientEndpointId,
+    /// None shows the steady marker only.
     pub(super) attention: Option<&'a AttentionTracker>,
     pub(super) pulses: bool,
 }
@@ -300,9 +355,9 @@ pub(super) fn workspace_badge(
     ctx: &SidebarActivityContext<'_>,
     palette: &Palette,
 ) -> Option<WorkspaceBadge> {
-    if workspace_waiting(workspace, status) {
+    if workspace_waiting(snapshot, workspace, status) {
         let phase = ctx.attention.and_then(|attention| {
-            attention.pulse_phase(&workspace.workspace_id, ctx.now, ctx.pulses)
+            attention.pulse_phase(ctx.endpoint, &workspace.workspace_id, ctx.now, ctx.pulses)
         });
         return Some(WorkspaceBadge {
             text: "!! waiting".into(),
@@ -311,7 +366,7 @@ pub(super) fn workspace_badge(
             stale: false,
         });
     }
-    if status == AgentStatus::Working {
+    if workspace_working(snapshot, workspace, status) {
         return None;
     }
     let idle = workspace_idle_ms(workspace, ctx.now_ms)?;
@@ -377,7 +432,7 @@ impl ClientShellState {
     /// Snapshot install hook: track waiting rows of the active endpoint.
     pub(super) fn sync_attention(&mut self, now: Instant) {
         match self.snapshot.as_deref() {
-            Some(snapshot) => self.attention.sync(snapshot, now),
+            Some(snapshot) => self.attention.sync(&self.active_endpoint_id, snapshot, now),
             None => self.attention.clear(),
         }
         self.attention_repaint_at = self.next_attention_deadline(now);

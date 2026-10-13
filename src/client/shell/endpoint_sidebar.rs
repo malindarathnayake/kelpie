@@ -469,7 +469,7 @@ pub(super) fn render_expanded(
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
                 let activity = super::sidebar_activity::SidebarActivityContext {
-                    attention: state.activity.attention.filter(|_| endpoint_active),
+                    endpoint: &endpoint.endpoint_id,
                     ..state.activity
                 };
                 let badge = super::sidebar_activity::workspace_badge(

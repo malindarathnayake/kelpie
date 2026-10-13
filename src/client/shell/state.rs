@@ -1625,6 +1625,7 @@ impl ClientShellState {
         self.snapshot = Some(snapshot);
         let (attention_now, _) = self.sidebar_clock();
         self.sync_attention(attention_now);
+        self.refresh_close_stale_dialog();
         self.reconcile_pending_workspace_highlight();
         let pending_surface = self.pending_pane_surface.take();
         if let Some(surface) = pending_surface {

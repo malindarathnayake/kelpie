@@ -1021,12 +1021,11 @@ impl ClientShellState {
                 })
             })
         });
-        self.audit_single_workspace_close(&workspace_id);
-        self.push_endpoint_method(
-            crate::api::schema::Method::WorkspaceClose(crate::api::schema::WorkspaceCloseParams {
+        self.push_audited_workspace_close(
+            crate::api::schema::WorkspaceCloseParams {
                 workspace_id,
                 close_group,
-            }),
+            },
             outcome,
         );
     }
@@ -1124,11 +1123,14 @@ impl ClientShellState {
                 })
             }
         } else {
-            self.audit_single_workspace_close(&confirm.workspace_id);
-            crate::api::schema::Method::WorkspaceClose(crate::api::schema::WorkspaceCloseParams {
-                workspace_id: confirm.workspace_id,
-                close_group: confirm.close_group,
-            })
+            self.push_audited_workspace_close(
+                crate::api::schema::WorkspaceCloseParams {
+                    workspace_id: confirm.workspace_id,
+                    close_group: confirm.close_group,
+                },
+                outcome,
+            );
+            return;
         };
         self.push_endpoint_method(method, outcome);
     }

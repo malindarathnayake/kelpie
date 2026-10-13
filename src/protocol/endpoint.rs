@@ -120,11 +120,36 @@ pub struct EndpointServerWelcome {
     pub error: Option<EndpointHandshakeError>,
 }
 
+/// Encodes a snapshot for the client, stamping `server_now_ms` with this server's clock at
+/// send time. The stored snapshot is untouched, so change detection never sees the stamp.
 pub fn snapshot_message(snapshot: &ClientShellSnapshot) -> serde_json::Result<ServerMessage> {
+    let mut value = serde_json::to_value(snapshot)?;
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "server_now_ms".into(),
+            serde_json::Value::from(crate::supervisor::now_ms()),
+        );
+    }
     Ok(ServerMessage::EndpointControl {
         kind: ENDPOINT_SNAPSHOT_KIND.into(),
-        data: serde_json::to_string(snapshot)?,
+        data: serde_json::to_string(&value)?,
     })
+}
+
+/// Fork (Q1): moves `last_activity_ms` from the endpoint's clock onto the client's clock
+/// using the send-time stamp, so idle age is right on skewed remote machines. Snapshots
+/// without a stamp (older servers) keep the raw stamps.
+pub fn normalize_snapshot_clock(snapshot: &mut ClientShellSnapshot, client_now_ms: u64) {
+    let Some(server_now_ms) = snapshot.server_now_ms else {
+        return;
+    };
+    let offset = i128::from(client_now_ms) - i128::from(server_now_ms);
+    for workspace in &mut snapshot.workspaces {
+        if let Some(stamp) = workspace.last_activity_ms {
+            let shifted = (i128::from(stamp) + offset).clamp(0, i128::from(client_now_ms));
+            workspace.last_activity_ms = u64::try_from(shifted).ok();
+        }
+    }
 }
 
 pub fn agent_completions_message(
@@ -262,6 +287,7 @@ mod tests {
             panes: Vec::new(),
             agents: Vec::new(),
             commands: Vec::new(),
+            server_now_ms: None,
         }
     }
 
@@ -317,8 +343,35 @@ mod tests {
             panic!("snapshot should use endpoint control");
         };
         assert_eq!(kind, ENDPOINT_SNAPSHOT_KIND);
-        let decoded: ClientShellSnapshot = serde_json::from_str(&data).unwrap();
+        let mut decoded: ClientShellSnapshot = serde_json::from_str(&data).unwrap();
+        assert!(decoded.server_now_ms.is_some(), "send time is stamped");
+        decoded.server_now_ms = None;
         assert_eq!(decoded, snapshot);
+    }
+
+    #[test]
+    fn snapshot_clock_moves_activity_onto_the_client_clock() {
+        let mut snapshot = snapshot();
+        snapshot.workspaces = vec![serde_json::from_value(serde_json::json!({
+            "workspace_id": "w1", "active_tab_id": "t1", "new_workspace_cwd": "/",
+            "number": 1, "label": "w", "custom_label": false, "branch": null,
+            "git_ahead_behind": null, "tokens": [], "worktree": null, "focused": true,
+            "agent_status": "idle", "last_activity_ms": 1_000_000
+        }))
+        .unwrap()];
+        let mut unstamped = snapshot.clone();
+        normalize_snapshot_clock(&mut unstamped, 5_000_000);
+        assert_eq!(unstamped.workspaces[0].last_activity_ms, Some(1_000_000));
+
+        // Server clock 10 min ahead of the client: idle age stays server_now - stamp.
+        snapshot.server_now_ms = Some(1_600_000);
+        normalize_snapshot_clock(&mut snapshot, 1_000_000);
+        assert_eq!(snapshot.workspaces[0].last_activity_ms, Some(400_000));
+        // A stamp ahead of the client clock is clamped (never a negative idle age).
+        let mut ahead = snapshot.clone();
+        ahead.server_now_ms = Some(0);
+        normalize_snapshot_clock(&mut ahead, 1_000);
+        assert_eq!(ahead.workspaces[0].last_activity_ms, Some(1_000));
     }
 
     #[test]

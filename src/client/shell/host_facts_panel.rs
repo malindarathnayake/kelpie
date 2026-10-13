@@ -22,9 +22,12 @@ pub(super) struct HostFactsPanel {
     /// Endpoints whose welcome advertised `host_facts`.
     supported: HashSet<ClientEndpointId>,
     next_serial: u64,
+    /// The request still awaiting its reply, kept across panel close so a reopen reuses it
+    /// instead of sending a second request that the server would answer `host_facts_busy`.
+    outstanding: Option<(ClientEndpointId, PendingHostFacts)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct PendingHostFacts {
     pub(super) id: String,
     pub(super) refresh: bool,
@@ -523,6 +526,14 @@ impl ClientShellState {
             overlay.error = Some("not supported by this server".into());
         } else if !self.endpoint_is_online(&endpoint_id) {
             overlay.error = Some("server is not connected".into());
+        } else if let Some(pending) = self
+            .host_facts
+            .outstanding
+            .as_ref()
+            .filter(|(owner, pending)| *owner == endpoint_id && Instant::now() < pending.deadline)
+            .map(|(_, pending)| pending.clone())
+        {
+            overlay.pending = Some(pending);
         } else {
             self.request_host_facts(&mut overlay, false, outcome);
         }
@@ -553,11 +564,13 @@ impl ClientShellState {
             kind: crate::protocol::endpoint::HOST_FACTS_REQUEST_KIND.into(),
             data,
         });
-        overlay.pending = Some(PendingHostFacts {
+        let pending = PendingHostFacts {
             id: request.id,
             refresh,
             deadline: Instant::now() + crate::host_facts::API_WAIT + REPLY_GRACE,
-        });
+        };
+        self.host_facts.outstanding = Some((overlay.endpoint_id.clone(), pending.clone()));
+        overlay.pending = Some(pending);
     }
 
     pub(super) fn route_host_facts_key(
@@ -646,6 +659,19 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         data: &str,
     ) -> bool {
+        let reply_id = serde_json::from_str::<serde_json::Value>(data)
+            .ok()
+            .and_then(|value| value.get("id")?.as_str().map(str::to_owned));
+        if self
+            .host_facts
+            .outstanding
+            .as_ref()
+            .is_some_and(|(owner, pending)| {
+                owner == endpoint_id && reply_id.as_deref() == Some(pending.id.as_str())
+            })
+        {
+            self.host_facts.outstanding = None;
+        }
         let Some(ClientShellOverlay::HostFacts(overlay)) = self.overlay.as_mut() else {
             return false;
         };
@@ -655,9 +681,6 @@ impl ClientShellState {
         if &overlay.endpoint_id != endpoint_id {
             return false;
         }
-        let reply_id = serde_json::from_str::<serde_json::Value>(data)
-            .ok()
-            .and_then(|value| value.get("id")?.as_str().map(str::to_owned));
         if reply_id.as_deref() != Some(pending.id.as_str()) {
             return false;
         }
@@ -678,6 +701,14 @@ impl ClientShellState {
 
     /// Times out a lost reply and repaints once a second so the age stays current.
     pub(crate) fn tick_host_facts(&mut self, now: Instant) -> bool {
+        if self
+            .host_facts
+            .outstanding
+            .as_ref()
+            .is_some_and(|(_, pending)| now >= pending.deadline)
+        {
+            self.host_facts.outstanding = None;
+        }
         let Some(ClientShellOverlay::HostFacts(overlay)) = self.overlay.as_mut() else {
             return false;
         };

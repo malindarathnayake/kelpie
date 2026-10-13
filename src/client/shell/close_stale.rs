@@ -84,6 +84,42 @@ impl ClientCloseStaleOverlay {
     }
 }
 
+const CHANGED_NOTICE: &str =
+    "Workspaces changed since review (closed, busy or new risk); check the ticks and press Enter again";
+
+impl ClientCloseStaleOverlay {
+    /// Rebuilds the rows from the current snapshot. Ticks carry over; a row that gained a
+    /// risk loses its "also terminate"; a row that appeared after review starts unticked;
+    /// a row that is gone or no longer stale is dropped. Returns true when a ticked row was
+    /// dropped or gained a risk, so the owner must review again before anything closes.
+    pub(super) fn refresh(&mut self, snapshot: &ClientShellSnapshot, now_ms: u64) -> bool {
+        let mut ticked_changed = false;
+        let mut rows = close_stale_rows(snapshot, now_ms, self.stale_after_ms);
+        for row in &mut rows {
+            match self
+                .rows
+                .iter()
+                .find(|old| old.workspace_id == row.workspace_id)
+            {
+                Some(old) => {
+                    let new_risk = row.risks.iter().any(|risk| !old.risks.contains(risk));
+                    row.ticked = old.ticked;
+                    row.terminate = old.terminate && !new_risk;
+                    ticked_changed |= old.ticked && new_risk;
+                }
+                None => row.ticked = false,
+            }
+        }
+        ticked_changed |= self
+            .rows
+            .iter()
+            .any(|old| old.ticked && !rows.iter().any(|row| row.workspace_id == old.workspace_id));
+        self.rows = rows;
+        self.cursor = self.cursor.min(self.rows.len().saturating_sub(1));
+        ticked_changed
+    }
+}
+
 /// Stale workspaces in sidebar order. Risky rows start unticked; safe rows start ticked.
 pub(super) fn close_stale_rows(
     snapshot: &ClientShellSnapshot,
@@ -226,6 +262,27 @@ impl ClientShellState {
             return;
         };
         outcome.repaint = true;
+        if dialog.endpoint_id != self.active_endpoint_id {
+            self.receive_endpoint_unavailable("Machine changed; open close stale again".to_owned());
+            return;
+        }
+        // Re-check every row against the current snapshot and clock: rows were captured
+        // when the dialog opened and their work may have changed since.
+        let (_, now_ms) = self.sidebar_clock();
+        let changed = match self.snapshot.as_deref() {
+            Some(snapshot) => dialog.refresh(snapshot, now_ms),
+            None => {
+                self.receive_endpoint_unavailable(
+                    "Snapshot unavailable; nothing closed".to_owned(),
+                );
+                return;
+            }
+        };
+        if changed {
+            dialog.notice = Some(CHANGED_NOTICE.to_owned());
+            self.overlay = Some(ClientShellOverlay::CloseStale(dialog));
+            return;
+        }
         if dialog.rows.iter().any(CloseStaleRow::blocked) {
             dialog.notice = Some(
                 "Ticked rows with running work need \"also terminate\" (t), or untick them"
@@ -244,51 +301,69 @@ impl ClientShellState {
             self.overlay = Some(ClientShellOverlay::CloseStale(dialog));
             return;
         }
-        if dialog.endpoint_id != self.active_endpoint_id {
-            self.receive_endpoint_unavailable("Machine changed; open close stale again".to_owned());
-            return;
+        let picks = picks.into_iter().cloned().collect::<Vec<_>>();
+        let mut sent = Vec::new();
+        for row in picks {
+            let before = outcome.actions.len();
+            self.push_endpoint_method(
+                crate::api::schema::Method::WorkspaceClose(
+                    crate::api::schema::WorkspaceCloseParams {
+                        workspace_id: row.workspace_id.clone(),
+                        close_group: false,
+                    },
+                ),
+                outcome,
+            );
+            if outcome.actions.len() > before {
+                sent.push(row);
+            }
         }
-        let present = |workspace_id: &str| {
-            self.snapshot.as_deref().is_some_and(|snapshot| {
-                snapshot
-                    .workspaces
-                    .iter()
-                    .any(|workspace| workspace.workspace_id == workspace_id)
-            })
-        };
-        let picks = picks
-            .into_iter()
-            .filter(|row| present(&row.workspace_id))
-            .cloned()
-            .collect::<Vec<_>>();
+        // Written after the requests, counting only the ones actually queued.
         let audit = workspace_close_audit_line(
             "close_stale",
-            &picks
+            &sent
                 .iter()
                 .map(|row| (row.workspace_id.as_str(), row.idle_ms))
                 .collect::<Vec<_>>(),
-            picks.iter().filter(|row| row.risky()).count(),
+            sent.iter().filter(|row| row.risky()).count(),
         );
         emit_close_audit(&audit);
         #[cfg(test)]
         {
             self.last_close_audit = Some(audit);
         }
-        for row in picks {
-            self.push_endpoint_method(
-                crate::api::schema::Method::WorkspaceClose(
-                    crate::api::schema::WorkspaceCloseParams {
-                        workspace_id: row.workspace_id,
-                        close_group: false,
-                    },
-                ),
-                outcome,
-            );
+    }
+
+    /// Snapshot install hook: keep an open dialog current with the endpoint's state.
+    pub(super) fn refresh_close_stale_dialog(&mut self) {
+        let (_, now_ms) = self.sidebar_clock();
+        let active = self.active_endpoint_id.clone();
+        let Some(snapshot) = self.snapshot.as_deref() else {
+            return;
+        };
+        if let Some(ClientShellOverlay::CloseStale(dialog)) = self.overlay.as_mut() {
+            if dialog.endpoint_id == active && dialog.refresh(snapshot, now_ms) {
+                dialog.notice = Some(CHANGED_NOTICE.to_owned());
+            }
+        }
+    }
+
+    /// Sends one `workspace.close`, then audits it when the request was actually queued.
+    pub(super) fn push_audited_workspace_close(
+        &mut self,
+        params: crate::api::schema::WorkspaceCloseParams,
+        outcome: &mut ClientShellInput,
+    ) {
+        let workspace_id = params.workspace_id.clone();
+        let before = outcome.actions.len();
+        self.push_endpoint_method(crate::api::schema::Method::WorkspaceClose(params), outcome);
+        if outcome.actions.len() > before {
+            self.audit_single_workspace_close(&workspace_id);
         }
     }
 
     /// Audit line for a single-workspace close requested from this client.
-    pub(super) fn audit_single_workspace_close(&mut self, workspace_id: &str) {
+    fn audit_single_workspace_close(&mut self, workspace_id: &str) {
         let (_, now_ms) = self.sidebar_clock();
         let idle = self.snapshot.as_deref().and_then(|snapshot| {
             snapshot
