@@ -28,6 +28,24 @@ pub const THEME_NAMES: &[&str] = &[
     "kelpie",
 ];
 
+/// Alternative spellings `canonical_theme_name` accepts besides `THEME_NAMES`.
+pub const THEME_NAME_ALIASES: &[&str] = &[
+    "catppuccin-mocha",
+    "latte",
+    "light",
+    "tokyonight",
+    "tokyo-day",
+    "tokyonight-day",
+    "gruvbox-dark",
+    "onedark",
+    "onelight",
+    "solarized-dark",
+    "lotus",
+    "rosepine",
+    "rosepine-dawn",
+    "dawn",
+];
+
 /// Built-in themes with a light background. Every other built-in theme is dark
 /// (`terminal` follows the host terminal and is listed with the dark themes).
 pub const LIGHT_THEME_NAMES: &[&str] = &[
@@ -296,6 +314,14 @@ light_name = "lattee"
         assert!(diagnostics[1].contains("theme.dark_name = \"tokio-night\""));
         assert!(diagnostics[2].contains("theme.light_name = \"lattee\""));
         assert!(diagnostics[2].contains("using \"catppuccin-latte\""));
+    }
+
+    #[test]
+    fn theme_name_alias_list_matches_the_resolver() {
+        for alias in THEME_NAME_ALIASES {
+            assert!(!THEME_NAMES.contains(alias), "{alias} is canonical");
+            assert!(canonical_theme_name(alias).is_some(), "{alias}");
+        }
     }
 
     #[test]

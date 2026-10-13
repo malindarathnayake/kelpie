@@ -169,8 +169,15 @@ fn theme_command() -> Command {
                     Arg::new("name")
                         .value_name("NAME")
                         .required(true)
+                        .ignore_case(true)
+                        .help("Built-in theme name; aliases such as tokyonight or latte are also accepted")
                         .value_parser(clap::builder::PossibleValuesParser::new(
-                            crate::config::THEME_NAMES,
+                            crate::config::THEME_NAMES
+                                .iter()
+                                .map(|name| clap::builder::PossibleValue::new(*name))
+                                .chain(crate::config::THEME_NAME_ALIASES.iter().map(|alias| {
+                                    clap::builder::PossibleValue::new(*alias).hide(true)
+                                })),
                         )),
                 ),
         )
@@ -1448,12 +1455,33 @@ mod tests {
             .find(|arg| arg.get_id() == "name")
             .unwrap();
         assert!(name.is_required_set());
+        // Completion and help list canonical names; aliases parse but stay hidden.
         let values: Vec<String> = name
             .get_possible_values()
             .iter()
+            .filter(|value| !value.is_hide_set())
             .map(|value| value.get_name().to_string())
             .collect();
         assert_eq!(values, crate::config::THEME_NAMES);
+        for alias in crate::config::THEME_NAME_ALIASES {
+            assert!(
+                super::command()
+                    .try_get_matches_from(["herdr", "theme", "set", alias])
+                    .is_ok(),
+                "{alias}"
+            );
+        }
+        assert!(super::command()
+            .try_get_matches_from(["herdr", "theme", "set", "Kelpie"])
+            .is_ok());
+        let mut set = super::command();
+        set.build();
+        let help = command_path(&set, &["theme", "set"])
+            .clone()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("aliases"), "{help}");
+        assert!(!help.contains("tokyonight-day"), "{help}");
         assert!(super::command()
             .try_get_matches_from(["herdr", "theme", "set", "midnight"])
             .is_ok());

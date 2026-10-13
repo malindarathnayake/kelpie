@@ -111,7 +111,7 @@ fn theme_set(args: &[String]) -> std::io::Result<i32> {
 fn print_theme_help() {
     eprintln!("herdr theme commands:");
     eprintln!("  herdr theme list          list built-in themes (* marks the current one)");
-    eprintln!("  herdr theme set <name>    save theme.name in config and reload a running server");
+    eprintln!("  herdr theme set <name>    save theme.name in config and reload a running server (aliases accepted)");
 }
 
 #[cfg(test)]

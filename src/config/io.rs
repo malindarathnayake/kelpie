@@ -689,6 +689,45 @@ fn is_top_level_keys_assignment(trimmed: &str) -> bool {
     trimmed.starts_with("keys ") || trimmed.starts_with("keys=") || trimmed.starts_with("keys.")
 }
 
+/// A TOML table header line, after trimming and dropping a trailing `# comment` that is
+/// outside quotes: `[name]` or `[[name]]`.
+#[derive(Debug, PartialEq, Eq)]
+enum TableHeader<'a> {
+    Table(&'a str),
+    ArrayOfTables(&'a str),
+}
+
+fn strip_trailing_comment(line: &str) -> &str {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        match quote {
+            Some('"') if escaped => escaped = false,
+            Some('"') if character == '\\' => escaped = true,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if character == '#' => return &line[..index],
+            None => {}
+        }
+    }
+    line
+}
+
+fn table_header(line: &str) -> Option<TableHeader<'_>> {
+    let trimmed = strip_trailing_comment(line.trim()).trim();
+    if let Some(name) = trimmed
+        .strip_prefix("[[")
+        .and_then(|value| value.strip_suffix("]]"))
+    {
+        return Some(TableHeader::ArrayOfTables(name.trim()));
+    }
+    trimmed
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .map(|name| TableHeader::Table(name.trim()))
+}
+
 fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> String {
     let header = format!("[{section}]");
     let assignment = format!("{key} = {value}");
@@ -700,9 +739,8 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 
     while i < lines.len() {
         let line = lines[i];
-        let trimmed = line.trim();
 
-        if trimmed == header {
+        if !found_section && table_header(line) == Some(TableHeader::Table(section)) {
             found_section = true;
             result.push(line.to_string());
             i += 1;
@@ -710,7 +748,7 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
             while i < lines.len() {
                 let current = lines[i];
                 let current_trimmed = current.trim();
-                if current_trimmed.starts_with('[') && current_trimmed.ends_with(']') {
+                if table_header(current).is_some() {
                     if !inserted {
                         result.push(assignment.clone());
                         inserted = true;
@@ -811,6 +849,42 @@ interval_secs = 120
         let updated = upsert_top_level_bool(content, "onboarding", false);
         assert!(updated.contains("onboarding = false"));
         assert!(!updated.contains("onboarding = true"));
+    }
+
+    #[test]
+    fn upsert_section_value_treats_commented_headers_as_headers() {
+        let content = "[theme] # c\nname = \"nord\"\n[theme.custom] # mine\nname = \"x\"\n";
+        assert_eq!(
+            upsert_section_value(content, "theme", "name", "\"dusk\""),
+            "[theme] # c\nname = \"dusk\"\n[theme.custom] # mine\nname = \"x\"\n"
+        );
+    }
+
+    #[test]
+    fn upsert_section_value_inserts_into_the_table_not_its_subtable() {
+        let content = "[theme]\nauto_switch = false\n[theme.custom] # mine\naccent = \"#ff79c6\"\n";
+        let updated = upsert_section_value(content, "theme", "name", "\"ember\"");
+        assert_eq!(
+            updated,
+            "[theme]\nauto_switch = false\nname = \"ember\"\n[theme.custom] # mine\naccent = \"#ff79c6\"\n"
+        );
+        let parsed: toml::Value = updated.parse().unwrap();
+        assert_eq!(parsed["theme"]["name"].as_str(), Some("ember"));
+        assert!(parsed["theme"]["custom"].get("name").is_none());
+    }
+
+    #[test]
+    fn table_header_ignores_hashes_inside_quotes_and_non_headers() {
+        assert_eq!(
+            table_header(r#"  ["a#b"] # c"#),
+            Some(TableHeader::Table(r#""a#b""#))
+        );
+        assert_eq!(
+            table_header("[[keys.command]] # x"),
+            Some(TableHeader::ArrayOfTables("keys.command"))
+        );
+        assert_eq!(table_header(r#"name = "[x]""#), None);
+        assert_eq!(table_header("# [theme]"), None);
     }
 
     #[test]

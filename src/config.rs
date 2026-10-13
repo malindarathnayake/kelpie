@@ -47,7 +47,7 @@ pub(crate) use self::{
         MAX_TAB_BAR_COMMAND_INTERVAL_SECONDS, MAX_TAB_BAR_COMMAND_TIMEOUT_SECONDS,
         MAX_TAB_BAR_RIGHT_ENTRIES,
     },
-    theme::{canonical_theme_name, grouped_theme_names, theme_is_light},
+    theme::{canonical_theme_name, grouped_theme_names, theme_is_light, THEME_NAME_ALIASES},
     window_title::{sanitize_window_title_text, window_title_diagnostics},
 };
 

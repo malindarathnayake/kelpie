@@ -1143,3 +1143,25 @@ fn theme_picker_enter_persists_only_theme_name_and_reloads_the_server() {
         outcome.actions
     );
 }
+
+#[test]
+fn theme_picker_starts_on_the_theme_an_alias_resolves_to() {
+    for (alias, canonical) in [
+        ("tokyonight", "tokyo-night"),
+        ("latte", "catppuccin-latte"),
+        ("catppuccin-mocha", "catppuccin"),
+    ] {
+        let config: Config = toml::from_str(&format!("[theme]\nname = {alias:?}\n")).unwrap();
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+        state.config.theme_runtime.auto_switch = false;
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        open_theme_picker(&mut state);
+        assert_eq!(picker_selected_theme(&state), canonical, "{alias}");
+        let frame = state.compose(106, 40).unwrap();
+        let text = frame_rows(&frame).join("\n");
+        assert!(text.contains(&format!("{canonical} ✓")), "{alias}: {text}");
+        // One mark on the theme row plus the "✓ current" legend.
+        assert_eq!(text.matches('✓').count(), 2, "{alias}: {text}");
+    }
+}

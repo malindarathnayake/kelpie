@@ -93,6 +93,31 @@ fn theme_auto_switch_enabled(content: &str) -> bool {
 /// Replace `path` with `bytes` through a sibling temp file and a rename, so a reader
 /// never sees a half-written config. A symlinked config is written through its target.
 fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomically_with(
+        path,
+        bytes,
+        |from, to| std::fs::rename(from, to),
+        std::thread::sleep,
+    )
+}
+
+/// Backoff between rename attempts when another process briefly holds the config open.
+const RENAME_BACKOFF_MS: [u64; 4] = [20, 50, 100, 200];
+
+/// On Windows an editor, antivirus or indexer can hold the config without delete sharing for
+/// a moment; the rename then fails with access denied (5) or a sharing/lock violation (32, 33).
+fn rename_error_is_transient(error: &std::io::Error) -> bool {
+    cfg!(windows)
+        && (error.kind() == std::io::ErrorKind::PermissionDenied
+            || matches!(error.raw_os_error(), Some(5 | 32 | 33)))
+}
+
+fn write_atomically_with(
+    path: &std::path::Path,
+    bytes: &[u8],
+    mut rename: impl FnMut(&std::path::Path, &std::path::Path) -> std::io::Result<()>,
+    mut sleep: impl FnMut(std::time::Duration),
+) -> std::io::Result<()> {
     use std::io::Write;
 
     let target = match std::fs::symlink_metadata(path) {
@@ -107,20 +132,74 @@ fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config.toml");
+    let (tmp_path, mut file) = create_temp_sibling(parent, file_name)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    let result = written.and_then(|()| {
+        let mut attempt = 0;
+        loop {
+            match rename(&tmp_path, &target) {
+                Ok(()) => return Ok(()),
+                Err(error)
+                    if attempt < RENAME_BACKOFF_MS.len() && rename_error_is_transient(&error) =>
+                {
+                    sleep(std::time::Duration::from_millis(RENAME_BACKOFF_MS[attempt]));
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    });
+    if result.is_err() && std::fs::remove_file(&tmp_path).is_err() && tmp_path.exists() {
+        sleep(std::time::Duration::from_millis(
+            RENAME_BACKOFF_MS[RENAME_BACKOFF_MS.len() - 1],
+        ));
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
+}
+
+/// Create a new, uniquely named temp file next to the config; never reuse an existing file.
+fn create_temp_sibling(
+    parent: &std::path::Path,
+    file_name: &str,
+) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.subsec_nanos())
         .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{file_name}.{}.{nanos}.tmp", std::process::id()));
-    let written = std::fs::File::create(&tmp_path).and_then(|mut file| {
-        file.write_all(bytes)?;
-        file.sync_all()
-    });
-    if let Err(error) = written.and_then(|()| std::fs::rename(&tmp_path, &target)) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(error);
+    create_temp_sibling_with_stamp(parent, file_name, nanos)
+}
+
+fn create_temp_sibling_with_stamp(
+    parent: &std::path::Path,
+    file_name: &str,
+    nanos: u32,
+) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    let mut last_error = None;
+    for attempt in 0..16u32 {
+        let tmp_path = parent.join(format!(
+            ".{file_name}.{}.{nanos}.{attempt}.tmp",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)
+        {
+            Ok(file) => return Ok((tmp_path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                last_error = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
     }
-    Ok(())
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "no free temp file name next to the config",
+        )
+    }))
 }
 
 pub(crate) fn write_edit(edit: ConfigEdit<'_>) -> Result<(), String> {
@@ -147,6 +226,129 @@ accent = "#ff79c6"
 [ui]
 sidebar_width = 30
 "##;
+
+    fn temp_config_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-config-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn other_files(dir: &std::path::Path) -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name())
+            .filter(|name| name != "config.toml")
+            .collect()
+    }
+
+    fn sharing_violation() -> std::io::Error {
+        std::io::Error::from_raw_os_error(32)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_write_retries_a_briefly_locked_config_then_succeeds() {
+        let dir = temp_config_dir("rename-retry");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old\n").unwrap();
+        let mut failures = 3;
+        let mut sleeps = Vec::new();
+        let result = write_atomically_with(
+            &path,
+            b"new\n",
+            |from, to| {
+                if failures > 0 {
+                    failures -= 1;
+                    return Err(sharing_violation());
+                }
+                std::fs::rename(from, to)
+            },
+            |duration| sleeps.push(duration.as_millis()),
+        );
+        let written = std::fs::read_to_string(&path).unwrap();
+        let leftovers = other_files(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        result.unwrap();
+        assert_eq!(written, "new\n");
+        assert_eq!(sleeps, vec![20, 50, 100]);
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn atomic_write_gives_up_removes_the_temp_file_and_keeps_the_old_config() {
+        let dir = temp_config_dir("rename-fail");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old\n").unwrap();
+        let mut attempts = 0;
+        let result = write_atomically_with(
+            &path,
+            b"new\n",
+            |_, _| {
+                attempts += 1;
+                Err(sharing_violation())
+            },
+            |_| {},
+        );
+        let written = std::fs::read_to_string(&path).unwrap();
+        let leftovers = other_files(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(result.is_err());
+        let expected_attempts = if cfg!(windows) {
+            RENAME_BACKOFF_MS.len() + 1
+        } else {
+            1
+        };
+        assert_eq!(attempts, expected_attempts);
+        assert_eq!(written, "old\n");
+        assert!(leftovers.is_empty(), "temp file left behind: {leftovers:?}");
+    }
+
+    #[test]
+    fn atomic_write_does_not_retry_a_permanent_rename_error() {
+        let dir = temp_config_dir("rename-permanent");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "old\n").unwrap();
+        let mut attempts = 0;
+        let result = write_atomically_with(
+            &path,
+            b"new\n",
+            |_, _| {
+                attempts += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            },
+            |_| panic!("no backoff for a permanent error"),
+        );
+        let leftovers = other_files(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn temp_sibling_skips_names_that_already_exist() {
+        let dir = temp_config_dir("temp-name");
+        let taken = dir.join(format!(".config.toml.{}.7.0.tmp", std::process::id()));
+        std::fs::write(&taken, "someone else's").unwrap();
+        let (created, file) = create_temp_sibling_with_stamp(&dir, "config.toml", 7).unwrap();
+        drop(file);
+        let untouched = std::fs::read_to_string(&taken).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_ne!(created, taken);
+        assert_eq!(untouched, "someone else's");
+    }
 
     #[test]
     fn theme_edit_changes_only_the_name_line() {

@@ -1,8 +1,12 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyModifiers};
 
+/// Canonical built-in name for a configured theme, so aliases (`tokyonight`, `latte`,
+/// `catppuccin-mocha`) select and mark the theme they resolve to.
 pub(super) fn normalized_theme_name(name: &str) -> String {
-    name.to_lowercase().replace([' ', '_'], "-")
+    crate::config::canonical_theme_name(name)
+        .map(str::to_owned)
+        .unwrap_or_else(|| name.to_lowercase().replace([' ', '_'], "-"))
 }
 
 fn theme_index(name: &str) -> usize {
