@@ -515,6 +515,17 @@ async fn run_client_loop(
                     })
                 }),
         );
+        shell.set_endpoint_host_facts_supported(
+            &endpoint::ClientEndpointId::Local,
+            initial
+                .as_ref()
+                .and_then(|(_, handshake)| handshake.endpoint_capabilities.as_ref())
+                .is_some_and(|capabilities| {
+                    capabilities.iter().any(|capability| {
+                        capability == crate::protocol::endpoint::HOST_FACTS_CAPABILITY
+                    })
+                }),
+        );
         if local_unavailable {
             shell.set_endpoint_status(
                 &endpoint::ClientEndpointId::Local,
@@ -1371,6 +1382,12 @@ async fn run_client_loop(
                             &endpoint_id,
                             agent_view_projection_supported,
                         );
+                        shell.set_endpoint_host_facts_supported(
+                            &endpoint_id,
+                            negotiation.supports_capability(
+                                crate::protocol::endpoint::HOST_FACTS_CAPABILITY,
+                            ),
+                        );
                         shell.compose(state.reported_size.0, state.reported_size.1)
                     });
                     let reader_quit = writer.stop_handle();
@@ -2113,6 +2130,23 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
+                            Ok(endpoint::EndpointControlMessage::HostFacts(response)) => {
+                                let frame = state.shell.as_mut().and_then(|shell| {
+                                    shell
+                                        .receive_host_facts(&endpoint_id, &response)
+                                        .then(|| {
+                                            shell.compose(
+                                                state.reported_size.0,
+                                                state.reported_size.1,
+                                            )
+                                        })
+                                        .flatten()
+                                });
+                                if let Some(frame) = frame {
+                                    state.present_frame(frame);
+                                }
+                                continue;
+                            }
                             Ok(endpoint::EndpointControlMessage::Ignored) => {
                                 debug!(%kind, "ignoring unknown endpoint control message");
                                 continue;
@@ -2325,7 +2359,8 @@ async fn run_client_loop(
                         outcome.repaint |= notification_repaint
                             | shell.tick_copy_feedback(now)
                             | shell.tick_workspace_highlight(now)
-                            | shell.tick_endpoint_error(now);
+                            | shell.tick_endpoint_error(now)
+                            | shell.tick_host_facts(now);
                         let frame = outcome
                             .repaint
                             .then(|| shell.compose(state.reported_size.0, state.reported_size.1))

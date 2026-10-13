@@ -25,7 +25,7 @@ pub(crate) const HOST_FACTS_FILE_NAME: &str = "host-facts.json";
 pub(crate) const DEFAULT_INTERVAL_SECS: u64 = 60;
 pub(crate) const MIN_INTERVAL_SECS: u64 = 30;
 /// How long a `host.facts` call waits for the first or a forced refresh.
-const API_WAIT: Duration = Duration::from_secs(30);
+pub(crate) const API_WAIT: Duration = Duration::from_secs(30);
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static SERVICE: OnceLock<Arc<Shared>> = OnceLock::new();
@@ -70,7 +70,8 @@ pub(crate) fn pane_env_path() -> Option<PathBuf> {
 }
 
 /// Latest snapshot, read-only. `None` before the first refresh or when disabled.
-/// In-process accessor for server-side readers (the host facts panel, U3).
+/// In-process accessor for server-side readers; the client shell's host panel
+/// reads through `api_response` over the endpoint control lane instead.
 #[allow(dead_code)]
 pub(crate) fn current() -> Option<Arc<HostFacts>> {
     SERVICE

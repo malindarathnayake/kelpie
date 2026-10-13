@@ -1,5 +1,6 @@
 use super::*;
 
+mod host_facts_overlay;
 mod settings_overlay;
 mod worktree_overlays;
 
@@ -78,6 +79,9 @@ pub(crate) fn render_client_overlay(
         }
         ClientShellOverlay::WorktreeRemove(v) => {
             worktree_overlays::render_worktree_remove_overlay(b, v, p)
+        }
+        ClientShellOverlay::HostFacts(v) => {
+            host_facts_overlay::render_host_facts_overlay(b, v, host_facts_overlay::now_ms(), p)
         }
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }

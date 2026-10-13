@@ -91,6 +91,10 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                if action == crate::input::KeybindAction::HostFacts {
+                    self.open_host_facts_overlay(outcome);
+                    return;
+                }
                 if action == crate::input::KeybindAction::OpenNotificationTarget {
                     self.focus_visible_notification(outcome);
                     return;

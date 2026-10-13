@@ -198,6 +198,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # toggle_sidebar = "prefix+b"
 # supervisor_handoff = "prefix+shift+a"   # hand the focused pane's next agent.submit to the supervisor once
 # theme_picker = "prefix+t"   # pick a theme with live preview; enter saves theme.name, esc reverts
+# host_facts = "prefix+i"   # read-only host facts of the attached server; r refreshes, esc closes
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.
 # They are independent from focus_pane_*. Do not include prefix+, esc, enter, tab, or 1..9 here.

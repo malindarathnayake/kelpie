@@ -187,3 +187,52 @@ pub enum HostToolSource {
     System,
     Other,
 }
+
+impl HostProbeStatus {
+    /// Lowercase word used in human output.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+impl HostDockerStatus {
+    /// Lowercase words used in human output.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::NotRunning => "not running",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+impl HostToolStatus {
+    /// Lowercase word used in human output.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Missing => "missing",
+            Self::Failed => "failed",
+            Self::Shadowed => "shadowed",
+        }
+    }
+}
+
+impl HostToolSource {
+    /// Kebab-case name, as serialized.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::GitForWindows => "git-for-windows",
+            Self::Scoop => "scoop",
+            Self::Winget => "winget",
+            Self::Chocolatey => "chocolatey",
+            Self::System => "system",
+            Self::Other => "other",
+        }
+    }
+}

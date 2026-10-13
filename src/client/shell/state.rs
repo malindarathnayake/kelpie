@@ -291,6 +291,7 @@ pub(super) enum ClientShellOverlayKind {
     ContextMenu,
     GlobalMenu,
     Settings,
+    HostFacts,
 }
 
 #[derive(Debug)]
@@ -596,6 +597,8 @@ pub(super) enum ClientShellOverlay {
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
     Settings(ClientSettingsOverlay),
+    /// Fork: read-only host facts of the attached server.
+    HostFacts(super::host_facts_panel::ClientHostFactsOverlay),
 }
 
 impl ClientShellOverlay {
@@ -614,6 +617,7 @@ impl ClientShellOverlay {
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
+            Self::HostFacts(_) => ClientShellOverlayKind::HostFacts,
         }
     }
 }
@@ -860,6 +864,7 @@ pub(super) struct ClientCopyModeState {
 
 pub(crate) struct ClientShellState {
     pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
+    pub(super) host_facts: super::host_facts_panel::HostFactsPanel,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
     pub(super) active_snapshot_generation: Option<u64>,
@@ -1033,6 +1038,7 @@ impl ClientShellState {
         }
         Self {
             machine_diagnostics: Default::default(),
+            host_facts: Default::default(),
             config,
             snapshot: None,
             active_snapshot_generation: None,

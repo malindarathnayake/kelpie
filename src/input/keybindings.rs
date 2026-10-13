@@ -74,6 +74,8 @@ pub(crate) enum KeybindAction {
     SupervisorHandoff,
     /// Open the theme picker overlay.
     ThemePicker,
+    /// Open the read-only host facts panel.
+    HostFacts,
 }
 
 pub(crate) fn resolve_direct_binding(
@@ -156,6 +158,7 @@ pub(crate) fn resolve_non_indexed_action(
             KeybindAction::SupervisorHandoff,
         ),
         (&keybinds.theme_picker, KeybindAction::ThemePicker),
+        (&keybinds.host_facts, KeybindAction::HostFacts),
         (&keybinds.reload_config, KeybindAction::ReloadConfig),
         (
             &keybinds.open_notification_target,

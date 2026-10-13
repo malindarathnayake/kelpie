@@ -1008,6 +1008,7 @@ fn client_read_loop_with_endpoint_controls(
     should_quit: &Arc<AtomicBool>,
     endpoint_control_writer: Option<&ClientControlWriter>,
 ) -> io::Result<()> {
+    let host_facts_in_flight = Arc::new(AtomicBool::new(false));
     while !should_quit.load(Ordering::Acquire) {
         #[cfg(unix)]
         let message = protocol::read_message(
@@ -1359,6 +1360,18 @@ fn client_read_loop_with_endpoint_controls(
                     client_id,
                     pane_id: data,
                 }
+            }
+            ClientMessage::EndpointControl { kind, data }
+                if kind == crate::protocol::endpoint::HOST_FACTS_REQUEST_KIND =>
+            {
+                if let Some(writer) = endpoint_control_writer {
+                    crate::server::client_endpoint_control::answer_host_facts(
+                        &data,
+                        writer,
+                        &host_facts_in_flight,
+                    );
+                }
+                continue;
             }
             ClientMessage::EndpointControl { kind, data } => {
                 let Some(response) = crate::server::client_endpoint_control::response(&kind, data)

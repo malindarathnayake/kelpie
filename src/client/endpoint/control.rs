@@ -11,6 +11,8 @@ pub(crate) enum EndpointControlMessage {
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
+    /// Fork: raw `host.facts` API response JSON for the host panel.
+    HostFacts(String),
     Ignored,
 }
 
@@ -20,6 +22,9 @@ pub(crate) fn decode_endpoint_control(
 ) -> Result<EndpointControlMessage, String> {
     if kind == crate::protocol::endpoint::HEALTH_PONG_KIND {
         return Ok(EndpointControlMessage::HealthPong);
+    }
+    if kind == crate::protocol::endpoint::HOST_FACTS_RESPONSE_KIND {
+        return Ok(EndpointControlMessage::HostFacts(data.to_owned()));
     }
     if kind == crate::protocol::endpoint::AGENT_COMPLETIONS_KIND {
         return Ok(serde_json::from_str(data)

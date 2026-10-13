@@ -31,6 +31,20 @@ pub const AGENT_VIEW_PROJECTION_CAPABILITY: &str = "agent_view_projection";
 pub const AGENT_VIEW_PROJECTION_KIND: &str = "endpoint.agent-view.v1";
 pub const AGENT_COMPLETIONS_CAPABILITY: &str = "agent_completions";
 pub const AGENT_COMPLETIONS_KIND: &str = "endpoint.agent-completions.v1";
+/// Fork: read-only host facts for the client shell's host panel. The request
+/// carries `EndpointHostFactsRequest`; the response data is the `host.facts`
+/// API response JSON (success or error) with the request id echoed.
+pub const HOST_FACTS_CAPABILITY: &str = "host_facts";
+pub const HOST_FACTS_REQUEST_KIND: &str = "endpoint.host-facts.request.v1";
+pub const HOST_FACTS_RESPONSE_KIND: &str = "endpoint.host-facts.response.v1";
+
+/// Fork: payload of a `HOST_FACTS_REQUEST_KIND` control.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointHostFactsRequest {
+    pub id: String,
+    #[serde(default)]
+    pub refresh: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointAgentCompletions {
@@ -174,6 +188,7 @@ impl EndpointServerWelcome {
                 HEALTH_CHECK_CAPABILITY.into(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.into(),
                 AGENT_COMPLETIONS_CAPABILITY.into(),
+                HOST_FACTS_CAPABILITY.into(),
             ],
             error: None,
         }
@@ -385,6 +400,7 @@ mod tests {
                 HEALTH_CHECK_CAPABILITY.to_string(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.to_string(),
                 AGENT_COMPLETIONS_CAPABILITY.to_string(),
+                HOST_FACTS_CAPABILITY.to_string(),
             ]
         );
     }

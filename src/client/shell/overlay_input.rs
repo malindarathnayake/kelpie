@@ -477,6 +477,11 @@ impl ClientShellState {
     ) {
         use crossterm::event::KeyModifiers;
 
+        if matches!(self.overlay, Some(ClientShellOverlay::HostFacts(_))) {
+            self.route_host_facts_key(key, outcome);
+            return;
+        }
+
         if matches!(self.overlay, Some(ClientShellOverlay::Onboarding)) {
             if matches!(
                 key.code,

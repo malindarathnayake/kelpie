@@ -407,6 +407,8 @@ pub struct Keybinds {
     pub supervisor_handoff: ActionKeybinds,
     /// Open the theme picker.
     pub theme_picker: ActionKeybinds,
+    /// Open the host facts panel.
+    pub host_facts: ActionKeybinds,
     pub custom_commands: Vec<CustomCommandKeybind>,
 }
 
@@ -592,6 +594,7 @@ impl Config {
             toggle_sidebar: empty_action!(),
             supervisor_handoff: empty_action!(),
             theme_picker: empty_action!(),
+            host_facts: empty_action!(),
             custom_commands: Vec::new(),
         };
 
@@ -742,6 +745,7 @@ impl Config {
             apply_action!(keybinds.toggle_sidebar, toggle_sidebar, source);
             apply_action!(keybinds.supervisor_handoff, supervisor_handoff, source);
             apply_action!(keybinds.theme_picker, theme_picker, source);
+            apply_action!(keybinds.host_facts, host_facts, source);
 
             if source == field_source!(indexed) {
                 append_legacy_indexed_bindings(
