@@ -53,8 +53,9 @@ impl App {
         else {
             return crate::api::schema::supervisor::DraftState::Unknown;
         };
-        // Styled rows: the faint attribute separates Claude's placeholder from typed text.
-        let ansi = runtime.recent_unwrapped_styled_ansi(crate::supervisor::question::WINDOW_LINES);
+        // Physical bottom rows with styles: unwrapped reads join a full-width rule with the
+        // next row, and the faint attribute separates the placeholder from typed text.
+        let ansi = runtime.screen_bottom_styled_ansi(crate::supervisor::question::WINDOW_LINES);
         crate::supervisor::draft::derive_draft(
             ansi.as_deref(),
             agent,

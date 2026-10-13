@@ -540,8 +540,8 @@ impl PaneTerminal {
         self.ghostty.recent_unwrapped_ansi_snapshot(lines)
     }
 
-    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
-        self.ghostty.recent_unwrapped_styled_ansi(lines)
+    pub(crate) fn screen_bottom_styled_ansi(&self, lines: usize) -> Option<String> {
+        self.ghostty.screen_bottom_styled_ansi(lines)
     }
 
     pub fn extract_selection(&self, selection: &crate::selection::Selection) -> Option<String> {
@@ -2275,12 +2275,15 @@ impl GhosttyPaneTerminal {
             .unwrap_or_default()
     }
 
-    /// Recent unwrapped rows with SGR cell styles, read straight from the grid. Unlike the
-    /// recent snapshots there is no unstyled Windows fallback: `None` means the styles are
-    /// unavailable (lock poisoned or the formatter failed), never a plain-text substitute.
-    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
+    /// The last `lines` physical rows of the active screen, ending at its last content row
+    /// or the cursor row (whichever is lower), with SGR cell styles, read straight from the
+    /// grid. Rows are never unwrapped: a full-width row soft-wraps into the next, and joining
+    /// them would hide a prompt box's rule. The range ignores the viewport scroll offset.
+    /// There is no unstyled Windows fallback: `None` means the styles are unavailable (lock
+    /// poisoned or the formatter failed), never a plain-text substitute.
+    pub(crate) fn screen_bottom_styled_ansi(&self, lines: usize) -> Option<String> {
         let core = self.core.lock().ok()?;
-        ghostty_recent_ansi_for_terminal(&core.terminal, lines, true).ok()
+        ghostty_screen_bottom_ansi(&core.terminal, lines).ok()
     }
 
     pub(crate) fn link_regions_at(
@@ -3046,6 +3049,16 @@ fn ghostty_recent_ansi_for_terminal(
         false,
         unwrap,
     )
+}
+
+/// The last `lines` physical rows of the active screen ending at the last non-empty row or
+/// the cursor row, whichever is lower (trailing blank rows below both are skipped), with
+/// SGR styles and never unwrapped.
+fn ghostty_screen_bottom_ansi(
+    terminal: &crate::ghostty::Terminal,
+    lines: usize,
+) -> Result<String, crate::ghostty::Error> {
+    ghostty_recent_ansi_for_terminal(terminal, lines, false)
 }
 
 fn ghostty_recent_read_range(
@@ -6000,6 +6013,76 @@ mod tests {
         assert!(ansi.contains("red"));
         assert!(ansi.contains("plain"));
         assert!(ansi.contains("\x1b["));
+    }
+
+    /// Claude's prompt box as the grid holds it: a full-width rule soft-wraps straight into
+    /// the input row (no CRLF), so an unwrapped read joins the two into one line.
+    fn claude_box_pane(input: &str) -> GhosttyPaneTerminal {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(40, 8, 1024 * 1024).unwrap();
+        let rule = format!("\x1b[38;2;136;136;136m{}\x1b[0m", "─".repeat(40));
+        terminal.write("old output\r\n".repeat(30).as_bytes());
+        terminal.write(format!("{rule}❯\u{a0}{input}\r\n{rule}\r\n  ? for shortcuts").as_bytes());
+        GhosttyPaneTerminal::new(terminal, tx).unwrap()
+    }
+
+    #[test]
+    fn draft_screen_bottom_reads_physical_rows_with_styles() {
+        use crate::api::schema::supervisor::DraftState;
+        let draft = |ansi: Option<&str>| {
+            crate::supervisor::draft::derive_draft(ansi, Some("claude"), false, None, Some(5))
+        };
+        let placeholder = claude_box_pane("\x1b[2mTry \"write a test\"\x1b[0m");
+        // Guard: the unwrapped source really joins the rule and the input row.
+        let unwrapped = placeholder.recent_unwrapped_text(24);
+        assert!(unwrapped.lines().any(|l| l.contains("─❯")), "{unwrapped:?}");
+        assert_ne!(
+            draft(Some(&placeholder.recent_unwrapped_ansi(24))),
+            DraftState::Clean
+        );
+
+        let ansi = placeholder.screen_bottom_styled_ansi(24).unwrap();
+        assert!(ansi.contains("\x1b[2m") || ansi.contains(";2m"), "{ansi:?}");
+        assert!(!ansi.contains("─❯"), "{ansi:?}");
+        assert_eq!(draft(Some(&ansi)), DraftState::Clean);
+
+        let typed = claude_box_pane("draft text here");
+        assert_eq!(
+            draft(typed.screen_bottom_styled_ansi(24).as_deref()),
+            DraftState::Dirty
+        );
+
+        // Scrolling the viewport into history does not move the read off the bottom.
+        placeholder.set_scroll_offset_from_bottom(20);
+        assert_eq!(
+            draft(placeholder.screen_bottom_styled_ansi(24).as_deref()),
+            DraftState::Clean
+        );
+    }
+
+    #[test]
+    fn draft_screen_bottom_finds_short_box_at_top_of_tall_screen() {
+        use crate::api::schema::supervisor::DraftState;
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(60, 60, 1024 * 1024).unwrap();
+        let rule = "─".repeat(40);
+        terminal.write(format!("w2 box above\r\n{rule}\r\n❯ \r\n{rule}\r\nfooter\r\n").as_bytes());
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+        let ansi = pane.screen_bottom_styled_ansi(24);
+        assert!(
+            ansi.as_deref().is_some_and(|a| a.contains("footer")),
+            "{ansi:?}"
+        );
+        assert_eq!(
+            crate::supervisor::draft::derive_draft(
+                ansi.as_deref(),
+                Some("claude"),
+                false,
+                None,
+                Some(5)
+            ),
+            DraftState::Clean
+        );
     }
 
     #[test]

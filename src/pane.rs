@@ -3639,9 +3639,10 @@ impl PaneRuntime {
         result
     }
 
-    /// Recent unwrapped rows with SGR cell styles; `None` when styles are unavailable.
-    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
-        let result = self.terminal.recent_unwrapped_styled_ansi(lines);
+    /// Bottom physical rows of the active screen with SGR cell styles; `None` when styles
+    /// are unavailable.
+    pub(crate) fn screen_bottom_styled_ansi(&self, lines: usize) -> Option<String> {
+        let result = self.terminal.screen_bottom_styled_ansi(lines);
         self.compression.wake();
         result
     }

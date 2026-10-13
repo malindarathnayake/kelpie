@@ -411,8 +411,8 @@ impl TerminalRuntime {
         self.0.recent_unwrapped_ansi_snapshot(lines)
     }
 
-    pub(crate) fn recent_unwrapped_styled_ansi(&self, lines: usize) -> Option<String> {
-        self.0.recent_unwrapped_styled_ansi(lines)
+    pub(crate) fn screen_bottom_styled_ansi(&self, lines: usize) -> Option<String> {
+        self.0.screen_bottom_styled_ansi(lines)
     }
 
     pub fn snapshot_history(&self) -> Option<String> {
