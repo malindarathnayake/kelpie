@@ -73,6 +73,10 @@ pub struct SupervisorState {
     /// Normalized session start source of the session report App is applying right now
     /// (`AgentSessionReported` only); None for every other mutation.
     mutation_start_source: Option<String>,
+    /// The session ref (and agent label) carried by the `AgentSessionReported` App is
+    /// applying right now; None for every other mutation. `agent.resume` evidence is
+    /// settled only from this reported ref, never from the terminal's resolved identity.
+    mutation_reported_session: Option<(String, Option<AgentSessionRef>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -320,7 +324,18 @@ impl SupervisorState {
     ) -> Option<GenerationReason> {
         let session_changed =
             self.observe_session_ref(pane, facts.session_before, facts.session_after.clone());
-        let reason = generation_reason(session_changed, facts.agent_released, facts.agent_started)?;
+        let reason = generation_reason(session_changed, facts.agent_released, facts.agent_started);
+        let resume_evidence = self
+            .mutation_reported_session
+            .as_ref()
+            .filter(|(agent_label, _)| agent_label == "claude")
+            .and_then(|(_, session)| session.clone());
+        let Some(reason) = reason else {
+            if let Some(session) = resume_evidence {
+                self.note_resume_session(pane, &session);
+            }
+            return None;
+        };
         if reason == GenerationReason::SessionChanged
             && self.mutation_start_source.as_deref() == Some("clear")
         {
@@ -333,12 +348,17 @@ impl SupervisorState {
                     .note_clear_session(pane, after, new_generation, seq);
             }
         }
-        self.record_generation_change(pane, reason, now_ms);
+        let new_generation = self.record_generation_change(pane, reason, now_ms);
         if reason == GenerationReason::AgentStarted {
             // A new agent's first session ref is enrichment, not a replacement of the
             // previous agent's session. Kept across AgentExited so a session-only new
             // conversation after an exit still classifies as a replacement.
             self.pane_mut(pane).last_session_ref = facts.session_after;
+            let seq = self.next_event_seq();
+            self.submits.note_agent_started(pane, new_generation, seq);
+        }
+        if let Some(session) = resume_evidence {
+            self.note_resume_session(pane, &session);
         }
         if facts.final_state == AgentState::Idle {
             let state = self.pane_mut(pane);
@@ -350,10 +370,52 @@ impl SupervisorState {
         Some(reason)
     }
 
-    /// Sets the normalized start source of the session report App is about to apply;
-    /// App clears it (None) right after that one mutation.
-    pub fn set_mutation_start_source(&mut self, source: Option<String>) {
-        self.mutation_start_source = source;
+    /// Marks the start of one `AgentSessionReported` mutation with its normalized start
+    /// source, agent label and reported session ref; App calls `end_session_report` right
+    /// after that one mutation.
+    pub fn begin_session_report(
+        &mut self,
+        start_source: Option<String>,
+        agent_label: &str,
+        reported: Option<AgentSessionRef>,
+    ) {
+        self.mutation_start_source = start_source;
+        self.mutation_reported_session = Some((agent_label.to_string(), reported));
+    }
+
+    pub fn end_session_report(&mut self) {
+        self.mutation_start_source = None;
+        self.mutation_reported_session = None;
+    }
+
+    /// `agent.resume` evidence: the session ref a Claude session report carried, applied
+    /// (accepted) by the terminal in this mutation.
+    fn note_resume_session(&mut self, pane: PaneId, session: &AgentSessionRef) {
+        let seq = self.next_event_seq();
+        let generation = self.pane_mut(pane).generation;
+        let source = self.mutation_start_source.clone();
+        self.submits
+            .note_resume_session(pane, session, source.as_deref(), generation, seq);
+    }
+
+    /// `agent.resume`: the start command was sent but the start path then failed.
+    pub fn mark_resume_unconfirmed(
+        &mut self,
+        submit_id: &str,
+        code: &str,
+    ) -> Option<crate::api::schema::supervisor::SubmitReceipt> {
+        let seq = self.next_event_seq();
+        self.submits.mark_start_unconfirmed(submit_id, code, seq)
+    }
+
+    /// `agent.resume`: the launch was accepted now; later events order after it.
+    pub fn mark_resume_launched(
+        &mut self,
+        submit_id: &str,
+        now_ms: u64,
+    ) -> Option<crate::api::schema::supervisor::SubmitReceipt> {
+        let seq = self.next_event_seq();
+        self.submits.mark_launched(submit_id, seq, now_ms)
     }
 
     /// An accepted hook report whose final state is Working starts a new turn for
@@ -1300,6 +1362,67 @@ mod tests {
             agent_started: false,
             final_state,
         }
+    }
+
+    /// `agent.resume` evidence comes from the reported session ref of a Claude report,
+    /// never from the terminal's resolved identity (`session_after`).
+    #[test]
+    fn resume_evidence_uses_the_reported_ref_not_the_resolved_identity() {
+        use crate::api::schema::supervisor::{ResumeEvidence, SubmitKind};
+        use crate::supervisor::submit::NewReceipt;
+        let launch = |s: &mut SupervisorState, id: &str, pane: u32| {
+            let target_ref = s.target_ref(pid(pane), "p");
+            s.submits
+                .insert_accepted(
+                    id,
+                    NewReceipt {
+                        kind: SubmitKind::Resume,
+                        question_id: None,
+                        pane: pid(pane),
+                        target_ref,
+                        text_sha256_16: String::new(),
+                        handoff: false,
+                        session_id: Some("x".into()),
+                    },
+                    crate::supervisor::fence::SubmitFence::new(),
+                    1,
+                )
+                .expect("accepted");
+            s.mark_resume_launched(id, 2);
+        };
+        let report =
+            |s: &mut SupervisorState, pane: u32, label: &str, reported: &str, resolved: &str| {
+                s.begin_session_report(Some("startup".into()), label, sref(reported));
+                s.on_terminal_mutation(pid(pane), facts(None, sref(resolved), AgentState::Idle), 3);
+                s.end_session_report();
+            };
+        let mut s = SupervisorState::new();
+        // Reported y while the resolved identity still reads the requested x: mismatch.
+        launch(&mut s, "a", 1);
+        report(&mut s, 1, "claude", "y", "x");
+        let r = s.submits.get("a").unwrap();
+        assert_eq!(r.resume, Some(ResumeEvidence::Mismatch));
+        assert_eq!(r.reported_session.as_ref().unwrap().value, "y");
+        // Reported x while the resolved identity reads something else: verified.
+        launch(&mut s, "b", 2);
+        report(&mut s, 2, "claude", "x", "z");
+        assert_eq!(
+            s.submits.get("b").unwrap().resume,
+            Some(ResumeEvidence::Verified)
+        );
+        // A report labelled with another agent is ignored.
+        launch(&mut s, "c", 3);
+        report(&mut s, 3, "codex", "x", "x");
+        assert_eq!(
+            s.submits.get("c").unwrap().resume,
+            Some(ResumeEvidence::Pending)
+        );
+        // A mutation that is not a session report never settles evidence.
+        s.on_terminal_mutation(pid(3), facts(None, sref("x"), AgentState::Idle), 4);
+        assert_eq!(
+            s.submits.get("c").unwrap().resume,
+            Some(ResumeEvidence::Pending)
+        );
     }
 
     #[test]

@@ -1,14 +1,14 @@
-//! Fork-only `agent.submit`, `agent.answer`, `agent.interrupt`, `agent.reset` and
-//! `agent.submit_status` handlers (S2/S3, S7-S9). Disabled unless `[supervisor] enabled`.
-//! Every rejection happens before any PTY call and records nothing.
+//! Fork-only `agent.submit`, `agent.answer`, `agent.interrupt`, `agent.reset`,
+//! `agent.resume` and `agent.submit_status` handlers (S2/S3, S7-S10). Disabled unless
+//! `[supervisor] enabled`. Every rejection happens before any PTY call and records nothing.
 
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 
 use crate::api::schema::supervisor::{
-    AgentAnswerParams, AgentControlParams, AgentSubmitParams, AgentSubmitStatusParams, DraftState,
-    SubmitKind, SubmitReceipt, TargetRef,
+    AgentAnswerParams, AgentControlParams, AgentResumeParams, AgentSubmitParams,
+    AgentSubmitStatusParams, DraftState, SubmitKind, SubmitReceipt, TargetRef,
 };
 use crate::api::schema::ResponseResult;
 use crate::app::App;
@@ -16,8 +16,9 @@ use crate::events::AppEvent;
 use crate::supervisor::fence::SubmitFence;
 use crate::supervisor::registry::AnswerReject;
 use crate::supervisor::submit::{
-    text_sha256_16, valid_submit_id, valid_submit_text, NewReceipt, Repeat, RequestKey,
-    SubmitEvent, INTERRUPT_HASH_TEXT, RESET_TEXT, SUBMIT_DEADLINE,
+    text_sha256_16, valid_resume_session_id, valid_submit_id, valid_submit_text, NewReceipt,
+    Repeat, RequestKey, SubmitEvent, INTERRUPT_HASH_TEXT, MAX_RESUME_SESSION_ID_CHARS, RESET_TEXT,
+    SUBMIT_DEADLINE,
 };
 
 use super::agents::agent_not_found;
@@ -67,6 +68,12 @@ fn draft_name(draft: DraftState) -> &'static str {
         DraftState::Dirty => "dirty",
         DraftState::Unknown => "unknown",
     }
+}
+
+/// Agent name for an `agent.resume` launch: `resume-` and 16 hex chars of SHA-256 over the
+/// submit id (a valid `agent.start` name that never echoes the id).
+fn resume_agent_name(submit_id: &str) -> String {
+    format!("resume-{}", text_sha256_16(submit_id))
 }
 
 fn receipt_response(id: String, receipt: SubmitReceipt) -> String {
@@ -187,6 +194,224 @@ impl App {
         )
     }
 
+    /// S10: launches `claude --resume <session_id>` in a pane hosting no agent, through the
+    /// `agent.start` path. Receipt: `launched` or `failed`; resume evidence from the first
+    /// session report after the launch.
+    pub(super) fn handle_agent_resume(&mut self, id: String, params: AgentResumeParams) -> String {
+        let log = RequestLog::new("agent.resume", &id);
+        let reject = |id: String, code: &str, message: String| {
+            let response = encode_error(id, code, message);
+            log.error(code, &response);
+            response
+        };
+        if !crate::supervisor::enabled() {
+            return reject(
+                id,
+                "supervisor_disabled",
+                "supervisor mode is disabled; set [supervisor] enabled = true and restart the server"
+                    .into(),
+            );
+        }
+        if !valid_submit_id(&params.submit_id) {
+            return reject(
+                id,
+                "invalid_request",
+                "submit_id must be 1-64 characters of [A-Za-z0-9._:-]".into(),
+            );
+        }
+        if !valid_resume_session_id(&params.session_id) {
+            return reject(
+                id,
+                "invalid_request",
+                format!(
+                    "session_id must be 1-{MAX_RESUME_SESSION_ID_CHARS} characters of [A-Za-z0-9_-] and must not start with '-'"
+                ),
+            );
+        }
+        let session_hash = text_sha256_16(&params.session_id);
+        let request_target = TargetRef {
+            server_epoch: crate::supervisor::server_epoch().to_string(),
+            pane_id: params.pane_id.clone(),
+            generation: 0,
+        };
+        match self.state.supervisor.submits.repeat(
+            &params.submit_id,
+            RequestKey {
+                kind: SubmitKind::Resume,
+                question_id: None,
+                target_ref: &request_target,
+                text_sha256_16: &session_hash,
+                session_id: Some(&params.session_id),
+            },
+        ) {
+            Repeat::Same(receipt) => {
+                let response = receipt_response(id, *receipt);
+                log.ok(1, &response);
+                return response;
+            }
+            Repeat::Conflict => {
+                return reject(
+                    id,
+                    "submit_id_conflict",
+                    "submit_id was already used with a different method, pane or session_id".into(),
+                );
+            }
+            Repeat::New => {}
+        }
+        if self.state.supervisor.submits.is_full() {
+            return reject(
+                id,
+                "submit_capacity",
+                "submit receipt ledger is full for this server process".into(),
+            );
+        }
+        let Some((ws_idx, pane_id)) = self.parse_current_public_pane_id(&params.pane_id) else {
+            return reject(
+                id,
+                "agent_pane_not_found",
+                format!("pane {} not found", params.pane_id),
+            );
+        };
+        let Some(terminal) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.terminal_id(pane_id))
+            .and_then(|terminal_id| self.state.terminals.get(terminal_id))
+        else {
+            return reject(
+                id,
+                "agent_pane_not_found",
+                format!("pane {} not found", params.pane_id),
+            );
+        };
+        if terminal.is_agent_terminal()
+            || terminal.managed_agent_kind().is_some()
+            || terminal.managed_agent_launch_pending()
+        {
+            return reject(
+                id,
+                "agent_running",
+                "pane already hosts an agent or a pending agent launch".into(),
+            );
+        }
+        let session_ref = crate::agent_resume::AgentSessionRef {
+            kind: crate::agent_resume::AgentSessionRefKind::Id,
+            value: params.session_id.clone(),
+        };
+        let executable = crate::detect::interactive_agent_executable(crate::detect::Agent::Claude);
+        let Some(args) = crate::agent_resume::plan("herdr:claude", "claude", &session_ref)
+            .and_then(|plan| match plan.argv.split_first() {
+                Some((program, args)) if program == executable => Some(args.to_vec()),
+                _ => None,
+            })
+        else {
+            return reject(
+                id,
+                "unsupported_agent",
+                "agent.resume has no resume plan for this session".into(),
+            );
+        };
+        let name = resume_agent_name(&params.submit_id);
+        if !self.agent_name_conflicts(&name, "").is_empty() {
+            return reject(
+                id,
+                "agent_name_taken",
+                "the launch name derived from submit_id is already used".into(),
+            );
+        }
+        // Owner input in this PTY may have left text on the shell line, which the start
+        // command would extend: the same sticky latch and one-time handoff rule as the
+        // other write verbs. The line is never cleared.
+        let Some(activity) = self
+            .lookup_runtime_sender(ws_idx, pane_id)
+            .map(|runtime| std::sync::Arc::clone(runtime.supervisor_activity()))
+        else {
+            return reject(
+                id,
+                "agent_pane_unavailable",
+                format!("pane {} has no live terminal", params.pane_id),
+            );
+        };
+        let target_ref = self.state.supervisor.target_ref(pane_id, &params.pane_id);
+        let now = crate::supervisor::now_ms();
+        let operator_handoff = activity
+            .draft_latched()
+            .then(|| activity.valid_handoff(target_ref.generation, now))
+            .flatten();
+        if activity.draft_latched() && operator_handoff.is_none() {
+            return reject(
+                id,
+                "draft_not_clean",
+                "owner input was typed in this pane; draft=unknown".into(),
+            );
+        }
+        // Consume the handoff before anything is recorded or sent. Owner input cancels it
+        // on this same thread, so a failed consume means owner input won.
+        if let Some(handoff) = operator_handoff {
+            if !activity.consume_handoff(handoff) {
+                return reject(
+                    id,
+                    "draft_not_clean",
+                    "owner input was typed in this pane; draft=unknown".into(),
+                );
+            }
+        }
+
+        // Accept, then launch through the agent.start path.
+        let Some(receipt) = self.state.supervisor.submits.insert_accepted(
+            &params.submit_id,
+            NewReceipt {
+                kind: SubmitKind::Resume,
+                question_id: None,
+                pane: pane_id,
+                target_ref,
+                text_sha256_16: session_hash,
+                handoff: operator_handoff.is_some(),
+                session_id: Some(params.session_id.clone()),
+            },
+            SubmitFence::new(),
+            now,
+        ) else {
+            return reject(
+                id,
+                "submit_capacity",
+                "submit receipt ledger is full for this server process".into(),
+            );
+        };
+        let started = self.start_agent(crate::api::schema::AgentStartParams {
+            name,
+            kind: crate::detect::agent_label(crate::detect::Agent::Claude).to_string(),
+            pane_id: params.pane_id.clone(),
+            args,
+            timeout_ms: None,
+        });
+        let receipt = match started {
+            Ok(_) => self
+                .state
+                .supervisor
+                .mark_resume_launched(&params.submit_id, crate::supervisor::now_ms()),
+            Err(err) => {
+                let sent = err.command_sent();
+                let code = self.agent_start_error_body(err).code;
+                if sent {
+                    self.state
+                        .supervisor
+                        .mark_resume_unconfirmed(&params.submit_id, &code)
+                } else {
+                    self.state
+                        .supervisor
+                        .submits
+                        .mark_start_failed(&params.submit_id, &code)
+                }
+            }
+        }
+        .unwrap_or(receipt);
+        let response = receipt_response(id, receipt);
+        log.ok(1, &response);
+        response
+    }
+
     fn handle_supervised_write(
         &mut self,
         id: String,
@@ -240,6 +465,7 @@ impl App {
                 question_id: req.question_id.as_deref(),
                 target_ref: &req.target_ref,
                 text_sha256_16: &text_hash,
+                session_id: None,
             },
         ) {
             Repeat::Same(receipt) => {
@@ -416,6 +642,7 @@ impl App {
                 target_ref: req.target_ref.clone(),
                 text_sha256_16: text_hash,
                 handoff: operator_handoff.is_some(),
+                session_id: None,
             },
             fence.clone(),
             now,
@@ -703,7 +930,9 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::schema::supervisor::{ResetEvidence, SubmitReason, SubmitState, TargetRef};
+    use crate::api::schema::supervisor::{
+        ResetEvidence, ResumeEvidence, SubmitReason, SubmitState, TargetRef,
+    };
     use crate::api::schema::{ErrorResponse, Method, Request, SuccessResponse};
     use crate::detect::{Agent, AgentState};
     use crate::layout::PaneId;
@@ -1833,5 +2062,361 @@ mod tests {
                 "{method} must not be an API method"
             );
         }
+    }
+
+    // --- S10: agent.resume -------------------------------------------------------------------
+
+    /// A pane running a plain shell: no agent detected, no managed launch.
+    fn shell_fixture() -> Fixture {
+        shell_fixture_with_capacity(8)
+    }
+
+    fn shell_fixture_with_capacity(capacity: usize) -> Fixture {
+        let reset = Reset;
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("resume")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = crate::app::Mode::Terminal;
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let (runtime, rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80, 24, 0, b"$ ", capacity,
+            );
+        // `agent.start` resolves the pane's runtime through the terminal registry (not the
+        // per-workspace test map), so the runtime goes there. It has no child process: the
+        // start path treats it as an `sh` shell and nothing is spawned.
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminal_runtimes.insert(terminal_id, runtime);
+        Fixture {
+            app,
+            pane_id,
+            rx,
+            _reset: reset,
+        }
+    }
+
+    impl Fixture {
+        fn public_pane(&self) -> String {
+            self.app.public_pane_id(0, self.pane_id).unwrap()
+        }
+
+        fn resume(&mut self, submit_id: &str, session_id: &str) -> String {
+            let pane_id = self.public_pane();
+            self.resume_in(&pane_id, submit_id, session_id)
+        }
+
+        fn resume_in(&mut self, pane_id: &str, submit_id: &str, session_id: &str) -> String {
+            self.app.handle_api_request(Request {
+                id: "rs".into(),
+                method: Method::AgentResume(AgentResumeParams {
+                    pane_id: pane_id.into(),
+                    session_id: session_id.into(),
+                    submit_id: submit_id.into(),
+                }),
+            })
+        }
+
+        /// The exact bytes `agent.start` sends to the test shell for this argv.
+        fn start_bytes(&self, argv: &[&str]) -> Bytes {
+            let argv: Vec<String> = argv.iter().map(|arg| arg.to_string()).collect();
+            let command =
+                crate::platform::interactive_shell_command(&argv, "sh").expect("encodable command");
+            let runtime = self
+                .app
+                .lookup_runtime_sender(0, self.pane_id)
+                .expect("pane runtime");
+            Bytes::from(crate::app::api_helpers::encode_api_submission(
+                runtime, &command,
+            ))
+        }
+
+        /// The next chunk written to the pane, bounded so a missing write fails, not hangs.
+        async fn next_write(&mut self) -> Bytes {
+            tokio::time::timeout(Duration::from_secs(2), self.rx.recv())
+                .await
+                .expect("a pane write within 2s")
+                .expect("pane channel open")
+        }
+
+        /// Process detection of the launched Claude (no hook, no event).
+        fn detect_claude(&mut self) {
+            let terminal_id = self.app.state.workspaces[0].tabs[0].panes[&self.pane_id]
+                .attached_terminal_id
+                .clone();
+            self.app
+                .state
+                .terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_detected_state(Some(Agent::Claude), AgentState::Idle);
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_rejections_launch_nothing_and_record_nothing() {
+        let mut f = shell_fixture();
+        for (submit_id, session_id, code) in [
+            ("bad id", "sess", "invalid_request"),
+            ("r-1", "", "invalid_request"),
+            ("r-1", "a\nb", "invalid_request"),
+            ("r-1", "--dangerously-skip-permissions", "invalid_request"),
+            ("r-1", "sess id", "invalid_request"),
+            (
+                "r-1",
+                &*"x".repeat(MAX_RESUME_SESSION_ID_CHARS + 1),
+                "invalid_request",
+            ),
+        ] {
+            assert_eq!(error_code(&f.resume(submit_id, session_id)), code);
+        }
+        assert_eq!(
+            error_code(&f.resume_in("w9:p9", "r-1", "sess")),
+            "agent_pane_not_found"
+        );
+        crate::supervisor::set_enabled_for_test(Some(false));
+        assert_eq!(error_code(&f.resume("r-1", "sess")), "supervisor_disabled");
+        crate::supervisor::set_enabled_for_test(Some(true));
+        f.app.state.supervisor.submits.set_cap_for_test(0);
+        assert_eq!(error_code(&f.resume("r-1", "sess")), "submit_capacity");
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn resume_rejects_a_pane_with_a_known_agent_as_agent_running() {
+        for state in [AgentState::Idle, AgentState::Working, AgentState::Unknown] {
+            let mut f = fixture_with(Agent::Claude, state, "❯ ");
+            let raw = f.resume("r-busy", "sess");
+            assert_eq!(error_code(&raw), "agent_running", "{state:?}: {raw}");
+            f.assert_nothing_recorded();
+            f.assert_no_write().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_launches_once_through_agent_start_and_repeats_without_relaunch() {
+        let mut f = shell_fixture();
+        let first = receipt(&f.resume("r-1", "sess-123"));
+        assert_eq!(first.kind, SubmitKind::Resume);
+        assert_eq!(first.state, SubmitState::Launched);
+        assert!(first.launched_at_ms.is_some());
+        assert_eq!(first.session_id.as_deref(), Some("sess-123"));
+        assert_eq!(first.resume, Some(ResumeEvidence::Pending));
+        assert_eq!(first.text_sha256_16, text_sha256_16("sess-123"));
+        assert_eq!(first.reset, None);
+        assert_eq!(first.target_ref.pane_id, f.public_pane());
+        assert_eq!(
+            first.acknowledged,
+            crate::api::schema::supervisor::SubmitAcknowledged::Unsupported
+        );
+        // Exactly one start: the agent.start command line for `claude --resume <id>`.
+        let expected = f.start_bytes(&["claude", "--resume", "sess-123"]);
+        assert_eq!(f.next_write().await, expected);
+        f.assert_no_write().await;
+
+        // Same id: same receipt, no second launch. Different session or verb: conflict.
+        assert_eq!(receipt(&f.resume("r-1", "sess-123")), first);
+        assert_eq!(
+            error_code(&f.resume("r-1", "sess-other")),
+            "submit_id_conflict"
+        );
+        // A new id into the same pane: the pending managed launch is a running agent.
+        assert_eq!(error_code(&f.resume("r-2", "sess-123")), "agent_running");
+        assert_eq!(f.app.state.supervisor.submits.len(), 1);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn resume_and_submit_ids_conflict_across_kinds() {
+        let mut f = fixture();
+        let params = f.params("shared", "hello");
+        assert_eq!(receipt(&f.submit(params)).kind, SubmitKind::Submit);
+        // The resume repeat check runs before the pane checks: a conflict, not agent_running.
+        assert_eq!(
+            error_code(&f.resume("shared", "sess")),
+            "submit_id_conflict"
+        );
+
+        let mut g = shell_fixture();
+        receipt(&g.resume("shared-2", "sess"));
+        let params = g.params("shared-2", "hello");
+        assert_eq!(error_code(&g.submit(params)), "submit_id_conflict");
+    }
+
+    #[tokio::test]
+    async fn resume_start_failure_is_failed_with_the_start_error() {
+        // A full PTY input queue refuses the start command (agent_start_input_failed).
+        let mut f = shell_fixture_with_capacity(1);
+        f.app
+            .lookup_runtime_sender(0, f.pane_id)
+            .unwrap()
+            .try_send_bytes(Bytes::from_static(b"occupied"))
+            .unwrap();
+        let r = receipt(&f.resume("r-fail", "sess"));
+        assert_eq!(
+            (r.state, r.reason),
+            (SubmitState::Failed, Some(SubmitReason::StartFailed))
+        );
+        assert_eq!(r.start_error.as_deref(), Some("agent_start_input_failed"));
+        assert_eq!(r.resume, Some(ResumeEvidence::Pending));
+        assert!(r.launched_at_ms.is_none());
+        assert_eq!(f.next_write().await, Bytes::from_static(b"occupied"));
+        f.assert_no_write().await;
+        // Idempotent: the failed receipt is returned, nothing is retried.
+        assert_eq!(receipt(&f.resume("r-fail", "sess")), r);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn resume_verified_by_matching_session_report_after_launch() {
+        let mut f = shell_fixture();
+        receipt(&f.resume("r-v", "sess-v"));
+        f.next_write().await;
+        f.detect_claude();
+        f.report_session("sess-v", "resume", 1);
+        let r = receipt(&f.status("r-v"));
+        assert_eq!(r.state, SubmitState::Launched);
+        assert_eq!(r.resume, Some(ResumeEvidence::Verified));
+        assert_eq!(r.session_start_source.as_deref(), Some("resume"));
+        assert!(r.reported_session.is_none());
+        assert_eq!(r.new_generation, Some(f.target().generation));
+        // A later different session never rewrites the verified receipt.
+        f.report_session("sess-later", "clear", 2);
+        assert_eq!(
+            receipt(&f.status("r-v")).resume,
+            Some(ResumeEvidence::Verified)
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_mismatch_records_the_reported_session() {
+        let mut f = shell_fixture();
+        receipt(&f.resume("r-m", "sess-wanted"));
+        f.next_write().await;
+        f.detect_claude();
+        f.report_session("sess-fresh", "startup", 1);
+        let r = receipt(&f.status("r-m"));
+        assert_eq!(r.resume, Some(ResumeEvidence::Mismatch));
+        let reported = r.reported_session.as_ref().expect("reported session");
+        assert_eq!(reported.value, "sess-fresh");
+        assert_eq!(r.session_start_source.as_deref(), Some("startup"));
+        assert_eq!(r.session_id.as_deref(), Some("sess-wanted"));
+    }
+
+    #[tokio::test]
+    async fn resume_without_a_session_report_stays_pending() {
+        let mut f = shell_fixture();
+        receipt(&f.resume("r-p", "sess-p"));
+        f.next_write().await;
+        f.detect_claude();
+        f.state_changed(AgentState::Working);
+        f.state_changed(AgentState::Idle);
+        let r = receipt(&f.status("r-p"));
+        assert_eq!(
+            (r.state, r.resume),
+            (SubmitState::Launched, Some(ResumeEvidence::Pending))
+        );
+        assert!(r.reported_session.is_none() && r.session_start_source.is_none());
+    }
+
+    /// Earlier Claude in the pane reported session X and exited; its identity can still
+    /// resolve on the terminal. A resume of X whose launched agent reports Y must not read
+    /// as verified from the resolved identity.
+    #[tokio::test]
+    async fn resume_evidence_comes_from_the_reported_session_not_the_resolved_identity() {
+        let mut f = shell_fixture();
+        f.detect_claude();
+        f.report_session("sess-x", "startup", 1);
+        let terminal_id = f.app.state.workspaces[0].tabs[0].panes[&f.pane_id]
+            .attached_terminal_id
+            .clone();
+        {
+            let terminal = f.app.state.terminals.get_mut(&terminal_id).unwrap();
+            terminal.set_detected_state_with_visible_blocker(
+                Some(Agent::Claude),
+                AgentState::Idle,
+                false,
+                false,
+                true,
+            );
+            terminal.set_detected_state(None, AgentState::Unknown);
+        }
+        let r = receipt(&f.resume("r-g", "sess-x"));
+        assert_eq!(r.state, SubmitState::Launched);
+        f.next_write().await;
+        f.detect_claude();
+        f.report_session("sess-y", "startup", 2);
+        let identity = f.app.state.terminals[&terminal_id].current_session_identity();
+        let r = receipt(&f.status("r-g"));
+        // Here the terminal adopts the reported session, so the resolved identity is y
+        // too; the registry test pins the case where it is not.
+        assert_eq!(
+            identity.map(|(_, _, _, value)| value).as_deref(),
+            Some("sess-y")
+        );
+        assert_eq!(r.resume, Some(ResumeEvidence::Mismatch), "{r:?}");
+        assert_eq!(r.reported_session.as_ref().unwrap().value, "sess-y");
+
+        // The same history, then the requested id reported: verified.
+        let mut g = shell_fixture();
+        g.detect_claude();
+        g.report_session("sess-x", "startup", 1);
+        let terminal_id = g.app.state.workspaces[0].tabs[0].panes[&g.pane_id]
+            .attached_terminal_id
+            .clone();
+        {
+            let terminal = g.app.state.terminals.get_mut(&terminal_id).unwrap();
+            terminal.set_detected_state_with_visible_blocker(
+                Some(Agent::Claude),
+                AgentState::Idle,
+                false,
+                false,
+                true,
+            );
+            terminal.set_detected_state(None, AgentState::Unknown);
+        }
+        assert_eq!(
+            receipt(&g.resume("r-g", "sess-x")).state,
+            SubmitState::Launched
+        );
+        g.next_write().await;
+        g.detect_claude();
+        g.report_session("sess-x", "resume", 2);
+        assert_eq!(
+            receipt(&g.status("r-g")).resume,
+            Some(ResumeEvidence::Verified)
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_rejects_a_latched_pane_unless_a_handoff_is_consumed() {
+        let mut f = shell_fixture();
+        f.owner_input_then_output(1_000, 1_002);
+        let raw = f.resume("r-latched", "sess");
+        assert_eq!(error_code(&raw), "draft_not_clean", "{raw}");
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+
+        f.arm_handoff(crate::supervisor::now_ms());
+        assert!(f.handoff_valid());
+        let r = receipt(&f.resume("r-handoff", "sess"));
+        assert_eq!(r.state, SubmitState::Launched);
+        assert!(r.handoff, "receipt records the consumed handoff");
+        assert!(!f.handoff_valid(), "handoff consumed at accept");
+        let expected = f.start_bytes(&["claude", "--resume", "sess"]);
+        assert_eq!(f.next_write().await, expected);
+        f.assert_no_write().await;
     }
 }

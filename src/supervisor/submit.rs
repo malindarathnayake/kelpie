@@ -1,6 +1,6 @@
-//! Fork-only receipt ledger for `agent.submit`, `agent.answer`, `agent.interrupt` and
-//! `agent.reset` (S2/S3, S7-S9). Pure bookkeeping: no App access, no I/O. Receipts never
-//! hold the submitted text, only a 16-hex SHA-256 prefix of it.
+//! Fork-only receipt ledger for `agent.submit`, `agent.answer`, `agent.interrupt`,
+//! `agent.reset` and `agent.resume` (S2/S3, S7-S10). Pure bookkeeping: no App access, no
+//! I/O. Receipts never hold the submitted text, only a 16-hex SHA-256 prefix of it.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::agent_resume::AgentSessionRef;
 use crate::api::schema::supervisor::{
-    ReceiptSession, ResetEvidence, SubmitAcknowledged, SubmitKind, SubmitReason, SubmitReceipt,
-    SubmitState, TargetRef,
+    ReceiptSession, ResetEvidence, ResumeEvidence, SubmitAcknowledged, SubmitKind, SubmitReason,
+    SubmitReceipt, SubmitState, TargetRef,
 };
 use crate::layout::PaneId;
 use crate::supervisor::fence::{is_fenced_error, FenceReason, FenceSnapshot, SubmitFence};
@@ -25,6 +25,24 @@ pub const SUBMIT_DEADLINE: Duration = Duration::from_secs(5);
 pub const RESET_TEXT: &str = "/clear";
 /// Logical text hashed into an `agent.interrupt` receipt: the single Esc key.
 pub const INTERRUPT_HASH_TEXT: &str = "\u{1b}";
+
+/// Upper bound on an `agent.resume` session id, in characters.
+pub const MAX_RESUME_SESSION_ID_CHARS: usize = 256;
+/// Upper bound on a recorded `agent.start` error code.
+const MAX_START_ERROR_CHARS: usize = 64;
+/// Session start sources that verify a resume when the reported id equals the requested one.
+const RESUME_VERIFYING_SOURCES: [&str; 2] = ["resume", "startup"];
+
+/// `[A-Za-z0-9_-]{1,256}`, not starting with `-`: the id becomes a `claude` argument, so
+/// it can never read as an option (CWE-88).
+pub fn valid_resume_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_RESUME_SESSION_ID_CHARS
+        && !id.starts_with('-')
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+}
 
 /// `[A-Za-z0-9._:-]{1,64}`.
 pub fn valid_submit_id(id: &str) -> bool {
@@ -89,6 +107,8 @@ struct SubmitEntry {
     expected_reset_trip: bool,
     /// `reset`: clear session observed between the writer's commit and completion.
     reset_candidate: Option<(ReceiptSession, u64)>,
+    /// `resume`: registry event sequence at which the launch was accepted.
+    launched_seq: Option<u64>,
     #[cfg(debug_assertions)]
     held: Option<HeldWrite>,
     #[cfg(debug_assertions)]
@@ -113,6 +133,8 @@ pub struct RequestKey<'a> {
     pub question_id: Option<&'a str>,
     pub target_ref: &'a TargetRef,
     pub text_sha256_16: &'a str,
+    /// `resume` only: the requested session id.
+    pub session_id: Option<&'a str>,
 }
 
 /// Fields of a newly accepted receipt.
@@ -124,6 +146,8 @@ pub struct NewReceipt {
     pub target_ref: TargetRef,
     pub text_sha256_16: String,
     pub handoff: bool,
+    /// `resume` only: the requested session id.
+    pub session_id: Option<String>,
 }
 
 fn session_wire(session: &AgentSessionRef) -> ReceiptSession {
@@ -183,19 +207,28 @@ impl SubmitLedger {
     }
 
     /// Same id with the same kind, question, target and text returns the stored receipt;
-    /// any difference is a conflict.
+    /// any difference is a conflict. A `resume` names a pane, not a generation (its own
+    /// launch bumps the generation), so it compares epoch, pane and session id.
     pub fn repeat(&self, submit_id: &str, key: RequestKey<'_>) -> Repeat {
-        match self.entries.get(submit_id) {
-            None => Repeat::New,
-            Some(e)
-                if e.receipt.kind == key.kind
-                    && e.receipt.question_id.as_deref() == key.question_id
-                    && e.receipt.target_ref == *key.target_ref
-                    && e.receipt.text_sha256_16 == key.text_sha256_16 =>
-            {
-                Repeat::Same(Box::new(e.receipt.clone()))
-            }
-            Some(_) => Repeat::Conflict,
+        let Some(e) = self.entries.get(submit_id) else {
+            return Repeat::New;
+        };
+        let r = &e.receipt;
+        let target_same = if key.kind == SubmitKind::Resume {
+            r.target_ref.server_epoch == key.target_ref.server_epoch
+                && r.target_ref.pane_id == key.target_ref.pane_id
+        } else {
+            r.target_ref == *key.target_ref
+        };
+        if r.kind == key.kind
+            && r.question_id.as_deref() == key.question_id
+            && target_same
+            && r.text_sha256_16 == key.text_sha256_16
+            && r.session_id.as_deref() == key.session_id
+        {
+            Repeat::Same(Box::new(r.clone()))
+        } else {
+            Repeat::Conflict
         }
     }
 
@@ -226,6 +259,12 @@ impl SubmitLedger {
             reset: (new.kind == SubmitKind::Reset).then_some(ResetEvidence::Pending),
             new_session: None,
             new_generation: None,
+            session_id: new.session_id,
+            resume: (new.kind == SubmitKind::Resume).then_some(ResumeEvidence::Pending),
+            reported_session: None,
+            session_start_source: None,
+            launched_at_ms: None,
+            start_error: None,
         };
         self.entries.insert(
             submit_id.to_string(),
@@ -236,6 +275,7 @@ impl SubmitLedger {
                 written_seq: None,
                 expected_reset_trip: false,
                 reset_candidate: None,
+                launched_seq: None,
                 #[cfg(debug_assertions)]
                 held: None,
                 #[cfg(debug_assertions)]
@@ -329,6 +369,117 @@ impl SubmitLedger {
             }
         }
         unverify_unwritten_reset(r);
+    }
+
+    /// `resume`: the agent.start path accepted the launch at registry event `seq`.
+    pub fn mark_launched(
+        &mut self,
+        submit_id: &str,
+        seq: u64,
+        now_ms: u64,
+    ) -> Option<SubmitReceipt> {
+        let entry = self.entries.get_mut(submit_id)?;
+        if entry.receipt.kind == SubmitKind::Resume && entry.receipt.state == SubmitState::Accepted
+        {
+            entry.receipt.state = SubmitState::Launched;
+            entry.receipt.launched_at_ms = Some(now_ms);
+            entry.launched_seq = Some(seq);
+        }
+        Some(entry.receipt.clone())
+    }
+
+    /// `resume`: the agent.start path refused the launch with `code`; nothing was sent.
+    /// The evidence stays `pending`: no session report can settle a launch that never ran.
+    pub fn mark_start_failed(&mut self, submit_id: &str, code: &str) -> Option<SubmitReceipt> {
+        let entry = self.entries.get_mut(submit_id)?;
+        if entry.receipt.kind == SubmitKind::Resume && entry.receipt.state == SubmitState::Accepted
+        {
+            entry.receipt.state = SubmitState::Failed;
+            entry.receipt.reason = Some(SubmitReason::StartFailed);
+            entry.receipt.start_error = Some(code.chars().take(MAX_START_ERROR_CHARS).collect());
+        }
+        Some(entry.receipt.clone())
+    }
+
+    /// `resume`: the start command was sent at registry event `seq`, then the start path
+    /// failed with `code`. The outcome is unknown: `indeterminate{start_unconfirmed}`. A
+    /// later session report from the pane may still settle the evidence.
+    pub fn mark_start_unconfirmed(
+        &mut self,
+        submit_id: &str,
+        code: &str,
+        seq: u64,
+    ) -> Option<SubmitReceipt> {
+        let entry = self.entries.get_mut(submit_id)?;
+        if entry.receipt.kind == SubmitKind::Resume && entry.receipt.state == SubmitState::Accepted
+        {
+            entry.receipt.state = SubmitState::Indeterminate;
+            entry.receipt.reason = Some(SubmitReason::StartUnconfirmed);
+            entry.receipt.start_error = Some(code.chars().take(MAX_START_ERROR_CHARS).collect());
+            entry.launched_seq = Some(seq);
+        }
+        Some(entry.receipt.clone())
+    }
+
+    /// `resume`: an AgentStarted bump to `generation` at registry event `seq`. The first
+    /// one after a launch records the new target generation (until evidence settles it).
+    pub fn note_agent_started(&mut self, pane: PaneId, generation: u64, seq: u64) {
+        for entry in self.entries.values_mut().filter(|e| {
+            e.pane == pane
+                && e.receipt.kind == SubmitKind::Resume
+                && matches!(
+                    e.receipt.state,
+                    SubmitState::Launched | SubmitState::Indeterminate
+                )
+                && e.receipt.resume == Some(ResumeEvidence::Pending)
+                && e.receipt.new_generation.is_none()
+                && e.launched_seq.is_some_and(|l| l < seq)
+        }) {
+            entry.receipt.new_generation = Some(generation);
+        }
+    }
+
+    /// `resume`: a session report from `pane` applied at registry event `seq`, leaving the
+    /// pane at `generation`. Only the first id reported after the launch settles the
+    /// evidence: the requested id with start source `resume` or `startup` verifies it, a
+    /// different id is a mismatch. The requested id with any other (or no) start source
+    /// leaves it pending.
+    pub fn note_resume_session(
+        &mut self,
+        pane: PaneId,
+        session: &AgentSessionRef,
+        start_source: Option<&str>,
+        generation: u64,
+        seq: u64,
+    ) {
+        for entry in self.entries.values_mut().filter(|e| {
+            e.pane == pane
+                && e.receipt.kind == SubmitKind::Resume
+                && matches!(
+                    e.receipt.state,
+                    SubmitState::Launched | SubmitState::Indeterminate
+                )
+                && e.receipt.resume == Some(ResumeEvidence::Pending)
+                && e.launched_seq.is_some_and(|l| l < seq)
+        }) {
+            let r = &mut entry.receipt;
+            let same = session.kind == crate::agent_resume::AgentSessionRefKind::Id
+                && r.session_id.as_deref() == Some(session.value.as_str());
+            if same {
+                let Some(source) =
+                    start_source.filter(|source| RESUME_VERIFYING_SOURCES.contains(source))
+                else {
+                    continue;
+                };
+                r.resume = Some(ResumeEvidence::Verified);
+                r.session_start_source = Some(source.to_string());
+            } else {
+                r.resume = Some(ResumeEvidence::Mismatch);
+                r.reported_session = Some(session_wire(session));
+                r.session_start_source = start_source.map(str::to_string);
+            }
+            r.new_generation = Some(generation);
+        }
     }
 
     /// Trips the fences of this pane's in-flight submissions.
@@ -471,6 +622,7 @@ mod tests {
             target_ref: target(1),
             text_sha256_16: text_sha256_16(text),
             handoff,
+            session_id: None,
         }
     }
 
@@ -501,6 +653,7 @@ mod tests {
             question_id: None,
             target_ref,
             text_sha256_16: hash,
+            session_id: None,
         }
     }
 
@@ -907,5 +1060,228 @@ mod tests {
         l.trip_pane(pid(1), FenceReason::GenerationChanged);
         assert!(!f.try_commit());
         assert!(other.try_commit());
+    }
+
+    fn accept_resume(ledger: &mut SubmitLedger, id: &str, pane: u32, session: &str) {
+        let new = NewReceipt {
+            kind: SubmitKind::Resume,
+            question_id: None,
+            pane: pid(pane),
+            target_ref: target(1),
+            text_sha256_16: text_sha256_16(session),
+            handoff: false,
+            session_id: Some(session.into()),
+        };
+        ledger
+            .insert_accepted(id, new, SubmitFence::new(), 10)
+            .expect("accepted");
+    }
+
+    fn resume_key<'a>(
+        target_ref: &'a TargetRef,
+        hash: &'a str,
+        session: &'a str,
+    ) -> RequestKey<'a> {
+        RequestKey {
+            kind: SubmitKind::Resume,
+            question_id: None,
+            target_ref,
+            text_sha256_16: hash,
+            session_id: Some(session),
+        }
+    }
+
+    #[test]
+    fn resume_session_id_bounds() {
+        assert!(valid_resume_session_id("a"));
+        assert!(valid_resume_session_id(
+            &"x".repeat(MAX_RESUME_SESSION_ID_CHARS)
+        ));
+        assert!(!valid_resume_session_id(""));
+        assert!(!valid_resume_session_id(
+            &"x".repeat(MAX_RESUME_SESSION_ID_CHARS + 1)
+        ));
+        assert!(!valid_resume_session_id("a\nb"));
+        assert!(!valid_resume_session_id("a\u{1b}b"));
+        assert!(valid_resume_session_id("0b9c-41d2_aa"));
+        // CWE-88: never an option, a path, a quote or whitespace.
+        for bad in [
+            "--dangerously-skip-permissions",
+            "-p",
+            "-",
+            "a b",
+            "a'b",
+            "a\"b",
+            "a/b",
+            "a\\b",
+            "a=b",
+            "a.b",
+            "\u{e9}",
+        ] {
+            assert!(!valid_resume_session_id(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn resume_repeat_ignores_generation_and_conflicts_on_session_or_kind() {
+        let mut l = SubmitLedger::default();
+        accept_resume(&mut l, "r", 1, "sess-a");
+        let hash = text_sha256_16("sess-a");
+        // The launch bumps the generation; a retry naming the same pane is the same request.
+        let bumped = target(5);
+        assert!(matches!(
+            l.repeat("r", resume_key(&bumped, &hash, "sess-a")),
+            Repeat::Same(_)
+        ));
+        let other_hash = text_sha256_16("sess-b");
+        assert_eq!(
+            l.repeat("r", resume_key(&bumped, &other_hash, "sess-b")),
+            Repeat::Conflict
+        );
+        let mut other_pane = target(1);
+        other_pane.pane_id = "p2".into();
+        assert_eq!(
+            l.repeat("r", resume_key(&other_pane, &hash, "sess-a")),
+            Repeat::Conflict
+        );
+        // Cross-kind: a submit with the resume's id conflicts, and the other way round.
+        let t = target(1);
+        assert_eq!(l.repeat("r", key(&t, &hash)), Repeat::Conflict);
+        accept(&mut l, "s", "x");
+        let x = text_sha256_16("x");
+        assert_eq!(l.repeat("s", resume_key(&t, &x, "x")), Repeat::Conflict);
+    }
+
+    #[test]
+    fn resume_launch_and_failure_states() {
+        let mut l = SubmitLedger::default();
+        accept_resume(&mut l, "ok", 1, "sess");
+        let r = l.get("ok").unwrap();
+        assert_eq!(
+            (r.state, r.resume, r.session_id.as_deref()),
+            (
+                SubmitState::Accepted,
+                Some(ResumeEvidence::Pending),
+                Some("sess")
+            )
+        );
+        assert_eq!(r.reset, None);
+        let r = l.mark_launched("ok", 3, 40).unwrap();
+        assert_eq!(
+            (r.state, r.launched_at_ms),
+            (SubmitState::Launched, Some(40))
+        );
+        // A later failure never rewrites a launched receipt.
+        assert_eq!(
+            l.mark_start_failed("ok", "agent_pane_busy").unwrap().state,
+            SubmitState::Launched
+        );
+
+        accept_resume(&mut l, "bad", 1, "sess");
+        let r = l
+            .mark_start_failed("bad", &"x".repeat(MAX_START_ERROR_CHARS + 10))
+            .unwrap();
+        assert_eq!(
+            (r.state, r.reason, r.resume),
+            (
+                SubmitState::Failed,
+                Some(SubmitReason::StartFailed),
+                Some(ResumeEvidence::Pending)
+            )
+        );
+        assert_eq!(
+            r.start_error.as_deref().map(str::len),
+            Some(MAX_START_ERROR_CHARS)
+        );
+        // A failed launch is never settled by a session report.
+        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 2, 9);
+        assert_eq!(l.get("bad").unwrap().resume, Some(ResumeEvidence::Pending));
+        // Fence trips and writer results never touch resume receipts.
+        l.trip_pane(pid(1), FenceReason::GenerationChanged);
+        l.complete("ok", &Ok(()), CLEAN, 10, 50);
+        assert_eq!(l.get("ok").unwrap().state, SubmitState::Launched);
+    }
+
+    #[test]
+    fn resume_failure_after_send_is_indeterminate_and_can_still_be_settled() {
+        let mut l = SubmitLedger::default();
+        accept_resume(&mut l, "u", 1, "sess");
+        let r = l
+            .mark_start_unconfirmed("u", "agent_pane_unavailable", 2)
+            .unwrap();
+        assert_eq!(
+            (r.state, r.reason, r.start_error.as_deref()),
+            (
+                SubmitState::Indeterminate,
+                Some(SubmitReason::StartUnconfirmed),
+                Some("agent_pane_unavailable")
+            )
+        );
+        assert!(r.launched_at_ms.is_none());
+        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 2, 3);
+        assert_eq!(l.get("u").unwrap().resume, Some(ResumeEvidence::Verified));
+    }
+
+    #[test]
+    fn resume_verified_only_by_matching_session_after_launch() {
+        let mut l = SubmitLedger::default();
+        accept_resume(&mut l, "r", 1, "sess");
+        // Before the launch: nothing is recorded.
+        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 1, 1);
+        assert_eq!(l.get("r").unwrap().resume, Some(ResumeEvidence::Pending));
+        l.mark_launched("r", 2, 20);
+        // The launched agent appears: the new generation is known.
+        l.note_agent_started(pid(1), 2, 3);
+        let r = l.get("r").unwrap();
+        assert_eq!(
+            (r.resume, r.new_generation),
+            (Some(ResumeEvidence::Pending), Some(2))
+        );
+        // Other pane, or the same id with a non-verifying source: still pending.
+        l.note_resume_session(pid(2), &session("sess"), Some("resume"), 2, 4);
+        l.note_resume_session(pid(1), &session("sess"), Some("clear"), 2, 5);
+        l.note_resume_session(pid(1), &session("sess"), None, 2, 6);
+        assert_eq!(l.get("r").unwrap().resume, Some(ResumeEvidence::Pending));
+        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 2, 7);
+        let r = l.get("r").unwrap();
+        assert_eq!(r.resume, Some(ResumeEvidence::Verified));
+        assert_eq!(r.session_start_source.as_deref(), Some("resume"));
+        assert_eq!(r.new_generation, Some(2));
+        assert!(r.reported_session.is_none());
+        // Later evidence never rewrites a settled receipt.
+        l.note_resume_session(pid(1), &session("other"), Some("resume"), 3, 8);
+        assert_eq!(l.get("r").unwrap().resume, Some(ResumeEvidence::Verified));
+
+        // `startup` with the requested id also verifies, and is recorded.
+        accept_resume(&mut l, "s", 3, "sess-s");
+        l.mark_launched("s", 9, 30);
+        l.note_resume_session(pid(3), &session("sess-s"), Some("startup"), 4, 10);
+        let r = l.get("s").unwrap();
+        assert_eq!(
+            (r.resume, r.session_start_source.as_deref()),
+            (Some(ResumeEvidence::Verified), Some("startup"))
+        );
+    }
+
+    #[test]
+    fn resume_mismatch_records_the_reported_session_and_stays_pending_without_reports() {
+        let mut l = SubmitLedger::default();
+        accept_resume(&mut l, "m", 1, "wanted");
+        l.mark_launched("m", 2, 20);
+        l.note_resume_session(pid(1), &session("fresh"), Some("startup"), 2, 3);
+        let r = l.get("m").unwrap();
+        assert_eq!(r.resume, Some(ResumeEvidence::Mismatch));
+        assert_eq!(r.reported_session.as_ref().unwrap().value, "fresh");
+        assert_eq!(r.session_start_source.as_deref(), Some("startup"));
+        assert_eq!(r.new_generation, Some(2));
+        // The requested id reported afterwards does not turn a mismatch into success.
+        l.note_resume_session(pid(1), &session("wanted"), Some("resume"), 2, 4);
+        assert_eq!(l.get("m").unwrap().resume, Some(ResumeEvidence::Mismatch));
+
+        accept_resume(&mut l, "p", 2, "wanted");
+        l.mark_launched("p", 5, 21);
+        let r = l.get("p").unwrap();
+        assert_eq!(r.resume, Some(ResumeEvidence::Pending));
+        assert!(r.reported_session.is_none() && r.new_generation.is_none());
     }
 }

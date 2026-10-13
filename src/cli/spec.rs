@@ -435,6 +435,31 @@ fn agent_command() -> Command {
                 ),
         )
         .subcommand(
+            Command::new("resume")
+                .about("Resume a Claude session in a pane that hosts no agent")
+                .override_usage(
+                    "herdr agent resume --pane <ID> --session-id <ID> --submit-id <ID>",
+                )
+                .arg(
+                    option("pane", "ID")
+                        .required(true)
+                        .help("Pane to launch in; it must host no agent (else agent_running)"),
+                )
+                .arg(
+                    option("session-id", "ID")
+                        .required(true)
+                        .help("Claude session id: 1-256 characters of [A-Za-z0-9_-], not starting with -"),
+                )
+                .arg(
+                    option("submit-id", "ID")
+                        .required(true)
+                        .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
+                )
+                .after_help(
+                    "Claude only. Launches claude --resume <ID> through the agent start path. The receipt's state is launched when the start was accepted, failed (with start_error) when it was refused before anything was sent, or indeterminate (start_unconfirmed) when it failed after the command was sent. A pane where the owner typed is rejected draft_not_clean unless a one-time handoff is armed. Its resume is verified only when the pane's agent reports the requested session id (start source resume or startup) after the launch, mismatch (with reported_session) when it reports a different id first, and pending otherwise. new_generation is the pane's generation once the agent was observed. Repeating a submit_id returns the same receipt and never launches again.\n\nnext: herdr agent submit-status <ID>",
+                ),
+        )
+        .subcommand(
             Command::new("submit-status")
                 .about("Show the receipt for a submit_id")
                 .arg(required("submit_id", "SUBMIT_ID")),
@@ -1226,6 +1251,43 @@ mod tests {
 
         let status = command_path(&cmd, &["agent", "submit-status"]);
         assert!(argument(status, "submit_id").is_required_set());
+    }
+
+    #[test]
+    fn spec_lists_agent_resume_with_required_flags() {
+        let cmd = super::command();
+        let resume = command_path(&cmd, &["agent", "resume"]);
+        for option in ["pane", "session-id", "submit-id"] {
+            assert!(
+                option_arg(resume, option).is_required_set(),
+                "resume --{option}"
+            );
+        }
+        assert!(!has_option(resume, "target-ref"));
+        let full = [
+            "herdr",
+            "agent",
+            "resume",
+            "--pane",
+            "w1:p1",
+            "--session-id",
+            "sess-1",
+            "--submit-id",
+            "r1",
+        ];
+        assert!(super::command().try_get_matches_from(full).is_ok());
+        let mut extra = full.to_vec();
+        extra.push("extra");
+        assert!(super::command().try_get_matches_from(extra).is_err());
+        for missing in [3, 5, 7] {
+            let mut args = full.to_vec();
+            args.drain(missing..missing + 2);
+            assert!(
+                super::command().try_get_matches_from(args).is_err(),
+                "missing {}",
+                full[missing]
+            );
+        }
     }
 
     #[test]

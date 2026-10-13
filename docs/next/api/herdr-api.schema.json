@@ -1364,6 +1364,29 @@
           ],
           "type": "object"
         },
+        "AgentResumeParams": {
+          "description": "Parameters for `agent.resume`: launches `claude --resume <session_id>` in a pane that\nhosts no agent, through the `agent.start` path.",
+          "properties": {
+            "pane_id": {
+              "description": "Pane to launch in; it must host no running or known agent and no pending launch.",
+              "type": "string"
+            },
+            "session_id": {
+              "description": "Claude session id to resume, 1-256 characters, no control characters.",
+              "type": "string"
+            },
+            "submit_id": {
+              "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "session_id",
+            "submit_id"
+          ],
+          "type": "object"
+        },
         "AgentSendKeysParams": {
           "properties": {
             "keys": {
@@ -5648,6 +5671,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentControlParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.resume",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentResumeParams"
             }
           },
           "required": [
@@ -11251,6 +11290,32 @@
             }
           ]
         },
+        "ResumeEvidence": {
+          "description": "Evidence state of an `agent.resume` receipt. Order-based: only the first session\nreport from the pane after the launch counts.",
+          "oneOf": [
+            {
+              "enum": [
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "pending",
+              "description": "No session report with the requested id (or a different id) seen after the launch.",
+              "type": "string"
+            },
+            {
+              "const": "verified",
+              "description": "The pane's agent reported the requested session id after the launch, with start\nsource `resume` or `startup`.",
+              "type": "string"
+            },
+            {
+              "const": "mismatch",
+              "description": "The first session id the pane's agent reported after the launch differs from the\nrequested one (`reported_session` holds it). Never a success.",
+              "type": "string"
+            }
+          ]
+        },
         "ServerCapabilities": {
           "properties": {
             "detached_server_daemon": {
@@ -11387,29 +11452,44 @@
             "answer",
             "interrupt",
             "reset",
+            "resume",
             "unknown"
           ],
           "type": "string"
         },
         "SubmitReason": {
           "description": "Why a receipt is `fenced` or `indeterminate`.",
-          "enum": [
-            "owner_input",
-            "generation_changed",
-            "pane_closed",
-            "owner_input_during_write",
-            "generation_changed_during_write",
-            "pane_closed_during_write",
-            "deadline_expired",
-            "queue_failed",
-            "write_failed",
-            "pty_closed",
-            "unknown"
-          ],
-          "type": "string"
+          "oneOf": [
+            {
+              "enum": [
+                "owner_input",
+                "generation_changed",
+                "pane_closed",
+                "owner_input_during_write",
+                "generation_changed_during_write",
+                "pane_closed_during_write",
+                "deadline_expired",
+                "queue_failed",
+                "write_failed",
+                "pty_closed",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "start_failed",
+              "description": "`resume`: the agent.start path refused the launch (`start_error` has its code).",
+              "type": "string"
+            },
+            {
+              "const": "start_unconfirmed",
+              "description": "`resume`: the start command was sent to the pane, then the start path failed; the\nlaunch outcome is not known (`start_error` has the code).",
+              "type": "string"
+            }
+          ]
         },
         "SubmitReceipt": {
-          "description": "Receipt for one `agent.submit`, `agent.answer`, `agent.interrupt` or `agent.reset`.\nNever contains the submitted text.",
+          "description": "Receipt for one `agent.submit`, `agent.answer`, `agent.interrupt`, `agent.reset` or\n`agent.resume`. Never contains the submitted text.",
           "properties": {
             "accepted_at_ms": {
               "format": "uint64",
@@ -11429,8 +11509,17 @@
               "default": "submit",
               "description": "Verb that created the receipt."
             },
+            "launched_at_ms": {
+              "description": "`resume` only, when `launched`: time the agent.start path accepted the launch.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "new_generation": {
-              "description": "`reset` only, when `verified`: the target generation after the session change.",
+              "description": "`reset`, when `verified`: the target generation after the session change.\n`resume`: the pane's generation once the launched agent was observed (after its\nAgentStarted bump), or at the session report that settled the evidence.",
               "format": "uint64",
               "minimum": 0,
               "type": [
@@ -11466,6 +11555,17 @@
                 }
               ]
             },
+            "reported_session": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/ReceiptSession"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`resume` only, when `mismatch`: the session the agent reported instead."
+            },
             "reset": {
               "anyOf": [
                 {
@@ -11477,6 +11577,38 @@
               ],
               "description": "`reset` only: evidence state."
             },
+            "resume": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/ResumeEvidence"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`resume` only: evidence state."
+            },
+            "session_id": {
+              "description": "`resume` only: the requested session id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session_start_source": {
+              "description": "`resume` only, when `verified` or `mismatch`: the reported session start source.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "start_error": {
+              "description": "`resume` only, when `failed`: the agent.start error code.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "state": {
               "$ref": "#/schemas/success_response/$defs/SubmitState"
             },
@@ -11487,7 +11619,7 @@
               "$ref": "#/schemas/success_response/$defs/TargetRef"
             },
             "text_sha256_16": {
-              "description": "First 16 lowercase hex chars of SHA-256 over the submitted text bytes.",
+              "description": "First 16 lowercase hex chars of SHA-256 over the submitted text bytes (`resume`:\nover the requested session id).",
               "type": "string"
             },
             "turn_end_observed_after_write_at_ms": {
@@ -11545,6 +11677,16 @@
             {
               "const": "indeterminate",
               "description": "The outcome is not known; never resend automatically.",
+              "type": "string"
+            },
+            {
+              "const": "launched",
+              "description": "`resume` only: the agent.start path accepted the launch (the command was sent to\nthe pane's shell). Says nothing about whether the session was resumed.",
+              "type": "string"
+            },
+            {
+              "const": "failed",
+              "description": "`resume` only: the agent.start path refused the launch; nothing was sent.",
               "type": "string"
             }
           ]

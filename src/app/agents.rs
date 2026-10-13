@@ -231,7 +231,7 @@ impl App {
 
         let agent = self
             .agent_info(ws_idx, pane_id)
-            .ok_or(AgentStartError::TargetUnavailable(params.pane_id))?;
+            .ok_or(AgentStartError::UnavailableAfterSend(params.pane_id))?;
         Ok((agent, argv))
     }
 
@@ -264,7 +264,8 @@ impl App {
                 code: "agent_pane_busy".into(),
                 message: format!("agent target pane {target} is not an available shell"),
             },
-            AgentStartError::TargetUnavailable(target) => crate::api::schema::ErrorBody {
+            AgentStartError::TargetUnavailable(target)
+            | AgentStartError::UnavailableAfterSend(target) => crate::api::schema::ErrorBody {
                 code: "agent_pane_unavailable".into(),
                 message: format!("agent target pane {target} has no live terminal"),
             },
@@ -406,7 +407,7 @@ impl App {
         })
     }
 
-    fn agent_name_conflicts(
+    pub(super) fn agent_name_conflicts(
         &self,
         name: &str,
         except_terminal_id: &str,
@@ -458,11 +459,22 @@ pub(super) enum AgentStartError {
     TargetNotFound(String),
     TargetBusy(String),
     TargetUnavailable(String),
+    /// The start command was already sent to the pane, then the pane's agent info could
+    /// not be read. Reported to `agent.start` exactly like `TargetUnavailable`.
+    UnavailableAfterSend(String),
     InputFailed(String),
     DuplicateName {
         name: String,
         candidates: Vec<crate::api::schema::AgentInfo>,
     },
+}
+
+impl AgentStartError {
+    /// True when the start command had already been sent to the pane when this error
+    /// occurred (the launch outcome is unknown); false for refusals before the send.
+    pub(super) fn command_sent(&self) -> bool {
+        matches!(self, AgentStartError::UnavailableAfterSend(_))
+    }
 }
 
 pub(super) enum AgentRenameError {

@@ -224,18 +224,40 @@ impl Fixture {
     /// `agent prompt` sees the agent as the pane's foreground process. It is an
     /// interactive shell, so typed prompts are echoed and otherwise harmless.
     fn launch_stand_in_claude(&self, pane: &str) {
+        let stand_in = self.write_stand_in_claude();
+        let command = if cfg!(windows) {
+            format!("\"{}\" /q /k", stand_in.display())
+        } else {
+            format!("'{}'", stand_in.display())
+        };
+        self.cli_json(&["pane", "run", pane, &command]);
+        // Detection only, no report yet: the pane's own agent must be Claude.
+        let identified = wait_until(Duration::from_secs(10), || {
+            let output = self.cli(&["agent", "get", pane]);
+            output.status.success()
+                && serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                    .is_ok_and(|got| got["result"]["agent"]["agent"] == "claude")
+        });
+        assert!(identified, "stand-in claude was not identified in {pane}");
+    }
+
+    /// Write the stand-in Claude executable into `<base>/bin` and return its path. It
+    /// ignores its arguments (so `claude --resume <id>` starts it too).
+    fn write_stand_in_claude(&self) -> PathBuf {
         let bin = self.base.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let command = if cfg!(windows) {
+        if cfg!(windows) {
             let system_root =
                 std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
             let stand_in = bin.join("claude.exe");
-            std::fs::copy(
-                PathBuf::from(system_root).join(r"System32\cmd.exe"),
-                &stand_in,
-            )
-            .unwrap();
-            format!("\"{}\" /q /k", stand_in.display())
+            if !stand_in.exists() {
+                std::fs::copy(
+                    PathBuf::from(system_root).join(r"System32\cmd.exe"),
+                    &stand_in,
+                )
+                .unwrap();
+            }
+            stand_in
         } else {
             let stand_in = bin.join("claude");
             std::fs::write(
@@ -249,17 +271,8 @@ impl Fixture {
                 std::fs::set_permissions(&stand_in, std::fs::Permissions::from_mode(0o755))
                     .unwrap();
             }
-            format!("'{}'", stand_in.display())
-        };
-        self.cli_json(&["pane", "run", pane, &command]);
-        // Detection only, no report yet: the pane's own agent must be Claude.
-        let identified = wait_until(Duration::from_secs(10), || {
-            let output = self.cli(&["agent", "get", pane]);
-            output.status.success()
-                && serde_json::from_slice::<serde_json::Value>(&output.stdout)
-                    .is_ok_and(|got| got["result"]["agent"]["agent"] == "claude")
-        });
-        assert!(identified, "stand-in claude was not identified in {pane}");
+            stand_in
+        }
     }
 
     /// Report agent state the way an integration hook does.
@@ -2317,4 +2330,184 @@ fn s9_reset_without_clear_session_stays_pending() {
         receipt.get("new_generation").is_none_or(|v| v.is_null()),
         "{receipt}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Local slice part 3 S10: `agent resume`.
+// ---------------------------------------------------------------------------
+
+impl Fixture {
+    /// Put the stand-in Claude first on the pane shell's PATH, so the bare `claude`
+    /// command `agent.start` types resolves to it.
+    fn stand_in_claude_on_path(&self, pane: &str, tag: &str) {
+        let stand_in = self.write_stand_in_claude();
+        let bin = stand_in.parent().unwrap().display().to_string();
+        let marker = format!("path-ready-{tag}");
+        let command = if cfg!(windows) {
+            format!("set \"PATH={bin};%PATH%\" & echo {marker}")
+        } else {
+            format!("export PATH='{bin}':\"$PATH\"; echo {marker}")
+        };
+        self.run_and_wait(pane, &command, &marker);
+    }
+
+    fn resume_args<'a>(pane: &'a str, session_id: &'a str, submit_id: &'a str) -> [&'a str; 8] {
+        [
+            "agent",
+            "resume",
+            "--pane",
+            pane,
+            "--session-id",
+            session_id,
+            "--submit-id",
+            submit_id,
+        ]
+    }
+
+    fn resume_ok(&self, pane: &str, session_id: &str, submit_id: &str) -> serde_json::Value {
+        let response = self.cli_json(&Self::resume_args(pane, session_id, submit_id));
+        receipt_of(&response, NO_TEXT)
+    }
+
+    fn resume_error(&self, pane: &str, session_id: &str, submit_id: &str) -> serde_json::Value {
+        self.cli_error(&Self::resume_args(pane, session_id, submit_id))
+    }
+
+    /// Wait until the launched stand-in is the pane's detected Claude; returns the entry.
+    fn launched_claude(&self, pane: &str) -> serde_json::Value {
+        let launched = |agent: &serde_json::Value| {
+            agent["agent"] == "claude"
+                && agent["lineage"].as_array().is_some_and(|lineage| {
+                    lineage
+                        .iter()
+                        .any(|entry| entry["reason"] == "agent_started")
+                })
+        };
+        let mut last = serde_json::Value::Null;
+        // Bound sized for the isolated runner: on Windows `agent.start` launches through
+        // `powershell.exe ... Start-Process`, and with USERPROFILE redirected to an empty
+        // sandbox dir the first Start-Process in each PowerShell process was measured at
+        // 11-17 s (about 1.4 s with the real profile), more under a parallel fixture run.
+        let ok = wait_until(Duration::from_secs(60), || {
+            if let Some(agent) = Self::digest_entry(&self.digest(), pane) {
+                let done = launched(&agent);
+                last = agent;
+                return done;
+            }
+            false
+        });
+        assert!(
+            ok,
+            "the launched stand-in claude was never detected: {last}\npane screen:\n{}\nagent get: {}",
+            self.screen_text(pane),
+            String::from_utf8_lossy(&self.cli(&["agent", "get", pane]).stdout)
+        );
+        last
+    }
+
+    fn agent_count(&self) -> usize {
+        self.cli_json(&["agent", "list"])["result"]["agents"]
+            .as_array()
+            .map_or(0, Vec::len)
+    }
+}
+
+/// S10: resume launches the stand-in through the agent start path (`launched`);
+/// the reported session with the requested id and source `resume` verifies it
+/// and the receipt carries the generation after the launch; a retry returns the
+/// same receipt and launches nothing; a new id into the now-busy pane is
+/// rejected `agent_running` before any launch.
+///
+/// Limit: the stand-in does not really resume a session; the evidence is driven
+/// with `pane report-agent-session`. "No second launch" is observed as an
+/// unchanged receipt, agent count and generation (on Windows the typed start
+/// command is an encoded PowerShell line, so the argv is not on screen).
+#[test]
+fn s10_resume_launches_once_and_verifies_matching_session() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    fixture.stand_in_claude_on_path(&pane, "s10");
+    assert_eq!(fixture.agent_count(), 0);
+
+    let accepted = fixture.resume_ok(&pane, "s10-session", "s10-r");
+    assert_eq!(accepted["kind"], "resume", "{accepted}");
+    assert_eq!(accepted["state"], "launched", "{accepted}");
+    assert_eq!(accepted["resume"], "pending", "{accepted}");
+    assert_eq!(accepted["session_id"], "s10-session", "{accepted}");
+    assert!(accepted["launched_at_ms"].is_u64(), "{accepted}");
+
+    let agent = fixture.launched_claude(&pane);
+    let generation = agent["target_ref"]["generation"].as_u64().unwrap();
+    let started = fixture.wait_receipt("s10-r", NO_TEXT, "the new generation", |receipt| {
+        receipt["new_generation"].is_u64()
+    });
+    assert_eq!(
+        started["new_generation"].as_u64(),
+        Some(generation),
+        "{started}"
+    );
+    assert_eq!(started["resume"], "pending", "{started}");
+
+    fixture.report_session_start(&pane, "s10-session", "resume");
+    let verified = fixture.wait_receipt("s10-r", NO_TEXT, "verified", |receipt| {
+        receipt["resume"] == "verified"
+    });
+    assert_eq!(verified["state"], "launched", "{verified}");
+    assert_eq!(verified["session_start_source"], "resume", "{verified}");
+    assert!(
+        verified.get("reported_session").is_none_or(|v| v.is_null()),
+        "{verified}"
+    );
+    let current = fixture.digest_agent(&pane);
+    assert_eq!(
+        verified["new_generation"], current["target_ref"]["generation"],
+        "receipt reports the current target generation: {current}"
+    );
+    let agents = fixture.agent_count();
+    assert_eq!(agents, 1);
+
+    let again = fixture.resume_ok(&pane, "s10-session", "s10-r");
+    assert_eq!(again, verified, "retry returns the same receipt");
+    thread::sleep(Duration::from_millis(1500));
+    assert_eq!(fixture.agent_count(), agents, "retry launched again");
+    assert_eq!(
+        fixture.digest_agent(&pane)["target_ref"]["generation"],
+        current["target_ref"]["generation"]
+    );
+    assert_eq!(fixture.submit_status("s10-r", NO_TEXT), verified);
+
+    let busy = fixture.resume_error(&pane, "s10-session", "s10-busy");
+    assert_eq!(busy["error"]["code"], "agent_running", "{busy}");
+    let unknown = fixture.cli_error(&["agent", "submit-status", "s10-busy"]);
+    assert_eq!(unknown["error"]["code"], "submit_not_found", "{unknown}");
+}
+
+/// S10: a different session id reported first is a `mismatch` that records the
+/// reported session; the requested id reported afterwards does not turn it
+/// into a success.
+#[test]
+fn s10_resume_different_session_is_mismatch() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    fixture.stand_in_claude_on_path(&pane, "s10m");
+    let accepted = fixture.resume_ok(&pane, "s10m-wanted", "s10m-r");
+    assert_eq!(accepted["state"], "launched", "{accepted}");
+    fixture.launched_claude(&pane);
+
+    fixture.report_session_start(&pane, "s10m-fresh", "startup");
+    let mismatch = fixture.wait_receipt("s10m-r", NO_TEXT, "mismatch", |receipt| {
+        receipt["resume"] == "mismatch"
+    });
+    assert_eq!(
+        mismatch["reported_session"]["value"], "s10m-fresh",
+        "{mismatch}"
+    );
+    assert_eq!(mismatch["reported_session"]["kind"], "id", "{mismatch}");
+    assert_eq!(mismatch["session_start_source"], "startup", "{mismatch}");
+    assert_eq!(mismatch["session_id"], "s10m-wanted", "{mismatch}");
+
+    fixture.report_session_start(&pane, "s10m-wanted", "resume");
+    thread::sleep(Duration::from_millis(500));
+    let after = fixture.submit_status("s10m-r", NO_TEXT);
+    assert_eq!(after["resume"], "mismatch", "{after}");
 }

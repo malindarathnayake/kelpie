@@ -309,6 +309,18 @@ pub struct AgentControlParams {
     pub submit_id: String,
 }
 
+/// Parameters for `agent.resume`: launches `claude --resume <session_id>` in a pane that
+/// hosts no agent, through the `agent.start` path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentResumeParams {
+    /// Pane to launch in; it must host no running or known agent and no pending launch.
+    pub pane_id: String,
+    /// Claude session id to resume, 1-256 characters, no control characters.
+    pub session_id: String,
+    /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    pub submit_id: String,
+}
+
 /// Parameters for `agent.submit_status`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentSubmitStatusParams {
@@ -328,6 +340,11 @@ pub enum SubmitState {
     Fenced,
     /// The outcome is not known; never resend automatically.
     Indeterminate,
+    /// `resume` only: the agent.start path accepted the launch (the command was sent to
+    /// the pane's shell). Says nothing about whether the session was resumed.
+    Launched,
+    /// `resume` only: the agent.start path refused the launch; nothing was sent.
+    Failed,
     #[serde(other)]
     Unknown,
 }
@@ -346,6 +363,11 @@ pub enum SubmitReason {
     QueueFailed,
     WriteFailed,
     PtyClosed,
+    /// `resume`: the agent.start path refused the launch (`start_error` has its code).
+    StartFailed,
+    /// `resume`: the start command was sent to the pane, then the start path failed; the
+    /// launch outcome is not known (`start_error` has the code).
+    StartUnconfirmed,
     #[serde(other)]
     Unknown,
 }
@@ -358,6 +380,7 @@ pub enum SubmitKind {
     Answer,
     Interrupt,
     Reset,
+    Resume,
     #[serde(other)]
     Unknown,
 }
@@ -378,6 +401,23 @@ pub enum ResetEvidence {
     Unknown,
 }
 
+/// Evidence state of an `agent.resume` receipt. Order-based: only the first session
+/// report from the pane after the launch counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResumeEvidence {
+    /// No session report with the requested id (or a different id) seen after the launch.
+    Pending,
+    /// The pane's agent reported the requested session id after the launch, with start
+    /// source `resume` or `startup`.
+    Verified,
+    /// The first session id the pane's agent reported after the launch differs from the
+    /// requested one (`reported_session` holds it). Never a success.
+    Mismatch,
+    #[serde(other)]
+    Unknown,
+}
+
 /// Session identity (kind and value) recorded by a verified reset.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReceiptSession {
@@ -394,8 +434,8 @@ pub enum SubmitAcknowledged {
     Unknown,
 }
 
-/// Receipt for one `agent.submit`, `agent.answer`, `agent.interrupt` or `agent.reset`.
-/// Never contains the submitted text.
+/// Receipt for one `agent.submit`, `agent.answer`, `agent.interrupt`, `agent.reset` or
+/// `agent.resume`. Never contains the submitted text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SubmitReceipt {
     pub submit_id: String,
@@ -407,7 +447,8 @@ pub struct SubmitReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<SubmitReason>,
     pub acknowledged: SubmitAcknowledged,
-    /// First 16 lowercase hex chars of SHA-256 over the submitted text bytes.
+    /// First 16 lowercase hex chars of SHA-256 over the submitted text bytes (`resume`:
+    /// over the requested session id).
     pub text_sha256_16: String,
     /// True when acceptance consumed a one-shot operator handoff.
     #[serde(default)]
@@ -429,9 +470,29 @@ pub struct SubmitReceipt {
     /// `reset` only, when `verified`: the observed new session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_session: Option<ReceiptSession>,
-    /// `reset` only, when `verified`: the target generation after the session change.
+    /// `reset`, when `verified`: the target generation after the session change.
+    /// `resume`: the pane's generation once the launched agent was observed (after its
+    /// AgentStarted bump), or at the session report that settled the evidence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_generation: Option<u64>,
+    /// `resume` only: the requested session id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// `resume` only: evidence state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<ResumeEvidence>,
+    /// `resume` only, when `mismatch`: the session the agent reported instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_session: Option<ReceiptSession>,
+    /// `resume` only, when `verified` or `mismatch`: the reported session start source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_start_source: Option<String>,
+    /// `resume` only, when `launched`: time the agent.start path accepted the launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launched_at_ms: Option<u64>,
+    /// `resume` only, when `failed`: the agent.start error code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_error: Option<String>,
 }
 
 fn default_submit_kind() -> SubmitKind {

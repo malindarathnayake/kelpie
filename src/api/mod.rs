@@ -55,6 +55,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::AgentAnswer(_)
             | Method::AgentInterrupt(_)
             | Method::AgentReset(_)
+            | Method::AgentResume(_)
             | Method::AgentSendKeys(_)
             | Method::PaneSplit(_)
             | Method::PaneSwap(_)

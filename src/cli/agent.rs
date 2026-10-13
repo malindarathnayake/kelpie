@@ -3,8 +3,8 @@ use std::io::Write;
 use std::time::{Duration, Instant};
 
 use crate::api::schema::supervisor::{
-    AgentAnswerParams, AgentControlParams, AgentSubmitParams, AgentSubmitStatusParams,
-    AgentsDigestParams, DigestFilter, TargetRef,
+    AgentAnswerParams, AgentControlParams, AgentResumeParams, AgentSubmitParams,
+    AgentSubmitStatusParams, AgentsDigestParams, DigestFilter, TargetRef,
 };
 use crate::api::schema::{
     AgentPromptParams, AgentPromptWaitOptions, AgentReadParams, AgentRenameParams,
@@ -29,6 +29,7 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         "answer" => agent_answer(&args[1..]),
         "interrupt" => agent_interrupt(&args[1..]),
         "reset" => agent_reset(&args[1..]),
+        "resume" => agent_resume(&args[1..]),
         "submit-status" => agent_submit_status(&args[1..]),
         "get" => agent_get(&args[1..]),
         "read" => agent_read(&args[1..]),
@@ -510,6 +511,7 @@ const INTERRUPT_USAGE: &str =
     "herdr agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
 const RESET_USAGE: &str =
     "herdr agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
+const RESUME_USAGE: &str = "herdr agent resume --pane ID --session-id ID --submit-id ID";
 const SUBMIT_STATUS_USAGE: &str = "herdr agent submit-status <SUBMIT_ID>";
 const WATCH_DEFAULT_INTERVAL_MS: u64 = 500;
 const WATCH_MIN_INTERVAL_MS: u64 = 100;
@@ -917,6 +919,50 @@ fn parse_agent_control_args(args: &[String], usage: &str) -> Result<AgentControl
     })
 }
 
+/// `agent resume`: `--pane`, `--session-id` and `--submit-id`, each required once; no
+/// positional arguments.
+fn parse_agent_resume_args(args: &[String]) -> Result<AgentResumeParams, String> {
+    const FLAGS: [&str; 3] = ["--pane", "--session-id", "--submit-id"];
+    let args = super::expand_equals_args(args, &FLAGS);
+    let usage = || format!("usage: {RESUME_USAGE}");
+    let mut pane: Option<String> = None;
+    let mut session_id: Option<String> = None;
+    let mut submit_id: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        if !FLAGS.contains(&arg) {
+            return Err(usage());
+        }
+        let Some(value) = args.get(index + 1) else {
+            return Err(format!("missing value for {arg}"));
+        };
+        let slot = match arg {
+            "--pane" => &mut pane,
+            "--session-id" => &mut session_id,
+            _ => &mut submit_id,
+        };
+        if slot.replace(value.clone()).is_some() {
+            return Err(usage());
+        }
+        index += 2;
+    }
+    let Some(pane) = pane else {
+        return Err("missing required --pane".into());
+    };
+    let Some(session_id) = session_id else {
+        return Err("missing required --session-id".into());
+    };
+    let Some(submit_id) = submit_id else {
+        return Err("missing required --submit-id".into());
+    };
+    Ok(AgentResumeParams {
+        pane_id: super::normalize_pane_id(&pane),
+        session_id,
+        submit_id,
+    })
+}
+
 fn send_supervised(id: &str, parsed: Result<Method, String>) -> std::io::Result<i32> {
     let method = match parsed {
         Ok(method) => method,
@@ -961,6 +1007,14 @@ fn agent_reset(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
         "cli:agent:reset",
         parse_agent_control_args(args, RESET_USAGE).map(Method::AgentReset),
+    )
+}
+
+/// `herdr agent resume`: launches `claude --resume <session-id>` in a pane hosting no agent.
+fn agent_resume(args: &[String]) -> std::io::Result<i32> {
+    send_supervised(
+        "cli:agent:resume",
+        parse_agent_resume_args(args).map(Method::AgentResume),
     )
 }
 
@@ -1472,6 +1526,7 @@ fn print_agent_help() {
     eprintln!("  {ANSWER_USAGE}");
     eprintln!("  {INTERRUPT_USAGE}");
     eprintln!("  {RESET_USAGE}");
+    eprintln!("  {RESUME_USAGE}");
     eprintln!("  {SUBMIT_STATUS_USAGE}");
     eprintln!("  herdr agent get <target>");
     eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
@@ -1503,8 +1558,8 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
 mod tests {
     use super::{
         parse_agent_answer_args, parse_agent_control_args, parse_agent_digest_args,
-        parse_agent_submit_args, parse_agent_watch_args, parse_target_ref, watch_view,
-        watch_view_changed, INTERRUPT_USAGE, RESET_USAGE,
+        parse_agent_resume_args, parse_agent_submit_args, parse_agent_watch_args, parse_target_ref,
+        watch_view, watch_view_changed, INTERRUPT_USAGE, RESET_USAGE,
     };
     use std::time::Duration;
 
@@ -1704,6 +1759,58 @@ mod tests {
             "text",
         ]))
         .is_err());
+    }
+
+    #[test]
+    fn resume_args_require_pane_session_and_submit_id() {
+        let params = parse_agent_resume_args(&args(&[
+            "--pane",
+            "w1:p2",
+            "--session-id",
+            "sess-1",
+            "--submit-id=r-1",
+        ]))
+        .unwrap();
+        assert_eq!(params.pane_id, "w1:p2");
+        assert_eq!(params.session_id, "sess-1");
+        assert_eq!(params.submit_id, "r-1");
+        for bad in [
+            args(&["--session-id", "s", "--submit-id", "r"]),
+            args(&["--pane", "p", "--submit-id", "r"]),
+            args(&["--pane", "p", "--session-id", "s"]),
+            args(&["--pane", "p", "--session-id", "s", "--submit-id"]),
+            args(&[
+                "--pane",
+                "p",
+                "--pane",
+                "q",
+                "--session-id",
+                "s",
+                "--submit-id",
+                "r",
+            ]),
+            args(&[
+                "--pane",
+                "p",
+                "--session-id",
+                "s",
+                "--submit-id",
+                "r",
+                "extra",
+            ]),
+            args(&[
+                "--pane",
+                "p",
+                "--session-id",
+                "s",
+                "--submit-id",
+                "r",
+                "--target-ref",
+                "e:p:1",
+            ]),
+        ] {
+            assert!(parse_agent_resume_args(&bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

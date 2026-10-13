@@ -150,6 +150,8 @@ pub enum Method {
     AgentInterrupt(supervisor::AgentControlParams),
     #[serde(rename = "agent.reset")]
     AgentReset(supervisor::AgentControlParams),
+    #[serde(rename = "agent.resume")]
+    AgentResume(supervisor::AgentResumeParams),
     #[serde(rename = "agent.submit_status")]
     AgentSubmitStatus(supervisor::AgentSubmitStatusParams),
     #[serde(rename = "pane.split")]

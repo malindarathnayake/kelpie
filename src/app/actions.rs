@@ -1566,9 +1566,13 @@ impl AppState {
                 session_start_source,
             } => {
                 // Fork: the supervisor registry classifies a clear-sourced replacement for
-                // `agent.reset`; scoped to this one mutation.
-                self.supervisor
-                    .set_mutation_start_source(session_start_source.clone());
+                // `agent.reset` and resume evidence for `agent.resume`; scoped to this one
+                // mutation.
+                self.supervisor.begin_session_report(
+                    session_start_source.clone(),
+                    &agent_label,
+                    session_ref.clone(),
+                );
                 let updates = self
                     .update_terminal_state(pane_id, |terminal| {
                         terminal.set_agent_session_ref_for_session_start(
@@ -1581,7 +1585,7 @@ impl AppState {
                     })
                     .into_iter()
                     .collect();
-                self.supervisor.set_mutation_start_source(None);
+                self.supervisor.end_session_report();
                 updates
             }
             AppEvent::HookMetadataReported {
