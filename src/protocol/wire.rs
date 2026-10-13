@@ -1032,6 +1032,16 @@ pub struct ClientShellWorkspace {
     pub focused: bool,
     #[serde(deserialize_with = "deserialize_client_shell_agent_status")]
     pub agent_status: crate::api::schema::AgentStatus,
+    /// Fork (Q1): newest output, owner input or agent state change in any pane, Unix ms,
+    /// rounded down to 5 s. None when never observed or sent by an older server.
+    #[serde(default)]
+    pub last_activity_ms: Option<u64>,
+    /// Fork (Q1): open supervisor questions across the workspace's panes.
+    #[serde(default)]
+    pub open_questions: u32,
+    /// Fork (Q1): supervisor submits still being written to the workspace's panes.
+    #[serde(default)]
+    pub pending_receipts: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2830,6 +2840,9 @@ mod tests {
                 worktree: None,
                 focused: true,
                 agent_status: crate::api::schema::AgentStatus::Idle,
+                last_activity_ms: None,
+                open_questions: 0,
+                pending_receipts: 0,
             }],
             tabs: vec![ClientShellTab {
                 tab_id: "w1:t1".into(),

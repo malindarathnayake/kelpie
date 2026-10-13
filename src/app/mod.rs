@@ -29,6 +29,7 @@ mod terminal_targets;
 mod terminal_titles;
 mod theme_sync;
 mod window_title;
+pub(crate) mod workspace_activity;
 mod worktrees;
 
 use std::collections::HashMap;

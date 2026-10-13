@@ -214,6 +214,8 @@ pub struct HeadlessServer {
     popup_owner_tab_id: Option<String>,
     /// Process-local identity used to reject shell replacements from an earlier server boot.
     client_shell_boot_id: String,
+    /// Fork (Q1): refreshes shell snapshots when hidden-pane activity moves the idle age.
+    activity_publisher: crate::app::workspace_activity::ActivityPublisher,
     /// Outer window title last pushed, paired with the client that received it.
     /// Keying on the client means a newly attached terminal is written to even
     /// when the title itself has not changed, without every code path that
@@ -374,6 +376,7 @@ impl HeadlessServer {
                     .unwrap_or_default()
                     .as_nanos()
             ),
+            activity_publisher: Default::default(),
             sent_window_title: None,
             api_window_title: None,
             server_keybindings,
@@ -3432,6 +3435,13 @@ impl HeadlessServer {
         }
 
         changed |= self.app.handle_tab_bar_status_tasks(now);
+
+        if latest_shell_client(&self.clients).is_some() {
+            let app = &self.app;
+            changed |= self
+                .activity_publisher
+                .poll(now, || app.workspace_activity_fingerprint());
+        }
 
         if geometry_dirty {
             self.app.pending_agent_resume_deadline = None;

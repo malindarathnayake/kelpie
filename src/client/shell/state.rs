@@ -41,6 +41,10 @@ pub(crate) struct ClientShellConfig {
     pub(super) prompt_new_tab_name: bool,
     pub(super) prompt_new_workspace_name: bool,
     pub(super) confirm_close: bool,
+    /// Fork (Q1): `[ui] stale_after` in milliseconds.
+    pub(super) stale_after_ms: u64,
+    /// Fork (Q1): `[ui] animations` after the `HERDR_ANIMATIONS` override.
+    pub(super) animations: crate::config::AnimationsConfig,
     pub(super) mouse_capture: bool,
     pub(super) mouse_scroll_lines: usize,
     pub(super) right_click_passthrough_modifiers: Option<crossterm::event::KeyModifiers>,
@@ -138,6 +142,8 @@ pub(super) struct ShellHitMap {
     pub(super) release_notes_scrollbar: Rect,
     pub(super) release_notes_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(super) release_notes_max_scroll: usize,
+    /// Fork (Q1): close-stale dialog rows as `(rect, row index, is "also terminate")`.
+    pub(super) close_stale_rows: Vec<(Rect, usize, bool)>,
 }
 
 #[derive(Clone)]
@@ -292,6 +298,7 @@ pub(super) enum ClientShellOverlayKind {
     GlobalMenu,
     Settings,
     HostFacts,
+    CloseStale,
 }
 
 #[derive(Debug)]
@@ -599,6 +606,8 @@ pub(super) enum ClientShellOverlay {
     Settings(ClientSettingsOverlay),
     /// Fork: read-only host facts of the attached server.
     HostFacts(super::host_facts_panel::ClientHostFactsOverlay),
+    /// Fork (Q1): review dialog for closing stale workspaces.
+    CloseStale(super::close_stale::ClientCloseStaleOverlay),
 }
 
 impl ClientShellOverlay {
@@ -618,6 +627,7 @@ impl ClientShellOverlay {
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
             Self::HostFacts(_) => ClientShellOverlayKind::HostFacts,
+            Self::CloseStale(_) => ClientShellOverlayKind::CloseStale,
         }
     }
 }
@@ -865,6 +875,18 @@ pub(super) struct ClientCopyModeState {
 pub(crate) struct ClientShellState {
     pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
     pub(super) host_facts: super::host_facts_panel::HostFactsPanel,
+    /// Fork (Q1): when each waiting row entered waiting (pulse window start).
+    pub(super) attention: super::sidebar_activity::AttentionTracker,
+    /// Fork (Q1): next pulse phase flip to repaint at; None when nothing pulses.
+    pub(super) attention_repaint_at: Option<std::time::Instant>,
+    /// Fork (Q1): next instant an idle label or stale flag changes.
+    pub(super) sidebar_label_deadline: Option<std::time::Instant>,
+    /// Fork (Q1): injected `(Instant, unix ms)` clock for sidebar tests.
+    #[cfg(test)]
+    pub(super) sidebar_test_clock: Option<(std::time::Instant, u64)>,
+    /// Fork (Q1): last workspace close audit line, for tests.
+    #[cfg(test)]
+    pub(super) last_close_audit: Option<String>,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
     pub(super) active_snapshot_generation: Option<u64>,
@@ -1039,6 +1061,13 @@ impl ClientShellState {
         Self {
             machine_diagnostics: Default::default(),
             host_facts: Default::default(),
+            attention: Default::default(),
+            attention_repaint_at: None,
+            sidebar_label_deadline: None,
+            #[cfg(test)]
+            sidebar_test_clock: None,
+            #[cfg(test)]
+            last_close_audit: None,
             config,
             snapshot: None,
             active_snapshot_generation: None,
@@ -1594,6 +1623,8 @@ impl ClientShellState {
             }
         }
         self.snapshot = Some(snapshot);
+        let (attention_now, _) = self.sidebar_clock();
+        self.sync_attention(attention_now);
         self.reconcile_pending_workspace_highlight();
         let pending_surface = self.pending_pane_surface.take();
         if let Some(surface) = pending_surface {
@@ -1891,6 +1922,7 @@ impl ClientShellState {
         self.selection_autoscroll_deadline
             .into_iter()
             .chain(self.selection_repaint_deadline)
+            .chain(self.next_attention_deadline(now))
             .min()
             .map(|deadline| deadline.saturating_duration_since(now).min(default))
             .unwrap_or(default)

@@ -199,6 +199,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # supervisor_handoff = "prefix+shift+a"   # hand the focused pane's next agent.submit to the supervisor once
 # theme_picker = "prefix+t"   # pick a theme with live preview; enter saves theme.name, esc reverts
 # host_facts = "prefix+i"   # read-only host facts of the attached server; r refreshes, esc closes
+# close_stale_workspaces = "prefix+shift+s"   # review stale workspaces; risky rows start unticked
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.
 # They are independent from focus_pane_*. Do not include prefix+, esc, enter, tab, or 1..9 here.
@@ -290,6 +291,15 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Ask for confirmation before closing a workspace
 # confirm_close = true
+
+# Mark a quiet workspace stale (amber + "stale") after this idle time.
+# Accepts "90m", "2h", "1h30m", "1d" or seconds.
+# stale_after = "2h"
+
+# Attention marker for rows waiting on you: full pulses for 5 s then stays a
+# steady red "!!"; basic and none show the steady marker only.
+# HERDR_ANIMATIONS overrides this.
+# animations = "full"
 
 # Ask for a tab name before creating a new tab.
 # Set false to create tabs immediately with generated names.

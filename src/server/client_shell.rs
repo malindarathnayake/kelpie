@@ -55,12 +55,14 @@ pub(super) fn snapshot_with_completions(
             app.public_pane_id(workspace_index, pane_id)
         })
         .or_else(|| snapshot.focused_pane_id.clone());
+    let activity_facts = app.supervisor_activity_facts();
     let workspaces = snapshot
         .workspaces
         .into_iter()
         .zip(&app.state.workspaces)
         .enumerate()
         .map(|(workspace_index, (workspace, state))| {
+            let activity = app.workspace_activity(workspace_index, &activity_facts);
             let mut tokens = workspace.tokens.into_iter().collect::<Vec<_>>();
             tokens.sort_by(|left, right| left.0.cmp(&right.0));
             let workspace_id = workspace.workspace_id;
@@ -95,6 +97,9 @@ pub(super) fn snapshot_with_completions(
                         is_linked_worktree: worktree.is_linked_worktree,
                     }),
                 agent_status: workspace.agent_status,
+                last_activity_ms: activity.last_activity_ms,
+                open_questions: activity.open_questions,
+                pending_receipts: activity.pending_receipts,
             }
         })
         .collect();
@@ -648,6 +653,7 @@ mod tests {
             .map(|line| format!("line-{line}\r\n"))
             .collect::<String>();
         for (index, terminal) in app.state.terminals.values_mut().enumerate() {
+            terminal.last_state_change_ms = Some(123_456);
             if index < 2 {
                 terminal.set_detected_state(
                     Some(crate::detect::Agent::Pi),
@@ -693,6 +699,13 @@ mod tests {
             .all(|runtime| runtime.test_scroll_metrics_reads() == 1));
 
         let (shell, completions) = snapshot_with_completions(&app, "boot", 9, None, None);
+        // Fork (Q1): the newest pane activity, rounded down to the 5 s publish quantum.
+        assert!(shell
+            .workspaces
+            .iter()
+            .all(|workspace| workspace.last_activity_ms == Some(120_000)
+                && workspace.open_questions == 0
+                && workspace.pending_receipts == 0));
         assert_eq!(shell.panes.len(), 3);
         assert_eq!(shell.agents.len(), 2);
         assert_eq!(shell.focused_pane_id, metadata.focused_pane_id);

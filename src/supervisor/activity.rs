@@ -1,5 +1,8 @@
 //! Fork-only per-pane activity stamps (Q1). Written lock-free by the PTY reader thread and
-//! the headless input path; read by `agents.digest`. Stores are gated by `enabled()`.
+//! the headless input path; read by `agents.digest` and the client-shell snapshot's
+//! `last_activity_ms`. The two timestamps are always stored (the sidebar idle age needs them
+//! with the supervisor surface off); the draft latch and handoff cancel stay gated by
+//! `enabled()`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -49,25 +52,23 @@ pub struct PaneActivity {
 }
 
 impl PaneActivity {
-    /// PTY reader: once per read batch. One OnceLock load when disabled; otherwise one
-    /// `SystemTime::now()` and one Relaxed store. No allocation, no lock.
+    /// PTY reader: once per read batch, never per byte. One `SystemTime::now()` and one
+    /// Relaxed store. No allocation, no lock.
     pub fn record_output(&self) {
-        if !crate::supervisor::enabled() {
-            return;
-        }
         self.last_output_ms
             .store(crate::supervisor::now_ms(), Ordering::Relaxed);
     }
 
     /// Owner input forwarded to the pane (keys, text, paste, attached-terminal bytes). Same
-    /// cost profile plus one Release store; sets the sticky draft latch and cancels any
-    /// armed handoff (the lock is taken only while one may be stored).
+    /// cost profile for the stamp. With the supervisor surface enabled it also sets the
+    /// sticky draft latch (one Release store) and cancels any armed handoff (the lock is
+    /// taken only while one may be stored).
     pub fn record_owner_input(&self) {
+        self.last_owner_input_ms
+            .store(crate::supervisor::now_ms(), Ordering::Relaxed);
         if !crate::supervisor::enabled() {
             return;
         }
-        self.last_owner_input_ms
-            .store(crate::supervisor::now_ms(), Ordering::Relaxed);
         self.draft_latched.store(true, Ordering::Release);
         if self.handoff_present.load(Ordering::Acquire) {
             self.clear_handoff();
@@ -312,13 +313,23 @@ mod tests {
     }
 
     #[test]
-    fn disabled_records_nothing() {
+    fn disabled_records_stamps_but_never_latches() {
         let _reset = Reset;
         set_enabled_for_test(Some(false));
         let a = PaneActivity::default();
         a.record_output();
         a.record_owner_input();
-        assert_eq!(a.last_output_ms(), None);
-        assert_eq!(a.last_owner_input_ms(), None);
+        assert!(
+            a.last_output_ms().is_some(),
+            "idle age needs the output stamp"
+        );
+        assert!(
+            a.last_owner_input_ms().is_some(),
+            "idle age needs the input stamp"
+        );
+        assert!(
+            !a.draft_latched(),
+            "the draft latch stays a supervisor fact"
+        );
     }
 }

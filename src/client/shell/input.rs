@@ -308,6 +308,9 @@ impl ClientShellState {
                 RawInputEvent::Mouse(mouse) => self.handle_mouse(mouse, &mut outcome),
                 RawInputEvent::OuterFocusGained => {
                     self.outer_focused = Some(true);
+                    let (attention_now, _) = self.sidebar_clock();
+                    self.rearm_attention(attention_now);
+                    outcome.repaint |= self.attention_repaint_at.is_some();
                     outcome.query_host_appearance = true;
                     outcome.repaint |= self.config.redraw_on_focus_gained;
                     if let Some(surface) = self.pane_surface.clone() {
@@ -320,6 +323,8 @@ impl ClientShellState {
                 RawInputEvent::OuterFocusLost => {
                     outcome.repaint |= self.clear_link_hover();
                     self.outer_focused = Some(false);
+                    // Pulses pause while unfocused; repaint the steady marker now.
+                    outcome.repaint |= self.attention_repaint_at.take().is_some();
                     self.release_input_leases(&mut outcome);
                     outcome
                         .requests

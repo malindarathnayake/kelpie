@@ -1718,12 +1718,19 @@ impl ClientShellState {
             if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
                 return;
             }
+            if matches!(self.overlay, Some(ClientShellOverlay::CloseStale(_)))
+                && self.click_close_stale(point)
+            {
+                outcome.repaint = true;
+                return;
+            }
             if super::contains(self.hits.overlay_primary, point) {
                 match self.overlay.as_ref() {
                     Some(ClientShellOverlay::Rename(_)) => self.save_rename_overlay(outcome),
                     Some(ClientShellOverlay::ConfirmClose(_)) => {
                         self.accept_close_confirmation(outcome);
                     }
+                    Some(ClientShellOverlay::CloseStale(_)) => self.accept_close_stale(outcome),
                     _ => {}
                 }
             } else if super::contains(self.hits.overlay_clear, point) {

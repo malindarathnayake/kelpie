@@ -321,6 +321,13 @@ pub(crate) fn render_sidebar(
         } else if workspace.focused {
             buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
         }
+        let badge = super::sidebar_activity::workspace_badge(
+            snapshot,
+            workspace,
+            status,
+            &state.activity,
+            palette,
+        );
         render_workspace_rows(
             buffer,
             rect,
@@ -332,6 +339,7 @@ pub(crate) fn render_sidebar(
             selected,
             state.selected_workspace_id.is_some(),
             dragged,
+            badge.as_ref(),
             palette,
         );
         let group_toggle = render_parent_group_toggle(
@@ -689,6 +697,8 @@ pub(in crate::client::shell) fn workspace_rows(
     )
 }
 
+// Row rendering threads row state, selection, drag and the activity badge.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::client::shell) fn render_workspace_rows(
     buffer: &mut Buffer,
     area: Rect,
@@ -700,8 +710,11 @@ pub(in crate::client::shell) fn render_workspace_rows(
     selected: bool,
     navigating: bool,
     dragged: bool,
+    badge: Option<&super::sidebar_activity::WorkspaceBadge>,
     palette: &Palette,
 ) {
+    let last_row = rows.len().saturating_sub(1);
+    let mut badge_slot = None;
     for (row_index, row) in rows.iter().enumerate() {
         let y = area.y + row_index as u16;
         if y >= area.bottom() {
@@ -734,9 +747,12 @@ pub(in crate::client::shell) fn render_workspace_rows(
             x = x.saturating_add(3);
         }
         let highlighted = focused || dragged;
+        let stale = badge.is_some_and(|badge| badge.stale);
         let workspace_style = Style::default()
             .fg(if highlighted {
                 palette.text
+            } else if stale {
+                palette.peach
             } else {
                 palette.subtext0
             })
@@ -750,6 +766,13 @@ pub(in crate::client::shell) fn render_workspace_rows(
         } else {
             palette.overlay0
         });
+        let mut text_right = area.right().saturating_sub(2);
+        if row_index == last_row {
+            if let Some((text, width)) = badge.and_then(|badge| fit_badge(badge, text_right, x)) {
+                text_right = text_right.saturating_sub(width + 1);
+                badge_slot = Some((text, text_right + 1, y));
+            }
+        }
         let spans = crate::ui::resolved_token_spans(
             row,
             (
@@ -761,12 +784,10 @@ pub(in crate::client::shell) fn render_workspace_rows(
             secondary_style,
             Style::default().fg(palette.overlay1),
             palette,
-            area.right().saturating_sub(2).saturating_sub(x) as usize,
+            text_right.saturating_sub(x) as usize,
         );
-        Paragraph::new(Line::from(spans)).render(
-            Rect::new(x, y, area.right().saturating_sub(2).saturating_sub(x), 1),
-            buffer,
-        );
+        Paragraph::new(Line::from(spans))
+            .render(Rect::new(x, y, text_right.saturating_sub(x), 1), buffer);
     }
 
     let background = if selected {
@@ -785,4 +806,22 @@ pub(in crate::client::shell) fn render_workspace_rows(
             }
         }
     }
+    // Drawn after the row background so a pulsing badge keeps its own background.
+    if let (Some(badge), Some((text, x, y))) = (badge, badge_slot) {
+        put_text(buffer, x, y, display_width(text), text, badge.style);
+    }
+}
+
+/// Full badge text when it fits beside at least 4 columns of row text, else the short form.
+fn fit_badge(
+    badge: &super::sidebar_activity::WorkspaceBadge,
+    text_right: u16,
+    text_left: u16,
+) -> Option<(&str, u16)> {
+    let room = text_right.saturating_sub(text_left);
+    [badge.text.as_str(), badge.short]
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .map(|text| (text, display_width(text)))
+        .find(|(_, width)| width.saturating_add(5) <= room)
 }

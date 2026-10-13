@@ -481,6 +481,10 @@ impl ClientShellState {
             self.route_host_facts_key(key, outcome);
             return;
         }
+        if matches!(self.overlay, Some(ClientShellOverlay::CloseStale(_))) {
+            self.route_close_stale_key(key, outcome);
+            return;
+        }
 
         if matches!(self.overlay, Some(ClientShellOverlay::Onboarding)) {
             if matches!(
@@ -1017,6 +1021,7 @@ impl ClientShellState {
                 })
             })
         });
+        self.audit_single_workspace_close(&workspace_id);
         self.push_endpoint_method(
             crate::api::schema::Method::WorkspaceClose(crate::api::schema::WorkspaceCloseParams {
                 workspace_id,
@@ -1119,6 +1124,7 @@ impl ClientShellState {
                 })
             }
         } else {
+            self.audit_single_workspace_close(&confirm.workspace_id);
             crate::api::schema::Method::WorkspaceClose(crate::api::schema::WorkspaceCloseParams {
                 workspace_id: confirm.workspace_id,
                 close_group: confirm.close_group,

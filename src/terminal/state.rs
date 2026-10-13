@@ -154,6 +154,9 @@ pub struct TerminalState {
     metadata_token_sequence_sources: std::collections::HashSet<String>,
     pub state: AgentState,
     pub last_agent_state_change_seq: Option<u64>,
+    /// Fork (Q1): Unix ms of the last agent state transition; feeds `last_activity_ms`.
+    /// Kept across agent release, because the transition still counts as activity.
+    pub last_state_change_ms: Option<u64>,
     pub last_agent_completion_seq: Option<u64>,
     pub revision: u64,
     pub launch_argv: Option<Vec<String>>,
@@ -194,6 +197,7 @@ impl TerminalState {
             metadata_token_sequence_sources: std::collections::HashSet::new(),
             state: AgentState::Unknown,
             last_agent_state_change_seq: None,
+            last_state_change_ms: None,
             last_agent_completion_seq: None,
             revision: 0,
             launch_argv: None,

@@ -117,6 +117,7 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
         tab_geometry_controllers: HashMap::new(),
         popup_owner_tab_id: None,
         client_shell_boot_id: "test-boot".into(),
+        activity_publisher: Default::default(),
         sent_window_title: None,
         api_window_title: None,
         server_keybindings,
@@ -2498,8 +2499,8 @@ async fn supervisor_activity_owner_input_stamped_on_forwarded_key() {
 }
 
 #[tokio::test]
-async fn supervisor_activity_owner_input_not_stamped_when_disabled() {
-    assert_eq!(forwarded_key_owner_input_stamp(false).await, None);
+async fn supervisor_activity_owner_input_stamped_when_disabled_for_idle_age() {
+    assert!(forwarded_key_owner_input_stamp(false).await.is_some());
 }
 
 /// Shell client 91 viewing one pane whose runtime records its input; supervisor enabled.

@@ -468,6 +468,13 @@ pub(super) fn render_expanded(
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
+                let activity = super::sidebar_activity::SidebarActivityContext {
+                    attention: state.activity.attention.filter(|_| endpoint_active),
+                    ..state.activity
+                };
+                let badge = super::sidebar_activity::workspace_badge(
+                    snapshot, workspace, status, &activity, palette,
+                );
                 super::sidebar::render_workspace_rows(
                     buffer,
                     nested,
@@ -479,6 +486,7 @@ pub(super) fn render_expanded(
                     selected,
                     state.selected_workspace_id.is_some(),
                     false,
+                    badge.as_ref(),
                     palette,
                 );
                 if endpoint.status != ClientEndpointStatus::Online {

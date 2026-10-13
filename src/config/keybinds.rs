@@ -409,6 +409,8 @@ pub struct Keybinds {
     pub theme_picker: ActionKeybinds,
     /// Open the host facts panel.
     pub host_facts: ActionKeybinds,
+    /// Open the close-stale-workspaces review dialog.
+    pub close_stale_workspaces: ActionKeybinds,
     pub custom_commands: Vec<CustomCommandKeybind>,
 }
 
@@ -595,6 +597,7 @@ impl Config {
             supervisor_handoff: empty_action!(),
             theme_picker: empty_action!(),
             host_facts: empty_action!(),
+            close_stale_workspaces: empty_action!(),
             custom_commands: Vec::new(),
         };
 
@@ -746,6 +749,11 @@ impl Config {
             apply_action!(keybinds.supervisor_handoff, supervisor_handoff, source);
             apply_action!(keybinds.theme_picker, theme_picker, source);
             apply_action!(keybinds.host_facts, host_facts, source);
+            apply_action!(
+                keybinds.close_stale_workspaces,
+                close_stale_workspaces,
+                source
+            );
 
             if source == field_source!(indexed) {
                 append_legacy_indexed_bindings(

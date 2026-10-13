@@ -40,6 +40,9 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
             worktree: None,
             focused: true,
             agent_status: AgentStatus::Idle,
+            last_activity_ms: None,
+            open_questions: 0,
+            pending_receipts: 0,
         }],
         tabs: vec![ClientShellTab {
             tab_id: "tab_1".into(),
@@ -262,4 +265,5 @@ mod link_hover;
 mod mobile;
 mod mouse_selection;
 mod popup_focus_projection;
+mod sidebar_activity;
 mod startup_overlays;

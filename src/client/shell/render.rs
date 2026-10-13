@@ -248,6 +248,8 @@ pub(super) struct ShellRenderState<'a> {
     pub(super) reveal_navigation_workspace: &'a mut bool,
     pub(super) dragged_workspace_id: Option<&'a str>,
     pub(super) workspace_drop_indicator_row: Option<u16>,
+    /// Fork (Q1): clock and attention state for idle, stale and waiting badges.
+    pub(super) activity: super::sidebar_activity::SidebarActivityContext<'a>,
 }
 
 pub(super) fn render_shell(

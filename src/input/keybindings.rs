@@ -76,6 +76,8 @@ pub(crate) enum KeybindAction {
     ThemePicker,
     /// Open the read-only host facts panel.
     HostFacts,
+    /// Open the close-stale-workspaces review dialog.
+    CloseStaleWorkspaces,
 }
 
 pub(crate) fn resolve_direct_binding(
@@ -159,6 +161,10 @@ pub(crate) fn resolve_non_indexed_action(
         ),
         (&keybinds.theme_picker, KeybindAction::ThemePicker),
         (&keybinds.host_facts, KeybindAction::HostFacts),
+        (
+            &keybinds.close_stale_workspaces,
+            KeybindAction::CloseStaleWorkspaces,
+        ),
         (&keybinds.reload_config, KeybindAction::ReloadConfig),
         (
             &keybinds.open_notification_target,

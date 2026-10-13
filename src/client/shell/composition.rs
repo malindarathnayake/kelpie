@@ -54,6 +54,8 @@ impl ClientShellState {
                 && self.endpoint_status(&self.active_endpoint_id)
                     == Some(ClientEndpointStatus::Online)
         });
+        let (activity_now, activity_now_ms) = self.sidebar_clock();
+        let activity_pulses = self.attention_pulses_allowed();
         let mut render_state = render::ShellRenderState {
             machine_diagnostics: &self.machine_diagnostics,
             endpoints: &self.endpoints,
@@ -77,6 +79,13 @@ impl ClientShellState {
             reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
             dragged_workspace_id: None,
             workspace_drop_indicator_row: None,
+            activity: super::sidebar_activity::SidebarActivityContext {
+                now: activity_now,
+                now_ms: activity_now_ms,
+                stale_after_ms: self.config.stale_after_ms,
+                attention: Some(&self.attention),
+                pulses: activity_pulses,
+            },
         };
         if let Some(snapshot) = local_snapshot {
             render::render_sidebar(
@@ -204,6 +213,8 @@ impl ClientShellState {
             ),
             _ => (None, None),
         };
+        let (activity_now, activity_now_ms) = self.sidebar_clock();
+        let activity_pulses = self.attention_pulses_allowed();
         let mut buffer = Buffer::empty(Rect::new(0, 0, cols, rows));
         self.hits = render::render_shell(
             &mut buffer,
@@ -233,6 +244,13 @@ impl ClientShellState {
                 reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
                 dragged_workspace_id,
                 workspace_drop_indicator_row,
+                activity: super::sidebar_activity::SidebarActivityContext {
+                    now: activity_now,
+                    now_ms: activity_now_ms,
+                    stale_after_ms: self.config.stale_after_ms,
+                    attention: Some(&self.attention),
+                    pulses: activity_pulses,
+                },
             },
         );
         self.hits.panes = surface
@@ -697,6 +715,7 @@ impl ClientShellState {
                 self.hits.release_notes_scrollbar = rendered.release_notes_scrollbar;
                 self.hits.release_notes_scroll_metrics = rendered.release_notes_scroll_metrics;
                 self.hits.release_notes_max_scroll = rendered.release_notes_max_scroll;
+                self.hits.close_stale_rows = rendered.close_stale_rows;
                 rendered.cursor
             };
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, cursor);

@@ -197,6 +197,18 @@ impl SubmitLedger {
         self.entries.get(submit_id).map(|e| &e.receipt)
     }
 
+    /// Fork (Q1): receipts still `accepted` (write queued or in progress), per pane.
+    /// Bounded by the receipt cap; empty ledger costs one length check.
+    pub fn accepted_by_pane(&self) -> HashMap<PaneId, u32> {
+        let mut counts = HashMap::new();
+        for entry in self.entries.values() {
+            if entry.receipt.state == SubmitState::Accepted {
+                *counts.entry(entry.pane).or_insert(0u32) += 1;
+            }
+        }
+        counts
+    }
+
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()

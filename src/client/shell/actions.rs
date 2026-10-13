@@ -95,6 +95,10 @@ impl ClientShellState {
                     self.open_host_facts_overlay(outcome);
                     return;
                 }
+                if action == crate::input::KeybindAction::CloseStaleWorkspaces {
+                    self.open_close_stale_overlay(outcome);
+                    return;
+                }
                 if action == crate::input::KeybindAction::OpenNotificationTarget {
                     self.focus_visible_notification(outcome);
                     return;

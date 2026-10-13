@@ -1,5 +1,6 @@
 use super::*;
 
+mod close_stale_overlay;
 mod host_facts_overlay;
 mod settings_overlay;
 mod worktree_overlays;
@@ -31,6 +32,7 @@ pub(crate) struct OverlayRender {
     pub(crate) release_notes_scrollbar: Rect,
     pub(crate) release_notes_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(crate) release_notes_max_scroll: usize,
+    pub(crate) close_stale_rows: Vec<(Rect, usize, bool)>,
     pub(crate) cursor: Option<crate::protocol::CursorState>,
 }
 
@@ -82,6 +84,9 @@ pub(crate) fn render_client_overlay(
         }
         ClientShellOverlay::HostFacts(v) => {
             host_facts_overlay::render_host_facts_overlay(b, v, host_facts_overlay::now_ms(), p)
+        }
+        ClientShellOverlay::CloseStale(v) => {
+            close_stale_overlay::render_close_stale_overlay(b, v, p)
         }
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }
