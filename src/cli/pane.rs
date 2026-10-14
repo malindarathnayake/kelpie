@@ -1417,10 +1417,14 @@ fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
 /// Largest hook payload read from stdin; a larger prompt can never match a submission
 /// (at most 8192 bytes), so nothing is reported.
 const MAX_PROMPT_HOOK_INPUT_BYTES: u64 = 1024 * 1024;
+/// Upper bound on the hook's whole server exchange (status check and report); past it the
+/// command exits 0 silently. Claude waits at most 10 s for the hook.
+const PROMPT_HOOK_REPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Fork (B1): run by the Claude integration's `UserPromptSubmit` hook with the hook JSON
 /// on stdin. Sends only `prompt_ack_sha256_16` of the prompt, never the text. Prints
-/// nothing on success (Claude adds hook stdout to the prompt context).
+/// nothing on success (Claude adds hook stdout to the prompt context). The server exchange
+/// is bounded by `PROMPT_HOOK_REPORT_TIMEOUT`; a slow or stuck server exits 0 silently.
 fn pane_report_prompt_submitted(args: &[String]) -> std::io::Result<i32> {
     use std::io::Read;
 
@@ -1479,14 +1483,17 @@ fn pane_report_prompt_submitted(args: &[String]) -> std::io::Result<i32> {
         return Ok(0);
     };
     drop(input);
-    super::send_ok_request(Method::PaneReportPromptSubmitted(
-        crate::api::schema::supervisor::PaneReportPromptSubmittedParams {
-            pane_id,
-            source,
-            agent,
-            prompt_sha256_16,
-        },
-    ))
+    super::send_ok_request_bounded(
+        Method::PaneReportPromptSubmitted(
+            crate::api::schema::supervisor::PaneReportPromptSubmittedParams {
+                pane_id,
+                source,
+                agent,
+                prompt_sha256_16,
+            },
+        ),
+        PROMPT_HOOK_REPORT_TIMEOUT,
+    )
 }
 
 fn pane_release_agent(args: &[String]) -> std::io::Result<i32> {

@@ -2,7 +2,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=11
+# HERDR_INTEGRATION_VERSION=12
 
 param([string]$Action = "")
 
@@ -11,6 +11,7 @@ if ($Action -eq "prompt") {
     # The raw stdin bytes are forwarded unchanged, so no console code page touches them.
     if ($env:HERDR_ENV -ne "1") { exit 0 }
     if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { exit 0 }
+    if (Test-Path Env:CURSOR_VERSION) { exit 0 }
     try {
         $buffer = New-Object System.IO.MemoryStream
         [Console]::OpenStandardInput().CopyTo($buffer)
@@ -27,8 +28,10 @@ if ($Action -eq "prompt") {
         $process = [System.Diagnostics.Process]::Start($startInfo)
         $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
         $process.StandardInput.Close()
-        # Output is a few bytes at most; never block on it. A stuck report is killed.
-        if (-not $process.WaitForExit(10000)) { $process.Kill() }
+        # Output is a few bytes at most; never block on it. herdr bounds its own server
+        # exchange to 2 s; a report still running after 5 s (Claude's hook limit is 10 s)
+        # is killed.
+        if (-not $process.WaitForExit(5000)) { $process.Kill() }
     } catch {
     }
     exit 0

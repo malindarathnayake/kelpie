@@ -135,11 +135,11 @@ Use pane commands for shells and ordinary processes:
 Use agent commands only after Herdr recognizes a coding agent:
 
 - `agent start` to launch a supported agent in an existing shell pane.
-- `agent prompt` to submit one prompt atomically.
+- `agent submit` to submit one prompt atomically to an exact `target_ref` from `agent digest`, then `agent submit-status` for its receipt.
 - `agent wait` to wait for `working`, `blocked`, `idle`, `done`, or `unknown`.
 - `agent read` to capture the agent terminal.
 - `agent get` and `agent explain` to inspect state and detection.
-- `agent send-keys` for interactive responses.
+- `pane send-keys` on the agent pane for interactive responses (raw keys; `agent send-keys` was removed).
 
 Run the relevant command group's help first because names and options may change.
 

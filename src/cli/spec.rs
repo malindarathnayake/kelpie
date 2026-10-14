@@ -403,7 +403,7 @@ fn agent_command() -> Command {
                 )
                 .arg(required("text", "TEXT"))
                 .after_help(
-                    "Prints the receipt. Delivery ends at written, fenced or indeterminate; herdr never claims the agent started the turn (acknowledged is unsupported). Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: herdr agent submit-status <ID>",
+                    "Prints the receipt. Delivery ends at written, fenced or indeterminate; herdr never claims the agent started the turn; acknowledged becomes confirmed only when the Claude integration (v12+) hook reports the same prompt, otherwise it stays unsupported. Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: herdr agent submit-status <ID>",
                 ),
         )
         .subcommand(

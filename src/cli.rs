@@ -785,9 +785,65 @@ pub(super) fn send_request_unchecked(request: &Request) -> std::io::Result<serde
         .map_err(|err| map_server_not_running_or_io(err, &request.id, &client))
 }
 
+/// Like `send_ok_request`, but the server status/protocol check and the request together
+/// take at most `timeout`; past it the call returns `Ok(0)` and prints nothing. For agent
+/// hooks, which must never stall the agent or leave a stuck process behind. Windows named
+/// pipes have no read timeout, so the exchange runs on a helper thread and the caller stops
+/// waiting at the deadline; the process exit that follows ends that thread.
+pub(super) fn send_ok_request_bounded(
+    method: Method,
+    timeout: std::time::Duration,
+) -> std::io::Result<i32> {
+    let client = target::api_client()?;
+    let request = Request {
+        id: "cli:request".into(),
+        method,
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("herdr-bounded-request".into())
+        .spawn(move || {
+            let _ = tx.send(bounded_ok_request(&client, &request, timeout));
+        })?;
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        // Deadline passed, or the helper thread ended without a result.
+        Err(_) => Ok(0),
+    }
+}
+
+fn bounded_ok_request(
+    client: &ApiClient,
+    request: &Request,
+    timeout: std::time::Duration,
+) -> std::io::Result<i32> {
+    let status = client
+        .status_with_timeout(timeout)
+        .map_err(|err| map_server_not_running_or_io(err, &request.id, client))?;
+    check_server_protocol(status, &request.id)?;
+    let response = client
+        .request_value_with_timeout(request, timeout)
+        .map_err(|err| map_server_not_running_or_io(err, &request.id, client))?;
+    if response.get("error").is_some() {
+        eprintln!(
+            "{}",
+            serde_json::to_string(&response).map_err(std::io::Error::other)?
+        );
+        return Ok(1);
+    }
+    Ok(0)
+}
+
 fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> std::io::Result<()> {
     let status = target::server_status(client)
         .map_err(|err| map_server_not_running_or_io(err, request_id, client))?;
+    check_server_protocol(status, request_id)
+}
+
+fn check_server_protocol(
+    status: crate::api::RuntimeStatus,
+    request_id: &str,
+) -> std::io::Result<()> {
     let server_protocol = status
         .protocol
         .ok_or_else(|| std::io::Error::other("server ping did not include a protocol version"))?;

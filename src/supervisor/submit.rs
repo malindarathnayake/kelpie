@@ -32,6 +32,14 @@ pub const MAX_RESUME_SESSION_ID_CHARS: usize = 256;
 const MAX_START_ERROR_CHARS: usize = 64;
 /// Session start sources that verify a resume when the reported id equals the requested one.
 const RESUME_VERIFYING_SOURCES: [&str; 2] = ["resume", "startup"];
+/// A prompt-submit hook report confirms only a receipt written at most this long before it
+/// (measured from acceptance for a write still in flight).
+pub const PROMPT_ACK_WINDOW_MS: u64 = 120_000;
+/// Hook reports run as separate processes and can arrive out of order. A report that
+/// matches nothing retires only receipts written more than this long before it (Claude's
+/// hook timeout is 10 s), so a near-simultaneous owner prompt does not retire a receipt
+/// whose own report is still on its way.
+pub const PROMPT_ACK_REORDER_SLACK_MS: u64 = 10_000;
 
 /// `[A-Za-z0-9_-]{1,256}`, not starting with `-`: the id becomes a `claude` argument, so
 /// it can never read as an option (CWE-88).
@@ -205,6 +213,9 @@ pub struct SubmitLedger {
     /// Per pane: `written_seq` of the last confirmed receipt. Earlier unconfirmed receipts
     /// of that pane can no longer be confirmed.
     ack_watermark: HashMap<PaneId, u64>,
+    /// Per pane: the last hook report that matched nothing, as a time. Unconfirmed receipts
+    /// of that pane written (or, in flight, accepted) before it can no longer be confirmed.
+    ack_retired_before_ms: HashMap<PaneId, u64>,
     #[cfg(test)]
     cap_override: Option<usize>,
 }
@@ -440,8 +451,9 @@ impl SubmitLedger {
                 // newest written receipt of the pane, so the watermark only moves forward.
                 if let Some(at_ms) = entry.pending_ack_ms.take() {
                     r.acknowledged = SubmitAcknowledged::Confirmed;
-                    r.acknowledged_at_ms = Some(at_ms);
-                    self.ack_watermark.insert(entry.pane, seq);
+                    r.acknowledged_at_ms = Some(at_ms.max(now_ms));
+                    let mark = self.ack_watermark.entry(entry.pane).or_insert(seq);
+                    *mark = (*mark).max(seq);
                 }
                 // Delivery ends at `written`. Activity edges handled before this event are
                 // never attributed to the write; only the expected clear session of a
@@ -482,26 +494,40 @@ impl SubmitLedger {
     }
 
     /// A prompt-submit hook of `pane` reported `hash` (`prompt_ack_sha256_16`) at registry
-    /// event `seq`. Order-based, consumed once, never inferred from activity:
-    /// - the earliest `written`, unconfirmed submit/answer/reset receipt of the pane with
-    ///   the same hash, written before `seq` and after the pane's last confirmed one,
-    ///   becomes `confirmed`; earlier unconfirmed receipts can no longer be confirmed;
-    /// - otherwise the earliest in-flight receipt of the pane with that hash whose first
-    ///   byte is written (fence committed, not tripped) and no report pending keeps the
-    ///   report pending, applied only if the write completes `written`;
-    /// - otherwise nothing changes. Returns the confirmed submit id, if any.
+    /// event `seq`, while the pane's agent generation is `generation`. Order-based, consumed
+    /// once, never inferred from activity. Only submit/answer/reset receipts of the pane
+    /// accepted in `generation` and with that hash are candidates:
+    /// Candidates must also be written (in flight: accepted) at most `PROMPT_ACK_WINDOW_MS`
+    /// before `now_ms` and not before the pane's last unmatched report (below).
+    /// - the earliest `written`, unconfirmed candidate written before `seq` and after the
+    ///   pane's last confirmed receipt becomes `confirmed`; earlier unconfirmed receipts of
+    ///   the pane can no longer be confirmed;
+    /// - otherwise the earliest in-flight candidate whose first byte is written (fence
+    ///   committed, not tripped) and with no report pending keeps the report pending,
+    ///   applied only if the write completes `written`;
+    /// - otherwise the report matched nothing: receipts of the pane written more than
+    ///   `PROMPT_ACK_REORDER_SLACK_MS` before it are retired, so a receipt whose own report
+    ///   was lost cannot be confirmed by a later identical prompt.
+    ///
+    /// Returns the confirmed submit id, if any.
     pub fn note_prompt_submitted(
         &mut self,
         pane: PaneId,
         hash: &str,
+        generation: u64,
         seq: u64,
         now_ms: u64,
     ) -> Option<String> {
         let watermark = self.ack_watermark.get(&pane).copied().unwrap_or(0);
+        let retired_before_ms = self.ack_retired_before_ms.get(&pane).copied().unwrap_or(0);
         let ackable = |e: &SubmitEntry| {
             e.pane == pane
+                && e.receipt.target_ref.generation == generation
                 && e.receipt.acknowledged == SubmitAcknowledged::Unsupported
                 && e.ack_sha256_16.as_deref() == Some(hash)
+        };
+        let in_window = |since_ms: u64| {
+            since_ms >= retired_before_ms && now_ms.saturating_sub(since_ms) <= PROMPT_ACK_WINDOW_MS
         };
         let written = self
             .entries
@@ -510,11 +536,13 @@ impl SubmitLedger {
                 ackable(e)
                     && e.receipt.state == SubmitState::Written
                     && e.written_seq.is_some_and(|w| w > watermark && w < seq)
+                    && e.receipt.written_at_ms.is_some_and(in_window)
             })
             .min_by_key(|(_, e)| e.written_seq);
         if let Some((submit_id, entry)) = written {
+            let written_at_ms = entry.receipt.written_at_ms.unwrap_or(now_ms);
             entry.receipt.acknowledged = SubmitAcknowledged::Confirmed;
-            entry.receipt.acknowledged_at_ms = Some(now_ms);
+            entry.receipt.acknowledged_at_ms = Some(now_ms.max(written_at_ms));
             if let Some(written_seq) = entry.written_seq {
                 self.ack_watermark.insert(pane, written_seq);
             }
@@ -529,11 +557,17 @@ impl SubmitLedger {
                     && e.pending_ack_ms.is_none()
                     && e.fence.is_committed()
                     && !e.fence.is_tripped()
+                    && in_window(e.receipt.accepted_at_ms)
             })
             .min_by_key(|(_, e)| e.order)
         {
             entry.pending_ack_ms = Some(now_ms);
+            return None;
         }
+        let retire = now_ms
+            .saturating_sub(PROMPT_ACK_REORDER_SLACK_MS)
+            .max(retired_before_ms);
+        self.ack_retired_before_ms.insert(pane, retire);
         None
     }
 
@@ -1524,7 +1558,7 @@ mod tests {
         assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
         let hash = prompt_ack_sha256_16("review this\n");
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &hash, 6, 200),
+            l.note_prompt_submitted(pid(1), &hash, 1, 6, 200),
             Some("a".to_string())
         );
         assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(200)));
@@ -1532,7 +1566,7 @@ mod tests {
         assert_eq!(json["acknowledged"], "confirmed");
         assert_eq!(json["acknowledged_at_ms"], 200);
         // The owner typing the same prompt again confirms nothing further.
-        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 7, 300), None);
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 1, 7, 300), None);
         assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(200)));
     }
 
@@ -1541,16 +1575,16 @@ mod tests {
         let mut l = SubmitLedger::default();
         written(&mut l, "a", "review this", 5);
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("other"), 6, 200),
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("other"), 1, 6, 200),
             None
         );
         assert_eq!(
-            l.note_prompt_submitted(pid(2), &prompt_ack_sha256_16("review this"), 7, 201),
+            l.note_prompt_submitted(pid(2), &prompt_ack_sha256_16("review this"), 1, 7, 201),
             None
         );
         // A report ordered before the write completion is not after the write.
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("review this"), 4, 202),
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("review this"), 1, 4, 202),
             None
         );
         assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
@@ -1562,19 +1596,20 @@ mod tests {
         let f = accept(&mut l, "a", "review this");
         let hash = prompt_ack_sha256_16("review this");
         // Nothing written yet: a report is not kept.
-        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 2, 150), None);
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 1, 2, 150), None);
         assert!(f.try_commit());
-        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 3, 160), None);
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 1, 3, 160), None);
         // A second report while the first is pending is not kept for this receipt.
-        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 4, 170), None);
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 1, 4, 170), None);
         l.complete("a", &Ok(()), f.close(), 5, 180);
-        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(160)));
+        // The report time is clamped to the write time: never acknowledged before written.
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Confirmed, Some(180)));
 
         // A pending report is dropped when the write does not end `written`.
         let g = accept(&mut l, "b", "next");
         assert!(g.try_commit());
         let next = prompt_ack_sha256_16("next");
-        assert_eq!(l.note_prompt_submitted(pid(1), &next, 6, 190), None);
+        assert_eq!(l.note_prompt_submitted(pid(1), &next, 1, 6, 190), None);
         g.trip(FenceReason::OwnerInput);
         l.complete("b", &Ok(()), g.close(), 7, 195);
         assert_eq!(l.get("b").unwrap().state, SubmitState::Indeterminate);
@@ -1589,16 +1624,16 @@ mod tests {
         written(&mut l, "c", "other", 7);
         let same = prompt_ack_sha256_16("same");
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &same, 8, 200),
+            l.note_prompt_submitted(pid(1), &same, 1, 8, 200),
             Some("a".into())
         );
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &same, 9, 201),
+            l.note_prompt_submitted(pid(1), &same, 1, 9, 201),
             Some("b".into())
         );
-        assert_eq!(l.note_prompt_submitted(pid(1), &same, 10, 202), None);
+        assert_eq!(l.note_prompt_submitted(pid(1), &same, 1, 10, 202), None);
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("other"), 11, 203),
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("other"), 1, 11, 203),
             Some("c".into())
         );
     }
@@ -1610,15 +1645,128 @@ mod tests {
         written(&mut l, "b", "second", 6);
         // The hook for "first" was lost; "second" is confirmed.
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("second"), 7, 200),
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("second"), 1, 7, 200),
             Some("b".into())
         );
         // A later identical owner prompt cannot confirm the older receipt.
         assert_eq!(
-            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("first"), 8, 201),
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("first"), 1, 8, 201),
             None
         );
         assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+    }
+
+    /// Accept a submit of `text` on pane 1 in `generation`, then write it at `seq`/`now_ms`.
+    fn written_in(
+        l: &mut SubmitLedger,
+        id: &str,
+        text: &str,
+        generation: u64,
+        seq: u64,
+        now_ms: u64,
+    ) {
+        let mut new = new_receipt(SubmitKind::Submit, 1, text, false);
+        new.target_ref = target(generation);
+        let f = SubmitFence::new();
+        l.insert_accepted(id, new, f.clone(), now_ms)
+            .expect("accepted");
+        assert!(f.try_commit());
+        l.complete(id, &Ok(()), f.close(), seq, now_ms);
+        assert_eq!(l.get(id).unwrap().state, SubmitState::Written);
+    }
+
+    #[test]
+    fn the_same_text_typed_outside_the_window_confirms_nothing() {
+        let mut l = SubmitLedger::default();
+        written_in(&mut l, "a", "review this", 1, 5, 1_000);
+        let hash = prompt_ack_sha256_16("review this");
+        let hour_later = 1_000 + 3_600_000;
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &hash, 1, 6, hour_later),
+            None
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+        // The window edge still confirms.
+        let b_at = hour_later + 1_000;
+        written_in(&mut l, "b", "next", 1, 7, b_at);
+        let next = prompt_ack_sha256_16("next");
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &next, 1, 8, b_at + PROMPT_ACK_WINDOW_MS),
+            Some("b".into())
+        );
+    }
+
+    #[test]
+    fn a_lost_report_is_not_filled_by_a_later_identical_submit() {
+        // A's report was lost long ago; B with the same text gets its own confirmation.
+        let mut l = SubmitLedger::default();
+        written_in(&mut l, "a", "same", 1, 5, 1_000);
+        written_in(&mut l, "b", "same", 1, 6, 1_000 + 3_600_000);
+        let same = prompt_ack_sha256_16("same");
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &same, 1, 7, 1_000 + 3_600_100),
+            Some("b".into())
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &same, 1, 8, 1_000 + 3_600_200),
+            None
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+
+        // Within the window: an unmatched report later than the reorder slack retires A.
+        let mut l = SubmitLedger::default();
+        written_in(&mut l, "a", "same", 1, 5, 1_000);
+        let owner_at = 1_001 + PROMPT_ACK_REORDER_SLACK_MS;
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("owner typed"), 1, 6, owner_at),
+            None
+        );
+        written_in(&mut l, "b", "same", 1, 7, owner_at + 100);
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &same, 1, 8, owner_at + 200),
+            Some("b".into())
+        );
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &same, 1, 9, owner_at + 300),
+            None
+        );
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+    }
+
+    #[test]
+    fn an_unmatched_report_within_the_reorder_slack_retires_nothing() {
+        // The owner's own prompt report overtakes the report for a just-written receipt.
+        let mut l = SubmitLedger::default();
+        written_in(&mut l, "a", "review this", 1, 5, 1_000);
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("owner typed"), 1, 6, 1_050),
+            None
+        );
+        assert_eq!(
+            l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16("review this"), 1, 7, 1_100),
+            Some("a".into())
+        );
+    }
+
+    #[test]
+    fn a_generation_change_between_write_and_report_confirms_nothing() {
+        let mut l = SubmitLedger::default();
+        written_in(&mut l, "a", "review this", 1, 5, 1_000);
+        let hash = prompt_ack_sha256_16("review this");
+        assert_eq!(l.note_prompt_submitted(pid(1), &hash, 2, 6, 1_100), None);
+        assert_eq!(ack(&l, "a"), (SubmitAcknowledged::Unsupported, None));
+        // An in-flight write accepted in an older generation is not kept pending either.
+        let mut new = new_receipt(SubmitKind::Submit, 1, "next", false);
+        new.target_ref = target(1);
+        let f = SubmitFence::new();
+        l.insert_accepted("b", new, f.clone(), 1_200)
+            .expect("accepted");
+        assert!(f.try_commit());
+        let next = prompt_ack_sha256_16("next");
+        assert_eq!(l.note_prompt_submitted(pid(1), &next, 2, 7, 1_250), None);
+        l.complete("b", &Ok(()), f.close(), 8, 1_300);
+        assert_eq!(ack(&l, "b"), (SubmitAcknowledged::Unsupported, None));
     }
 
     #[test]
@@ -1630,7 +1778,7 @@ mod tests {
         accept_resume(&mut l, "resume", 1, "x");
         for text in ["x", INTERRUPT_HASH_TEXT] {
             assert_eq!(
-                l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16(text), 6, 30),
+                l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16(text), 1, 6, 30),
                 None
             );
         }

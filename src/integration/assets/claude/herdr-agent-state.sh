@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=11
+# HERDR_INTEGRATION_VERSION=12
 
 set -eu
 
@@ -18,8 +18,20 @@ case "$action" in
     # UserPromptSubmit: herdr reads the hook JSON and reports only a hash of the prompt.
     [ "${HERDR_ENV:-}" = "1" ] || exit 0
     [ -n "${HERDR_PANE_ID:-}" ] || exit 0
+    [ -z "${CURSOR_VERSION+x}" ] || exit 0
+    # Open the hook JSON, then remove the file at once: a hung herdr child can never
+    # leave the prompt text behind on disk. herdr bounds its own server exchange to
+    # 2 s; a child still running after 5 s is killed.
+    exec 3<"$hook_input_file"
+    rm -f "$hook_input_file"
     "${HERDR_BIN_PATH:-herdr}" pane report-prompt-submitted "$HERDR_PANE_ID" \
-      --source herdr:claude --agent claude <"$hook_input_file" >/dev/null 2>&1 || true
+      --source herdr:claude --agent claude <&3 >/dev/null 2>&1 &
+    report_pid=$!
+    exec 3<&-
+    ( sleep 5; kill "$report_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    watchdog_pid=$!
+    wait "$report_pid" 2>/dev/null || true
+    kill "$watchdog_pid" 2>/dev/null || true
     exit 0
     ;;
   *) exit 0 ;;

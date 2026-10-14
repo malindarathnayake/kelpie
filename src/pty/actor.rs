@@ -483,7 +483,7 @@ mod windows {
     fn input_submission_timed_out() -> std::io::Error {
         std::io::Error::new(
             std::io::ErrorKind::TimedOut,
-            "agent prompt timed out before input submission",
+            "input submission timed out before the write started",
         )
     }
 

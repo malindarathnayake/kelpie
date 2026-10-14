@@ -427,8 +427,8 @@ impl SupervisorState {
     }
 
     /// Fork (B1): a prompt-submit hook of `pane` reported `hash`, ordered on the registry
-    /// event counter after every write completion already handled. Returns the confirmed
-    /// submit id, if any.
+    /// event counter after every write completion already handled, and matched only against
+    /// receipts of the pane's current generation. Returns the confirmed submit id, if any.
     pub fn note_prompt_submitted(
         &mut self,
         pane: PaneId,
@@ -436,7 +436,10 @@ impl SupervisorState {
         now_ms: u64,
     ) -> Option<String> {
         let seq = self.next_event_seq();
-        self.submits.note_prompt_submitted(pane, hash, seq, now_ms)
+        // A pane with no supervisor state yet is at generation 1 (see `pane_mut`).
+        let generation = self.pane(pane).map_or(1, |state| state.generation);
+        self.submits
+            .note_prompt_submitted(pane, hash, generation, seq, now_ms)
     }
 
     /// Bumps the generation and records whether the new generation is an exit.

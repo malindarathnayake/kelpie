@@ -1321,15 +1321,17 @@ fn b1_prompt_submit_hook_confirms_the_written_receipt_once() {
     let marker = "b1-prompt-ack-marker";
     let text = comment_line(marker);
 
+    // An owner prompt before the submit: its report matches nothing. (A report that
+    // matches nothing more than PROMPT_ACK_REORDER_SLACK_MS after a write retires that
+    // receipt, and one hook run here can take longer than that: a cold PowerShell in
+    // the isolated profile.)
+    fixture.run_prompt_hook(&pane, "b1 a prompt the owner typed");
+
     fixture.submit_ok(&target, "b1-x", &text);
     let written = fixture.wait_receipt("b1-x", &text, "written", |receipt| {
         receipt["state"] == "written"
     });
     assert_eq!(written["acknowledged"], "unsupported", "{written}");
-
-    fixture.run_prompt_hook(&pane, "b1 a prompt the owner typed");
-    let unmatched = fixture.submit_status("b1-x", &text);
-    assert_eq!(unmatched["acknowledged"], "unsupported", "{unmatched}");
 
     // Claude's hook prompt for the submitted text, with a trailing newline.
     fixture.run_prompt_hook(&pane, &format!("{text}\n"));
