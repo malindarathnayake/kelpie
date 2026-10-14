@@ -1,4 +1,5 @@
-//! Fork: read-only host facts panel (`host_facts` binding, default `prefix+i`).
+//! Fork: read-only host facts, shown as the settings Host section (the
+//! `host_facts` binding, default `prefix+i`, opens settings on it).
 //!
 //! The facts describe the machine running the attached server, so they are
 //! fetched over that endpoint's control lane (`endpoint.host-facts.*`) and never
@@ -34,7 +35,7 @@ pub(super) struct PendingHostFacts {
     pub(super) deadline: Instant,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct ClientHostFactsOverlay {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) facts: Option<Box<HostFacts>>,
@@ -479,18 +480,34 @@ pub(super) fn panel_content(
     }
 }
 
-/// Popup rect for `screen`: natural size, capped to the screen.
+/// Width the settings popup keeps for its other sections.
+const SETTINGS_MIN_WIDTH: usize = 76;
+/// Height the settings popup keeps for its other sections.
+const SETTINGS_MIN_HEIGHT: usize = 22;
+/// Settings rows around the Host body: border, title, tabs, rule, blank,
+/// host header, host rule, hint, buttons, border.
+const SETTINGS_CHROME_ROWS: usize = 11;
+
+/// Settings popup rect for the Host section on `screen`: wide enough for the
+/// facts at their natural size, capped to the screen.
 pub(super) fn popup_rect(overlay: &ClientHostFactsOverlay, screen: Rect) -> Option<Rect> {
-    let width = u16::try_from(natural_width(overlay).saturating_add(2))
-        .unwrap_or(u16::MAX)
-        .min(screen.width.saturating_sub(4));
+    let width = u16::try_from(
+        natural_width(overlay)
+            .saturating_add(2)
+            .max(SETTINGS_MIN_WIDTH),
+    )
+    .unwrap_or(u16::MAX)
+    .min(screen.width.saturating_sub(4));
     // The row count does not depend on the width.
     let body_rows = panel_content(overlay, usize::from(width), 0).body.len();
-    // Border, header, rule, body, rule, footer, border.
-    let height = u16::try_from(body_rows.saturating_add(6))
-        .unwrap_or(u16::MAX)
-        .min(screen.height.saturating_sub(2));
-    if width < 20 || height < 7 {
+    let height = u16::try_from(
+        body_rows
+            .saturating_add(SETTINGS_CHROME_ROWS)
+            .max(SETTINGS_MIN_HEIGHT),
+    )
+    .unwrap_or(u16::MAX)
+    .min(screen.height.saturating_sub(2));
+    if width < 4 || height < 4 {
         return None;
     }
     Some(Rect::new(
@@ -501,9 +518,9 @@ pub(super) fn popup_rect(overlay: &ClientHostFactsOverlay, screen: Rect) -> Opti
     ))
 }
 
-/// Body rows visible inside `popup`.
+/// Host body rows visible inside the settings `popup`.
 pub(super) fn visible_body_rows(popup: Rect) -> usize {
-    usize::from(popup.height.saturating_sub(6))
+    usize::from(popup.height).saturating_sub(SETTINGS_CHROME_ROWS)
 }
 
 impl ClientShellState {
@@ -519,7 +536,26 @@ impl ClientShellState {
         }
     }
 
-    pub(super) fn open_host_facts_overlay(&mut self, outcome: &mut ClientShellInput) {
+    fn settings_host_mut(&mut self) -> Option<&mut ClientHostFactsOverlay> {
+        match self.overlay.as_mut() {
+            Some(ClientShellOverlay::Settings(settings)) => settings.host.as_mut(),
+            _ => None,
+        }
+    }
+
+    fn put_settings_host(&mut self, overlay: ClientHostFactsOverlay) {
+        if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
+            settings.host = Some(overlay);
+        }
+    }
+
+    /// Creates the settings Host section state on first selection: reuses a
+    /// request still in flight, otherwise sends one.
+    pub(super) fn ensure_settings_host_facts(&mut self, outcome: &mut ClientShellInput) {
+        match self.overlay.as_ref() {
+            Some(ClientShellOverlay::Settings(settings)) if settings.host.is_none() => {}
+            _ => return,
+        }
         let endpoint_id = self.active_endpoint_id.clone();
         let mut overlay = ClientHostFactsOverlay::new(endpoint_id.clone());
         if !self.host_facts.supported.contains(&endpoint_id) {
@@ -537,8 +573,7 @@ impl ClientShellState {
         } else {
             self.request_host_facts(&mut overlay, false, outcome);
         }
-        self.overlay = Some(ClientShellOverlay::HostFacts(overlay));
-        self.chrome_drag = None;
+        self.put_settings_host(overlay);
         outcome.repaint = true;
     }
 
@@ -573,37 +608,51 @@ impl ClientShellState {
         overlay.pending = Some(pending);
     }
 
-    pub(super) fn route_host_facts_key(
+    /// Scroll and refresh keys of the settings Host section. Returns whether the
+    /// key was used; section and close keys stay with the settings router.
+    pub(super) fn route_settings_host_key(
         &mut self,
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
-    ) {
+    ) -> bool {
         use crossterm::event::KeyModifiers;
 
-        let plain = key.modifiers.difference(KeyModifiers::SHIFT).is_empty();
-        let max_scroll = self.host_facts_max_scroll();
-        let Some(ClientShellOverlay::HostFacts(mut overlay)) = self.overlay.take() else {
-            return;
-        };
-        let mut close = false;
-        match key.code {
-            KeyCode::Esc => close = true,
-            KeyCode::Char('q') if plain => close = true,
-            KeyCode::Char('r') if plain => {
-                // One request at a time; a refresh is ignored while one runs.
-                if overlay.pending.is_none() {
-                    if self.endpoint_is_online(&overlay.endpoint_id)
-                        && self.host_facts.supported.contains(&overlay.endpoint_id)
-                    {
-                        overlay.error = None;
-                        self.request_host_facts(&mut overlay, true, outcome);
-                    } else if !self.host_facts.supported.contains(&overlay.endpoint_id) {
-                        overlay.error = Some("not supported by this server".into());
-                    } else {
-                        overlay.error = Some("server is not connected".into());
-                    }
+        let host_section = matches!(
+            self.overlay.as_ref(),
+            Some(ClientShellOverlay::Settings(settings))
+                if settings.section == ClientSettingsSection::Host && settings.host.is_some()
+        );
+        if !host_section || !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
+            return false;
+        }
+        if key.code == KeyCode::Char('r') {
+            let taken = match self.overlay.as_mut() {
+                Some(ClientShellOverlay::Settings(settings)) => settings.host.take(),
+                _ => None,
+            };
+            let Some(mut overlay) = taken else {
+                return false;
+            };
+            // One request at a time; a refresh is ignored while one runs.
+            if overlay.pending.is_none() {
+                if !self.host_facts.supported.contains(&overlay.endpoint_id) {
+                    overlay.error = Some("not supported by this server".into());
+                } else if !self.endpoint_is_online(&overlay.endpoint_id) {
+                    overlay.error = Some("server is not connected".into());
+                } else {
+                    overlay.error = None;
+                    self.request_host_facts(&mut overlay, true, outcome);
                 }
             }
+            self.put_settings_host(overlay);
+            outcome.repaint = true;
+            return true;
+        }
+        let max_scroll = self.host_facts_max_scroll();
+        let Some(overlay) = self.settings_host_mut() else {
+            return false;
+        };
+        match key.code {
             KeyCode::Up | KeyCode::Char('k') => overlay.scroll = overlay.scroll.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => {
                 overlay.scroll = (overlay.scroll + 1).min(max_scroll);
@@ -612,32 +661,17 @@ impl ClientShellState {
             KeyCode::PageDown => overlay.scroll = (overlay.scroll + 8).min(max_scroll),
             KeyCode::Home => overlay.scroll = 0,
             KeyCode::End => overlay.scroll = max_scroll,
-            _ => {
-                // The same binding that opened the panel closes it; with a
-                // prefix binding the bare key is enough while it is open.
-                let keybinds = &self.config.keybinds.keybinds;
-                close = [
-                    crate::input::resolve_prefix_binding(keybinds, key),
-                    crate::input::resolve_direct_binding(keybinds, key),
-                ]
-                .into_iter()
-                .flatten()
-                .any(|binding| {
-                    matches!(
-                        binding,
-                        crate::input::KeybindMatch::Action(crate::input::KeybindAction::HostFacts)
-                    )
-                });
-            }
-        }
-        if !close {
-            self.overlay = Some(ClientShellOverlay::HostFacts(overlay));
+            _ => return false,
         }
         outcome.repaint = true;
+        true
     }
 
     fn host_facts_max_scroll(&self) -> usize {
-        let Some(ClientShellOverlay::HostFacts(overlay)) = self.overlay.as_ref() else {
+        let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_ref() else {
+            return 0;
+        };
+        let Some(overlay) = settings.host.as_ref() else {
             return 0;
         };
         let Some((cols, rows)) = self.last_composed_size else {
@@ -672,7 +706,7 @@ impl ClientShellState {
         {
             self.host_facts.outstanding = None;
         }
-        let Some(ClientShellOverlay::HostFacts(overlay)) = self.overlay.as_mut() else {
+        let Some(overlay) = self.settings_host_mut() else {
             return false;
         };
         let Some(pending) = overlay.pending.as_ref() else {
@@ -699,7 +733,8 @@ impl ClientShellState {
         true
     }
 
-    /// Times out a lost reply and repaints once a second so the age stays current.
+    /// Times out a lost reply and, while the Host section shows, repaints once a
+    /// second so the age stays current.
     pub(crate) fn tick_host_facts(&mut self, now: Instant) -> bool {
         if self
             .host_facts
@@ -709,7 +744,11 @@ impl ClientShellState {
         {
             self.host_facts.outstanding = None;
         }
-        let Some(ClientShellOverlay::HostFacts(overlay)) = self.overlay.as_mut() else {
+        let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() else {
+            return false;
+        };
+        let showing = settings.section == ClientSettingsSection::Host;
+        let Some(overlay) = settings.host.as_mut() else {
             return false;
         };
         if overlay
@@ -719,9 +758,9 @@ impl ClientShellState {
         {
             overlay.pending = None;
             overlay.error = Some("no reply from server".into());
-            return true;
+            return showing;
         }
-        if overlay.facts.is_none() {
+        if !showing || overlay.facts.is_none() {
             return false;
         }
         let secs = now_ms() / 1000;

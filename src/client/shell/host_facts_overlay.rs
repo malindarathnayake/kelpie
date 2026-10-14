@@ -1,12 +1,13 @@
-//! Fork: draws the read-only host facts panel. Text and layout come from
-//! `host_facts_panel`; this module only maps tones onto the active palette.
+//! Fork: draws the read-only host facts inside the settings Host section. Text
+//! and layout come from `host_facts_panel`; this module only maps tones onto
+//! the active palette.
 
 use super::*;
 use crate::client::shell::host_facts_panel::{
-    panel_content, popup_rect, visible_body_rows, ClientHostFactsOverlay, PanelLine, Tone,
+    panel_content, ClientHostFactsOverlay, PanelLine, Tone,
 };
 
-pub(super) use crate::client::shell::host_facts_panel::now_ms;
+pub(super) use crate::client::shell::host_facts_panel::{now_ms, popup_rect};
 
 fn tone_style(tone: Tone, palette: &Palette) -> Style {
     let base = Style::default().bg(palette.panel_bg);
@@ -34,59 +35,52 @@ fn draw_line(buffer: &mut Buffer, area: Rect, y: u16, line: &PanelLine, palette:
     }
 }
 
-pub(super) fn render_host_facts_overlay(
+/// Draws the Host section: header, rule and the scrolled body in `content`,
+/// and the status and key hints on the one-row `hint` area.
+pub(super) fn render_host_facts_section(
     buffer: &mut Buffer,
+    content: Rect,
+    hint: Rect,
     overlay: &ClientHostFactsOverlay,
     now_ms: u64,
     palette: &Palette,
-) -> Option<OverlayRender> {
-    let popup = popup_rect(overlay, buffer.area)?;
-    let inner = panel(buffer, popup, palette.accent, palette.panel_bg)?;
-    let content = panel_content(overlay, usize::from(inner.width), now_ms);
+) {
+    if content.height == 0 || content.width == 0 {
+        return;
+    }
+    let lines = panel_content(overlay, usize::from(content.width), now_ms);
     let rule = Style::default().fg(palette.surface0).bg(palette.panel_bg);
 
-    draw_line(buffer, inner, inner.y, &content.header, palette);
-    put_text(
-        buffer,
-        inner.x,
-        inner.y + 1,
-        inner.width,
-        &"─".repeat(usize::from(inner.width)),
-        rule,
-    );
-
-    let visible = visible_body_rows(popup);
-    let max_scroll = content.body.len().saturating_sub(visible);
-    let scroll = overlay.scroll.min(max_scroll);
-    for (offset, line) in content.body.iter().skip(scroll).take(visible).enumerate() {
-        let y = inner.y + 2 + u16::try_from(offset).unwrap_or(u16::MAX);
-        draw_line(buffer, inner, y, line, palette);
+    draw_line(buffer, content, content.y, &lines.header, palette);
+    if content.height > 1 {
+        put_text(
+            buffer,
+            content.x,
+            content.y + 1,
+            content.width,
+            &"─".repeat(usize::from(content.width)),
+            rule,
+        );
     }
 
-    let footer_y = inner.bottom().saturating_sub(1);
-    put_text(
-        buffer,
-        inner.x,
-        footer_y.saturating_sub(1),
-        inner.width,
-        &"─".repeat(usize::from(inner.width)),
-        rule,
-    );
+    let visible = usize::from(content.height.saturating_sub(2));
+    let max_scroll = lines.body.len().saturating_sub(visible);
+    let scroll = overlay.scroll.min(max_scroll);
+    for (offset, line) in lines.body.iter().skip(scroll).take(visible).enumerate() {
+        let y = content.y + 2 + u16::try_from(offset).unwrap_or(u16::MAX);
+        draw_line(buffer, content, y, line, palette);
+    }
+
     let mut footer: PanelLine = Vec::new();
-    if let Some((status, tone)) = content.footer_status {
+    if let Some((status, tone)) = lines.footer_status {
         footer.push((format!(" {status}"), tone));
         footer.push((" ·".into(), Tone::Dim));
     }
     if max_scroll > 0 {
         footer.push((" ↑↓ scroll ·".into(), Tone::Dim));
     }
-    footer.push((" r refresh · Esc close".into(), Tone::Dim));
-    draw_line(buffer, inner, footer_y, &footer, palette);
-
-    Some(OverlayRender {
-        area: popup,
-        ..OverlayRender::default()
-    })
+    footer.push((" r refresh · tab section".into(), Tone::Dim));
+    draw_line(buffer, hint, hint.y, &footer, palette);
 }
 
 #[cfg(test)]
@@ -100,11 +94,30 @@ mod tests {
         overlay
     }
 
+    /// Renders the settings overlay on its Host section showing `overlay`.
     fn render(overlay: &ClientHostFactsOverlay, width: u16, height: u16) -> (Buffer, Rect) {
+        let palette = Palette::catppuccin();
+        let settings = ClientSettingsOverlay {
+            section: ClientSettingsSection::Host,
+            selected: 0,
+            original_theme_name: String::new(),
+            original_palette: palette.clone(),
+            integrations: Vec::new(),
+            integration_messages: Vec::new(),
+            loading_integrations: false,
+            installing_integrations: false,
+            theme_picker: false,
+            host: Some(overlay.clone()),
+        };
         let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
-        let rendered =
-            render_host_facts_overlay(&mut buffer, overlay, 1_012_000, &Palette::catppuccin())
-                .expect("panel fits");
+        let rendered = super::super::settings_overlay::render_settings_overlay(
+            &mut buffer,
+            &settings,
+            false,
+            1_012_000,
+            &palette,
+        )
+        .expect("panel fits");
         (buffer, rendered.area)
     }
 
@@ -176,7 +189,7 @@ mod tests {
             "wsl      present: Ubuntu",
             "tool    status    version",
             r"↳ shadowed by %SystemRoot%\System32\find.exe",
-            "r refresh · Esc close",
+            "r refresh · tab section",
         ] {
             assert!(text.contains(needle), "missing {needle:?}:\n{text}");
         }
@@ -257,7 +270,7 @@ mod tests {
         let (buffer, _) = render(&overlay, 100, 14);
         let text = rows(&buffer).join("\n");
         assert!(text.contains("↑↓ scroll"), "{text}");
-        assert!(text.contains("Esc close"), "{text}");
+        assert!(text.contains("esc close"), "{text}");
         assert!(text.contains("os       Windows"), "{text}");
         overlay.scroll = 100;
         let (buffer, _) = render(&overlay, 100, 14);

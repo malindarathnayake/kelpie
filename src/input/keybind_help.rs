@@ -194,7 +194,7 @@ pub(crate) fn keybind_help_groups(
                     "supervisor handoff",
                 ),
                 entry(binding_label(&keybinds.theme_picker), "theme picker"),
-                entry(binding_label(&keybinds.host_facts), "host facts"),
+                entry(binding_label(&keybinds.host_facts), "settings: host facts"),
                 entry(
                     binding_label(&keybinds.close_stale_workspaces),
                     "close stale workspaces",

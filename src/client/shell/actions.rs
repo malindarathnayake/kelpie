@@ -92,7 +92,9 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::HostFacts {
-                    self.open_host_facts_overlay(outcome);
+                    // Fork: the host facts live in the settings Host section.
+                    self.open_settings_overlay();
+                    self.select_settings_section(ClientSettingsSection::Host, outcome);
                     return;
                 }
                 if action == crate::input::KeybindAction::CloseStaleWorkspaces {

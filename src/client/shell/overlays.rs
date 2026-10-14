@@ -70,9 +70,13 @@ pub(crate) fn render_client_overlay(
         ClientShellOverlay::Navigator(v) => {
             render_navigator_overlay(b, v, endpoints, active_endpoint_id, p)
         }
-        ClientShellOverlay::Settings(v) => {
-            settings_overlay::render_settings_overlay(b, v, s.integration_updates_available, p)
-        }
+        ClientShellOverlay::Settings(v) => settings_overlay::render_settings_overlay(
+            b,
+            v,
+            s.integration_updates_available,
+            host_facts_overlay::now_ms(),
+            p,
+        ),
         ClientShellOverlay::WorktreeCreate(v) => {
             worktree_overlays::render_worktree_create_overlay(b, v, p)
         }
@@ -81,9 +85,6 @@ pub(crate) fn render_client_overlay(
         }
         ClientShellOverlay::WorktreeRemove(v) => {
             worktree_overlays::render_worktree_remove_overlay(b, v, p)
-        }
-        ClientShellOverlay::HostFacts(v) => {
-            host_facts_overlay::render_host_facts_overlay(b, v, host_facts_overlay::now_ms(), p)
         }
         ClientShellOverlay::CloseStale(v) => {
             close_stale_overlay::render_close_stale_overlay(b, v, p)

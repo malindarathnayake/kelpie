@@ -319,6 +319,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             loading_integrations: false,
             installing_integrations: false,
             theme_picker: false,
+            host: None,
         }),
     ];
     for overlay in overlays {

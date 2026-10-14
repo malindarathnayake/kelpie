@@ -297,7 +297,6 @@ pub(super) enum ClientShellOverlayKind {
     ContextMenu,
     GlobalMenu,
     Settings,
-    HostFacts,
     CloseStale,
 }
 
@@ -396,6 +395,8 @@ pub(super) enum ClientSettingsSection {
     Sound,
     Toast,
     Integrations,
+    /// Fork: read-only host facts of the attached server.
+    Host,
 }
 
 impl ClientSettingsSection {
@@ -405,6 +406,7 @@ impl ClientSettingsSection {
         Self::Sound,
         Self::Toast,
         Self::Integrations,
+        Self::Host,
     ];
 
     pub(super) fn label(self) -> &'static str {
@@ -414,6 +416,7 @@ impl ClientSettingsSection {
             Self::Sound => "sound",
             Self::Toast => "toasts",
             Self::Integrations => "integrations",
+            Self::Host => "host",
         }
     }
 }
@@ -430,6 +433,8 @@ pub(super) struct ClientSettingsOverlay {
     pub(super) installing_integrations: bool,
     /// Opened by the `theme_picker` binding: a themes-only list grouped dark/light.
     pub(super) theme_picker: bool,
+    /// Fork: Host section state, created the first time the section is selected.
+    pub(super) host: Option<super::host_facts_panel::ClientHostFactsOverlay>,
 }
 
 #[derive(Debug)]
@@ -604,8 +609,6 @@ pub(super) enum ClientShellOverlay {
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
     Settings(ClientSettingsOverlay),
-    /// Fork: read-only host facts of the attached server.
-    HostFacts(super::host_facts_panel::ClientHostFactsOverlay),
     /// Fork (Q1): review dialog for closing stale workspaces.
     CloseStale(super::close_stale::ClientCloseStaleOverlay),
 }
@@ -626,7 +629,6 @@ impl ClientShellOverlay {
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
-            Self::HostFacts(_) => ClientShellOverlayKind::HostFacts,
             Self::CloseStale(_) => ClientShellOverlayKind::CloseStale,
         }
     }

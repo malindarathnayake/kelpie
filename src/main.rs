@@ -198,7 +198,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # toggle_sidebar = "prefix+b"
 # supervisor_handoff = "prefix+shift+a"   # hand the focused pane's next agent.submit to the supervisor once
 # theme_picker = "prefix+t"   # pick a theme with live preview; enter saves theme.name, esc reverts
-# host_facts = "prefix+i"   # read-only host facts of the attached server; r refreshes, esc closes
+# host_facts = "prefix+i"   # opens settings on the host section (read-only facts of the attached server); r refreshes
 # close_stale_workspaces = "prefix+shift+s"   # review stale workspaces; risky rows start unticked
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.

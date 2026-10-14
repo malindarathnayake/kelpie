@@ -477,10 +477,6 @@ impl ClientShellState {
     ) {
         use crossterm::event::KeyModifiers;
 
-        if matches!(self.overlay, Some(ClientShellOverlay::HostFacts(_))) {
-            self.route_host_facts_key(key, outcome);
-            return;
-        }
         if matches!(self.overlay, Some(ClientShellOverlay::CloseStale(_))) {
             self.route_close_stale_key(key, outcome);
             return;

@@ -47,6 +47,7 @@ impl ClientShellState {
             loading_integrations: false,
             installing_integrations: false,
             theme_picker: false,
+            host: None,
         }));
     }
 
@@ -65,7 +66,7 @@ impl ClientShellState {
             ClientSettingsSection::Indicators => indicator_index(self.config.status_indicators),
             ClientSettingsSection::Sound => usize::from(!self.config.sound_enabled),
             ClientSettingsSection::Toast => toast_index(self.config.toast_delivery),
-            ClientSettingsSection::Integrations => 0,
+            ClientSettingsSection::Integrations | ClientSettingsSection::Host => 0,
         }
     }
 
@@ -91,6 +92,9 @@ impl ClientShellState {
         if request_integrations {
             self.queue_integration_list(outcome, true);
         }
+        if section == ClientSettingsSection::Host {
+            self.ensure_settings_host_facts(outcome);
+        }
         outcome.repaint = true;
     }
 
@@ -114,6 +118,7 @@ impl ClientShellState {
                 ClientSettingsSection::Indicators | ClientSettingsSection::Sound => 2,
                 ClientSettingsSection::Toast => 4,
                 ClientSettingsSection::Integrations => settings.integrations.len(),
+                ClientSettingsSection::Host => 0,
             },
             _ => 0,
         }
@@ -255,6 +260,8 @@ impl ClientShellState {
                 );
             }
             ClientSettingsSection::Integrations => self.install_recommended_integrations(outcome),
+            // Read-only: nothing to apply.
+            ClientSettingsSection::Host => {}
         }
     }
 
@@ -431,6 +438,9 @@ impl ClientShellState {
             && modifiers.difference(KeyModifiers::SHIFT).is_empty()
         {
             self.move_settings_section(-1, outcome);
+            return true;
+        }
+        if self.route_settings_host_key(key, outcome) {
             return true;
         }
         if matches!(code, KeyCode::Up | KeyCode::Char('k')) && modifiers.is_empty() {

@@ -36,10 +36,28 @@ fn host_requests(outcome: &ClientShellInput) -> Vec<EndpointHostFactsRequest> {
         .collect()
 }
 
+fn prefix_s() -> Vec<RawInputEvent> {
+    vec![
+        key(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        key(KeyCode::Char('s'), KeyModifiers::NONE),
+    ]
+}
+
+fn settings_section(state: &ClientShellState) -> ClientSettingsSection {
+    match state.overlay.as_ref() {
+        Some(ClientShellOverlay::Settings(settings)) => settings.section,
+        other => panic!("settings closed: {other:?}"),
+    }
+}
+
+/// The settings Host section state.
 fn overlay(state: &ClientShellState) -> &host_facts_panel::ClientHostFactsOverlay {
     match state.overlay.as_ref() {
-        Some(ClientShellOverlay::HostFacts(overlay)) => overlay,
-        other => panic!("host panel closed: {other:?}"),
+        Some(ClientShellOverlay::Settings(ClientSettingsOverlay {
+            host: Some(overlay),
+            ..
+        })) => overlay,
+        other => panic!("settings host section missing: {other:?}"),
     }
 }
 
@@ -65,6 +83,7 @@ fn host_panel_opens_with_one_async_request_and_shows_loading() {
     let mut state = host_state(true);
     let outcome = state.handle_raw_events(prefix_i());
     assert!(outcome.repaint);
+    assert_eq!(settings_section(&state), ClientSettingsSection::Host);
     // The only message is the fire-and-forget request; nothing reaches the pane
     // and the shell does not wait for the reply.
     assert_eq!(outcome.requests.len(), 1, "{:?}", outcome.requests);
@@ -121,23 +140,107 @@ fn reopening_while_a_request_runs_reuses_it_and_accepts_its_reply() {
 }
 
 #[test]
-fn host_panel_closes_with_esc_or_its_own_key() {
+fn settings_lists_a_host_section_that_requests_once_when_selected() {
     let mut state = host_state(true);
-    state.handle_raw_events(prefix_i());
+    let opened = state.handle_raw_events(prefix_s());
+    assert!(
+        host_requests(&opened).is_empty(),
+        "no request until selected"
+    );
+    assert_eq!(settings_section(&state), ClientSettingsSection::Theme);
+    let text = composed_text(&mut state, 100, 40);
+    assert!(text.contains(" host "), "{text}");
+    assert!(state
+        .hits
+        .settings_tabs
+        .iter()
+        .any(|(_, section)| *section == ClientSettingsSection::Host));
+
+    // Host is the last section, so shift+tab from the first reaches it.
+    let selected = state.handle_raw_events(vec![key(KeyCode::BackTab, KeyModifiers::SHIFT)]);
+    assert_eq!(settings_section(&state), ClientSettingsSection::Host);
+    let requests = host_requests(&selected);
+    assert_eq!(requests.len(), 1, "{:?}", selected.requests);
+    assert!(!requests[0].refresh);
+
+    // Section keys still move away and back; coming back keeps the state.
+    let away = state.handle_raw_events(vec![key(KeyCode::Tab, KeyModifiers::NONE)]);
+    assert_eq!(settings_section(&state), ClientSettingsSection::Theme);
+    assert!(host_requests(&away).is_empty());
+    let back = state.handle_raw_events(vec![key(KeyCode::Char('h'), KeyModifiers::NONE)]);
+    assert_eq!(settings_section(&state), ClientSettingsSection::Host);
+    assert!(host_requests(&back).is_empty(), "{:?}", back.requests);
+    assert_eq!(overlay(&state).pending.as_ref().unwrap().id, requests[0].id);
+
+    // The reply lands while the section shows and renders inside settings.
+    assert!(state.receive_host_facts(&ClientEndpointId::Local, &success(&requests[0].id)));
+    let text = composed_text(&mut state, 100, 40);
+    assert!(text.contains(" settings"), "{text}");
+    assert!(text.contains("docker   running"), "{text}");
+    let left = state.handle_raw_events(vec![key(KeyCode::Char('l'), KeyModifiers::NONE)]);
+    assert_eq!(settings_section(&state), ClientSettingsSection::Theme);
+    assert!(host_requests(&left).is_empty());
+}
+
+#[test]
+fn host_section_renders_summary_and_tools_inside_settings_at_100_and_60() {
+    for (cols, rows) in [(100, 40), (60, 40)] {
+        let mut state = host_state(true);
+        let outcome = state.handle_raw_events(prefix_i());
+        let request = host_requests(&outcome).remove(0);
+        assert!(state.receive_host_facts(&ClientEndpointId::Local, &success(&request.id)));
+        let text = composed_text(&mut state, cols, rows);
+        println!("{cols}x{rows}:\n{text}");
+        for needle in [
+            " settings",
+            " host ",
+            " Host  ·  refreshed ",
+            "os       Windows 11",
+            "memory   16-32 GB",
+            "docker   running",
+            "wsl      present: Ubuntu",
+            " rg ",
+            "missing ",
+            "failed ",
+            "shadowed ",
+            "r refresh · tab section",
+            "esc close",
+        ] {
+            assert!(text.contains(needle), "{cols}: missing {needle:?}:\n{text}");
+        }
+        assert!(!text.contains("↵ apply"), "read-only section: {text}");
+    }
+}
+
+#[test]
+fn host_section_closes_with_esc_and_enter_does_nothing() {
+    let mut state = host_state(true);
+    let opened = state.handle_raw_events(prefix_i());
+    let request = host_requests(&opened).remove(0);
+    state.receive_host_facts(&ClientEndpointId::Local, &success(&request.id));
+    let outcome = state.handle_raw_events(vec![key(KeyCode::Enter, KeyModifiers::NONE)]);
+    assert!(outcome.requests.is_empty(), "{:?}", outcome.requests);
+    assert_eq!(settings_section(&state), ClientSettingsSection::Host);
+
     let outcome = state.handle_raw_events(vec![key(KeyCode::Esc, KeyModifiers::NONE)]);
     assert!(outcome.repaint);
     assert!(state.overlay.is_none());
     assert!(outcome.requests.is_empty());
+}
 
-    state.handle_raw_events(prefix_i());
-    let outcome = state.handle_raw_events(vec![key(KeyCode::Char('i'), KeyModifiers::NONE)]);
-    assert!(state.overlay.is_none(), "the bare key closes the panel");
-    assert!(outcome.requests.is_empty());
-
-    state.handle_raw_events(prefix_i());
-    let outcome = state.handle_raw_events(prefix_i());
-    assert!(state.overlay.is_none(), "the full chord closes the panel");
-    assert!(outcome.requests.is_empty(), "{:?}", outcome.requests);
+#[test]
+fn theme_picker_has_no_host_section() {
+    let mut state = host_state(true);
+    let outcome = state.handle_raw_events(vec![
+        key(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        key(KeyCode::Char('t'), KeyModifiers::NONE),
+    ]);
+    assert!(host_requests(&outcome).is_empty());
+    let outcome = state.handle_raw_events(vec![key(KeyCode::BackTab, KeyModifiers::SHIFT)]);
+    assert!(host_requests(&outcome).is_empty());
+    assert_eq!(settings_section(&state), ClientSettingsSection::Theme);
+    let text = composed_text(&mut state, 100, 40);
+    assert!(!text.contains(" host "), "{text}");
 }
 
 #[test]
@@ -166,7 +269,7 @@ fn host_panel_r_sends_exactly_one_refresh_until_the_reply() {
     assert!(state.receive_host_facts(&ClientEndpointId::Local, &success(&refresh[0].id)));
     let text = composed_text(&mut state, 100, 40);
     assert!(!text.contains("refreshing…"), "{text}");
-    assert!(text.contains("r refresh · Esc close"), "{text}");
+    assert!(text.contains("r refresh · tab section"), "{text}");
 }
 
 #[test]
@@ -230,7 +333,7 @@ fn host_panel_binding_is_listed_in_help_and_defaults() {
         groups
             .iter()
             .flat_map(|(_, entries)| entries.iter())
-            .any(|(key, label)| label == "host facts" && key == "prefix+i"),
+            .any(|(key, label)| label == "settings: host facts" && key == "prefix+i"),
         "{groups:?}"
     );
     assert!(crate::DEFAULT_CONFIG.contains("# host_facts = \"prefix+i\""));

@@ -37,6 +37,7 @@ pub(super) fn render_settings_overlay(
     buffer: &mut Buffer,
     settings: &ClientSettingsOverlay,
     integration_updates_available: bool,
+    now_ms: u64,
     palette: &Palette,
 ) -> Option<OverlayRender> {
     if settings.theme_picker {
@@ -50,7 +51,15 @@ pub(super) fn render_settings_overlay(
     } else {
         22
     };
-    let popup = popup(buffer.area, 76, height)?;
+    let host = settings
+        .host
+        .as_ref()
+        .filter(|_| settings.section == ClientSettingsSection::Host);
+    let popup = match host {
+        // Fork: the Host section grows to fit the facts table.
+        Some(host) => super::host_facts_overlay::popup_rect(host, buffer.area)?,
+        None => popup(buffer.area, 76, height)?,
+    };
     let inner = panel(buffer, popup, palette.accent, palette.panel_bg)?;
     if inner.width < 20 || inner.height < 8 {
         return None;
@@ -73,15 +82,37 @@ pub(super) fn render_settings_overlay(
             .integrations
             .iter()
             .any(|integration| integration.state == crate::api::schema::IntegrationState::Outdated);
-    let mut tab_x = inner.x;
-    let mut tab_hits = Vec::new();
-    for section in ClientSettingsSection::ALL {
-        let badge = *section == ClientSettingsSection::Integrations && integration_badge;
-        let label = if badge {
+    let tab_label = |section: ClientSettingsSection| {
+        if section == ClientSettingsSection::Integrations && integration_badge {
             format!(" ● {} ", section.label())
         } else {
             format!(" {} ", section.label())
-        };
+        }
+    };
+    // When the strip is wider than the popup, drop leading tabs until the
+    // active one fits.
+    let tab_widths: Vec<u16> = ClientSettingsSection::ALL
+        .iter()
+        .map(|section| display_width(&tab_label(*section)).saturating_add(1))
+        .collect();
+    let active_index = ClientSettingsSection::ALL
+        .iter()
+        .position(|section| *section == settings.section)
+        .unwrap_or(0);
+    let mut first_tab = 0;
+    while first_tab < active_index
+        && tab_widths[first_tab..=active_index]
+            .iter()
+            .fold(0u16, |sum, width| sum.saturating_add(*width))
+            > inner.width
+    {
+        first_tab += 1;
+    }
+    let mut tab_x = inner.x;
+    let mut tab_hits = Vec::new();
+    for section in ClientSettingsSection::ALL.iter().skip(first_tab) {
+        let badge = *section == ClientSettingsSection::Integrations && integration_badge;
+        let label = tab_label(*section);
         let width = display_width(&label).min(inner.right().saturating_sub(tab_x));
         let rect = Rect::new(tab_x, inner.y + 1, width, 1);
         let active = *section == settings.section;
@@ -200,13 +231,18 @@ pub(super) fn render_settings_overlay(
         ClientSettingsSection::Integrations => {
             render_integrations(buffer, content, settings, palette);
         }
+        ClientSettingsSection::Host => {}
     }
 
     let installable = settings
         .integrations
         .iter()
         .any(super::super::settings::integration_needs_install);
-    let show_primary = settings.section != ClientSettingsSection::Integrations || installable;
+    let show_primary = match settings.section {
+        ClientSettingsSection::Integrations => installable,
+        ClientSettingsSection::Host => false,
+        _ => true,
+    };
     let labels = if show_primary { vec![10, 12] } else { vec![12] };
     let buttons = row(inner, &labels, 2, inner.height.saturating_sub(1));
     let (primary, close) = if show_primary {
@@ -237,14 +273,20 @@ pub(super) fn render_settings_overlay(
             .bg(palette.surface0)
             .add_modifier(Modifier::BOLD),
     );
-    put_text(
-        buffer,
-        inner.x,
-        inner.bottom().saturating_sub(2),
-        inner.width,
-        " ↑↓ select  tab section",
-        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
-    );
+    let hint = Rect::new(inner.x, inner.bottom().saturating_sub(2), inner.width, 1);
+    match host {
+        Some(host) => super::host_facts_overlay::render_host_facts_section(
+            buffer, content, hint, host, now_ms, palette,
+        ),
+        None => put_text(
+            buffer,
+            hint.x,
+            hint.y,
+            hint.width,
+            " ↑↓ select  tab section",
+            Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+        ),
+    }
 
     Some(OverlayRender {
         area: popup,

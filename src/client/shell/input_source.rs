@@ -11,7 +11,6 @@ impl ClientShellState {
                     | ClientShellOverlay::WorktreeRemove(_)
                     | ClientShellOverlay::ContextMenu(_)
                     | ClientShellOverlay::GlobalMenu(_)
-                    | ClientShellOverlay::HostFacts(_)
                     | ClientShellOverlay::CloseStale(_)
             );
         }
