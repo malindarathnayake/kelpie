@@ -29,6 +29,10 @@
 
 Kelpie is a terminal multiplexer and runtime for AI coding agents such as Claude Code, Codex and Cursor. Run ten or more sessions side by side, each with its own native terminal UI, backed by a server-owned runtime with a local JSON API. A supervisor agent can watch every session and nudge it forward. The human always wins. First-class on Windows 11 and PowerShell 7, and at home on Linux and macOS.
 
+## Why Kelpie
+
+herdr is one of the few tools that genuinely moved me. The first time I used it, I loved it so much I shed a tear. The more I lived in it, though, the more its small rough edges wore on me, and herdr only accepts pull requests from approved contributors, so I couldn't send fixes back. So I forked it. Kelpie is herdr with those edges sanded down, and a supervisor on top.
+
 ## What it does
 
 - **Detach without stopping work.** Terminals keep running in a background server when you close the client or lose your SSH connection. After a restart, Kelpie restores the saved layout and can resume supported agent sessions.
