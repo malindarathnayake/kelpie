@@ -8,7 +8,7 @@
 <p align="center"><b>Many agents. One calm shepherd's dog.</b></p>
 
 <p align="center">
-  <a href="#install">Install</a> · <a href="#what-it-does">What it does</a> · <a href="#development">Development</a> · <a href="#credits">Credits</a> · English · <a href="README.zh-CN.md">简体中文</a>
+  <a href="#why-kelpie">Why Kelpie</a> · <a href="#install">Install</a> · <a href="#what-it-does">What it does</a> · <a href="#development">Development</a> · <a href="#credits">Credits</a>
 </p>
 
 <p align="center">

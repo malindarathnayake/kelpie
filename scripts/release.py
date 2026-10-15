@@ -12,7 +12,6 @@ RELEASE_FILES = {
     "CHANGELOG.md",
     "docs/next/CHANGELOG.md",
     "docs/next/README.md",
-    "docs/next/README.zh-CN.md",
     "docs/next/product-announcement.json",
     "skills/kelpie/SKILL.md",
 }

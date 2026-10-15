@@ -236,7 +236,7 @@ export async function publishVersion(tag) {
 
   const metadata = await snapshotTag(tag, 'docs/next/website/src/content/docs');
 
-  for (const readme of ['README.md', 'README.zh-CN.md']) {
+  for (const readme of ['README.md']) {
     const nextReadme = `docs/next/${readme}`;
     if (gitPathExists(git, tag, nextReadme)) {
       await writeFile(resolve(repoRoot, readme), git(['show', `${tag}:${nextReadme}`], { binary: true }));
