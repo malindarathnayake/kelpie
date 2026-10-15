@@ -1,14 +1,14 @@
 //! Cross-platform supervisor fixture.
 //!
 //! Starts a real headless server, opens a pane running the platform shell, and
-//! drives agent state through `herdr pane report-agent`, exactly as an agent
-//! integration hook would. Everything goes through the `herdr` CLI, so the
+//! drives agent state through `kelpie pane report-agent`, exactly as an agent
+//! integration hook would. Everything goes through the `kelpie` CLI, so the
 //! same tests run on Windows (named pipe) and Unix (socket).
 //!
 //! The `current_*` tests characterize the legacy `agent get/wait` surface,
 //! which must not change: the supervisor facts (awaiting-human questions,
 //! background work, completion) live in the separate `agents.digest` method
-//! (`herdr agent digest`), exercised by the remaining tests when the fixture
+//! (`kelpie agent digest`), exercised by the remaining tests when the fixture
 //! server runs with `[supervisor] enabled = true`.
 
 use std::path::PathBuf;
@@ -28,14 +28,14 @@ const FUTURE_FACT_KEYS: &[&str] = &[
     "command_id",
 ];
 
-/// Fields herdr already reports today that merely share a fragment above.
+/// Fields kelpie already reports today that merely share a fragment above.
 const EXISTING_KEYS: &[&str] = &["completion_seq"];
 
 fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kelpie-dev"
     } else {
-        "herdr"
+        "kelpie"
     }
 }
 
@@ -68,7 +68,7 @@ impl Fixture {
     }
 
     /// Supervisor server with extra environment for the server process only
-    /// (e.g. the debug-build `HERDR_DEV_SUBMIT_HOLD_MS` knob).
+    /// (e.g. the debug-build `KELPIE_DEV_SUBMIT_HOLD_MS` knob).
     fn start_with_supervisor_env(server_env: &[(&str, &str)]) -> Self {
         Self::start_with_config_env("[supervisor]\nenabled = true\n", server_env)
     }
@@ -83,13 +83,13 @@ impl Fixture {
             .map(|elapsed| elapsed.as_nanos())
             .unwrap_or_default();
         let base = std::env::temp_dir().join(format!(
-            "herdr-supervisor-fixture-{}-{nanos}",
+            "kelpie-supervisor-fixture-{}-{nanos}",
             std::process::id()
         ));
         let config_home = base.join("config");
         let runtime_dir = base.join("runtime");
         let state_home = base.join("state");
-        let socket_path = runtime_dir.join("herdr.sock");
+        let socket_path = runtime_dir.join("kelpie.sock");
         let app_config = config_home.join(app_dir_name());
         std::fs::create_dir_all(&app_config).unwrap();
         std::fs::create_dir_all(&runtime_dir).unwrap();
@@ -102,7 +102,7 @@ impl Fixture {
         )
         .unwrap();
 
-        let mut command = Command::new(env!("CARGO_BIN_EXE_herdr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kelpie"));
         command
             .arg("server")
             .stdin(Stdio::null())
@@ -129,22 +129,22 @@ impl Fixture {
         fixture
     }
 
-    /// Point a child process at this fixture's server and strip any herdr
+    /// Point a child process at this fixture's server and strip any kelpie
     /// context inherited from a surrounding session.
     fn isolate(&self, command: &mut Command) {
         command
             .env("XDG_CONFIG_HOME", &self.config_home)
             .env("XDG_RUNTIME_DIR", &self.runtime_dir)
             .env("XDG_STATE_HOME", &self.state_home)
-            .env("HERDR_SOCKET_PATH", &self.socket_path)
-            .env_remove("HERDR_CLIENT_SOCKET_PATH")
-            .env_remove("HERDR_ENV")
-            .env_remove("HERDR_SESSION")
-            .env_remove("HERDR_PANE_ID");
+            .env("KELPIE_SOCKET_PATH", &self.socket_path)
+            .env_remove("KELPIE_CLIENT_SOCKET_PATH")
+            .env_remove("KELPIE_ENV")
+            .env_remove("KELPIE_SESSION")
+            .env_remove("KELPIE_PANE_ID");
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_herdr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kelpie"));
         command.args(args);
         self.isolate(&mut command);
         command
@@ -158,7 +158,7 @@ impl Fixture {
         let output = self.cli(args);
         assert!(
             output.status.success(),
-            "herdr {} failed: {}\n{}",
+            "kelpie {} failed: {}\n{}",
             args.join(" "),
             String::from_utf8_lossy(&output.stderr),
             String::from_utf8_lossy(&output.stdout)
@@ -169,7 +169,7 @@ impl Fixture {
         }
         serde_json::from_slice(&output.stdout).unwrap_or_else(|err| {
             panic!(
-                "herdr {} printed non-JSON ({err}): {}",
+                "kelpie {} printed non-JSON ({err}): {}",
                 args.join(" "),
                 String::from_utf8_lossy(&output.stdout)
             )
@@ -220,7 +220,7 @@ impl Fixture {
         self.run_and_wait(pane, command, "background-started");
     }
 
-    /// Run a long-lived stand-in process that herdr identifies as Claude, so
+    /// Run a long-lived stand-in process that kelpie identifies as Claude, so
     /// `agent submit` sees the agent as the pane's foreground process. It is an
     /// interactive shell, so typed prompts are echoed and otherwise harmless.
     fn launch_stand_in_claude(&self, pane: &str) {
@@ -277,7 +277,7 @@ impl Fixture {
             let stand_in = bin.join(exe_name);
             std::fs::write(
                 &stand_in,
-                format!("#!/bin/sh\nexport HERDR_AGENT={agent_label}\nexec /bin/sh\n"),
+                format!("#!/bin/sh\nexport KELPIE_AGENT={agent_label}\nexec /bin/sh\n"),
             )
             .unwrap();
             #[cfg(unix)]
@@ -331,7 +331,7 @@ impl Fixture {
 
 impl Fixture {
     /// Raw `ping` over the fixture's own socket. No CLI prints the
-    /// `supervisor_v1` capability (`herdr status` omits it), so this sends the
+    /// `supervisor_v1` capability (`kelpie status` omits it), so this sends the
     /// same wire request the CLI's status probe sends.
     fn ping(&self) -> serde_json::Value {
         let socket_path = self.socket_path.clone();
@@ -375,7 +375,7 @@ impl Fixture {
         serde_json::from_str(&line).unwrap_or_else(|err| panic!("ping reply ({err}): {line}"))
     }
 
-    /// `herdr agent digest`, parsed. Errors print on stderr with exit 1.
+    /// `kelpie agent digest`, parsed. Errors print on stderr with exit 1.
     fn digest(&self) -> serde_json::Value {
         self.cli_json(&["agent", "digest"])["result"].clone()
     }
@@ -549,7 +549,7 @@ fn assert_no_future_facts(value: &serde_json::Value) {
 }
 
 /// Incident: the agent asked a prose question ("Should I start the brief?")
-/// and herdr showed it as idle. Today there is no awaiting-human fact, so the
+/// and kelpie showed it as idle. Today there is no awaiting-human fact, so the
 /// only status available is the plain agent state.
 #[test]
 fn current_prose_question_reports_plain_idle() {
@@ -567,7 +567,7 @@ fn current_prose_question_reports_plain_idle() {
 }
 
 /// Incident: the foreground turn finished while a background shell was still
-/// running, and herdr showed the session as finished. Today background work
+/// running, and kelpie showed the session as finished. Today background work
 /// is not a separate fact.
 #[test]
 fn current_background_job_is_not_a_separate_fact() {
@@ -619,7 +619,7 @@ fn fixture_state_dir_is_scoped() {
     let log_path = fixture
         .config_home
         .join(app_dir_name())
-        .join("herdr-server.log");
+        .join("kelpie-server.log");
     assert!(log_path.starts_with(&fixture.base));
     let mut startup_pids = Vec::new();
     let logged = wait_until(Duration::from_secs(10), || {
@@ -967,7 +967,7 @@ impl Fixture {
         assert_eq!(
             output.status.code(),
             Some(1),
-            "herdr {} should fail: {}{}",
+            "kelpie {} should fail: {}{}",
             args.join(" "),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
@@ -1059,19 +1059,19 @@ impl Fixture {
             let mut command = Command::new("powershell");
             command
                 .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(assets.join("herdr-agent-state.ps1"));
+                .arg(assets.join("kelpie-agent-state.ps1"));
             command
         } else {
             let mut command = Command::new("sh");
-            command.arg(assets.join("herdr-agent-state.sh"));
+            command.arg(assets.join("kelpie-agent-state.sh"));
             command
         };
         command.arg("prompt");
         self.isolate(&mut command);
         command
-            .env("HERDR_ENV", "1")
-            .env("HERDR_PANE_ID", pane)
-            .env("HERDR_BIN_PATH", env!("CARGO_BIN_EXE_herdr"))
+            .env("KELPIE_ENV", "1")
+            .env("KELPIE_PANE_ID", pane)
+            .env("KELPIE_BIN_PATH", env!("CARGO_BIN_EXE_kelpie"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1100,7 +1100,7 @@ impl Fixture {
         );
     }
 
-    /// `herdr agent watch <args>` as a child; its stdout lines arrive parsed.
+    /// `kelpie agent watch <args>` as a child; its stdout lines arrive parsed.
     fn spawn_watch(&self, args: &[&str]) -> (Child, std::sync::mpsc::Receiver<serde_json::Value>) {
         use std::io::{BufRead, BufReader};
 
@@ -1363,7 +1363,7 @@ fn b1_prompt_submit_hook_confirms_the_written_receipt_once() {
     let log_path = fixture
         .config_home
         .join(app_dir_name())
-        .join("herdr-server.log");
+        .join("kelpie-server.log");
     let log = std::fs::read_to_string(&log_path).unwrap_or_default();
     assert!(
         !log.contains(marker) && !log.contains("owner typed"),
@@ -1733,7 +1733,7 @@ fn p10_fixture_input_observer_child() {
         .unwrap()
         .to_str()
         .unwrap()
-        .starts_with("herdr-supervisor-fixture-"));
+        .starts_with("kelpie-supervisor-fixture-"));
     assert!(base.join("config").is_dir() && base.join("runtime").is_dir());
     assert!(base.join("p10-screen-0.ansi").is_file());
 
@@ -1826,21 +1826,21 @@ impl Fixture {
                     "Bypass",
                     "-File",
                 ])
-                .arg(assets.join("herdr-agent-state.ps1"));
+                .arg(assets.join("kelpie-agent-state.ps1"));
             command
         };
         #[cfg(unix)]
         let mut command = {
             let mut command = Command::new("sh");
-            command.arg(assets.join("herdr-agent-state.sh"));
+            command.arg(assets.join("kelpie-agent-state.sh"));
             command
         };
         command.arg(action);
         self.isolate(&mut command);
         command
-            .env("HERDR_ENV", "1")
-            .env("HERDR_PANE_ID", pane)
-            .env("HERDR_BIN_PATH", env!("CARGO_BIN_EXE_herdr"))
+            .env("KELPIE_ENV", "1")
+            .env("KELPIE_PANE_ID", pane)
+            .env("KELPIE_BIN_PATH", env!("CARGO_BIN_EXE_kelpie"))
             .env_remove("CODEX_THREAD_ID")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -1871,7 +1871,7 @@ impl Fixture {
             "report-agent-session",
             pane,
             "--source",
-            &format!("herdr:{agent}"),
+            &format!("kelpie:{agent}"),
             "--agent",
             agent,
             "--agent-session-id",
@@ -1892,7 +1892,7 @@ impl Fixture {
         let path = self
             .config_home
             .join(app_dir_name())
-            .join("herdr-server.log");
+            .join("kelpie-server.log");
         let log = std::fs::read_to_string(&path).unwrap();
         assert!(
             !log.contains(marker),
@@ -2004,7 +2004,7 @@ fn b7_cursor_prompt_hook_confirms_and_refreshes_identity() {
     let old = fixture.digest_agent_until(&pane, "legacy Cursor session hook identity", |a| {
         a["agent_session"]["value"] == "p10-cursor-old"
     });
-    assert_eq!(old["agent_session"]["source"], "herdr:cursor");
+    assert_eq!(old["agent_session"]["source"], "kelpie:cursor");
     assert_eq!(old["agent_session"]["agent"], "cursor");
     let text = comment_line("p10-cursor-prompt-marker");
     fixture.submit_ok(&target_ref_arg(&old), "p10-cursor-prompt", &text);
@@ -2035,7 +2035,7 @@ fn b7_cursor_prompt_hook_confirms_and_refreshes_identity() {
     });
     assert_eq!(
         refreshed["agent_session"],
-        serde_json::json!({"source": "herdr:cursor", "agent": "cursor", "kind": "id", "value": "p10-cursor-new"})
+        serde_json::json!({"source": "kelpie:cursor", "agent": "cursor", "kind": "id", "value": "p10-cursor-new"})
     );
     assert_eq!(
         refreshed["target_ref"]["generation"].as_u64(),
@@ -2287,7 +2287,7 @@ fn s6e_dirty_and_unknown_drafts_are_rejected_without_write() {
 #[test]
 fn s6f_generation_change_during_hold_fences_zero_bytes() {
     let hold = SUBMIT_HOLD_MS.to_string();
-    let mut fixture = Fixture::start_with_supervisor_env(&[("HERDR_DEV_SUBMIT_HOLD_MS", &hold)]);
+    let mut fixture = Fixture::start_with_supervisor_env(&[("KELPIE_DEV_SUBMIT_HOLD_MS", &hold)]);
     let pane = fixture.pane();
     let agent = fixture.ready_clean_claude(&pane, "s6f");
     let marker = "w2-held-generation-marker";
@@ -2311,7 +2311,7 @@ fn s6f_generation_change_during_hold_fences_zero_bytes() {
 }
 
 /// Speaks the client-shell endpoint protocol over the fixture's client socket
-/// the way an attached `herdr` client does, so owner keys reach the server's
+/// the way an attached `kelpie` client does, so owner keys reach the server's
 /// real attached-client pane-input path (`ClientShellPaneInput`, the one that
 /// trips submit fences) rather than an API writer.
 struct OwnerClient {
@@ -2450,7 +2450,7 @@ mod owner_wire {
 
 impl OwnerClient {
     fn connect(fixture: &Fixture) -> Self {
-        let client_socket = fixture.runtime_dir.join("herdr-client.sock");
+        let client_socket = fixture.runtime_dir.join("kelpie-client.sock");
         let (frames_tx, frames_rx) = std::sync::mpsc::channel::<Vec<u8>>();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
         let worker = thread::spawn(move || {
@@ -2686,7 +2686,7 @@ impl Drop for OwnerClient {
 #[test]
 fn s6g_owner_keys_during_hold_fence_via_attached_client() {
     let hold = SUBMIT_HOLD_MS.to_string();
-    let mut fixture = Fixture::start_with_supervisor_env(&[("HERDR_DEV_SUBMIT_HOLD_MS", &hold)]);
+    let mut fixture = Fixture::start_with_supervisor_env(&[("KELPIE_DEV_SUBMIT_HOLD_MS", &hold)]);
     let pane = fixture.focused_pane();
     fixture.launch_stand_in_claude(&pane);
     fixture.report(&pane, "claude", "idle");
@@ -2937,7 +2937,7 @@ impl Fixture {
             "report-agent-session",
             pane,
             "--source",
-            "herdr:claude",
+            "kelpie:claude",
             "--agent",
             "claude",
             "--agent-session-id",

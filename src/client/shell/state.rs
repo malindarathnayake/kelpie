@@ -28,7 +28,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) sound_enabled: bool,
     pub(super) toast_delivery: crate::config::ToastDelivery,
     pub(super) toast_delay_seconds: u64,
-    pub(super) toast_position: crate::config::ToastHerdrPosition,
+    pub(super) toast_position: crate::config::ToastKelpiePosition,
     pub(super) copy_on_select: bool,
     pub(super) clipboard_toast_enabled: bool,
     pub(super) clipboard_toast_position: crate::config::ToastClipboardPosition,
@@ -43,7 +43,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) confirm_close: bool,
     /// Fork (Q1): `[ui] stale_after` in milliseconds.
     pub(super) stale_after_ms: u64,
-    /// Fork (Q1): `[ui] animations` after the `HERDR_ANIMATIONS` override.
+    /// Fork (Q1): `[ui] animations` after the `KELPIE_ANIMATIONS` override.
     pub(super) animations: crate::config::AnimationsConfig,
     pub(super) mouse_capture: bool,
     pub(super) mouse_scroll_lines: usize,
@@ -945,7 +945,7 @@ pub(crate) struct ClientShellState {
     /// The host tty's erase character is `^H`: a raw 0x08 is Backspace, not
     /// Ctrl+H (MobaXterm, PuTTY-style terminals; tmux reads VERASE the same way).
     pub(super) host_erase_is_ctrl_h: bool,
-    /// The focused pane asks for every key as an escape code, so Herdr pushed
+    /// The focused pane asks for every key as an escape code, so Kelpie pushed
     /// report-all to the host; plain text input then reaches it as text.
     pub(super) host_reports_all_keys: bool,
     pub(super) replaying_url_click: bool,

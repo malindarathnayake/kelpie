@@ -4,7 +4,7 @@
 
 ## [0.9.3] - 2026-09-29
 
-This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature release: https://github.com/herdrdev/herdr/releases/tag/v0.9.2
+This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature release: https://kelpie.example/source/releases/tag/v0.9.2
 
 ### Fixed
 - Terminal shortcuts that send Escape followed by a key work again in panes. On macOS, Option+Left/Right and Option+Backspace from Ghostty's defaults or iTerm2's Natural Text Editing preset move and delete by word again, instead of typing `b` and `f` or deleting one character. Escape-based Shift+Enter bindings insert a newline in Claude Code instead of submitting. Clicking a pane still doesn't send a stray Escape. (#4751)
@@ -13,15 +13,15 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 ## [0.9.2] - 2026-09-29
 
 ### Breaking Changes
-- The Herdr-specific pane graphics API is gone. `pane.graphics.info`, `set`, `clear`, and `stream` now return `unknown_method`. Apps show images by writing standard Kitty graphics to their terminal, which Herdr renders natively. (#4561)
+- The Kelpie-specific pane graphics API is gone. `pane.graphics.info`, `set`, `clear`, and `stream` now return `unknown_method`. Apps show images by writing standard Kitty graphics to their terminal, which Kelpie renders natively. (#4561)
 
 ### Added
-- Agents can report their own resume command. Herdr then reopens their exact session after a server restart, with no built-in integration needed. Self-reported agents are also cleared once their pane is back at an idle shell. The new [Add Herdr support to your agent](https://herdr.dev/docs/add-herdr-support/) guide covers state, resume, and release for agent authors. (#4687)
+- Agents can report their own resume command. Kelpie then reopens their exact session after a server restart, with no built-in integration needed. Self-reported agents are also cleared once their pane is back at an idle shell. The new [Add Kelpie support to your agent](https://kelpie.example/docs/add-kelpie-support/) guide covers state, resume, and release for agent authors. (#4687)
 - Use more than one prefix key: `prefix = ["ctrl+space", "ctrl+s"]`. Every entry enters the same prefix mode, and `prefix+?` lists them all. (#4653, thanks @JJLiebig)
 - Go To shows every agent and terminal as its own row, grouped by workspace, with its status and path. Left and Right jump between workspaces. (#4384)
 - Bind `keys.clear_pane` to clear the focused pane's screen and scrollback while keeping the current prompt line. It is unbound by default and leaves full-screen apps such as Vim alone. (#4383)
-- `herdr machine status` checks saved machines without prompting. `herdr machine reconnect` finishes SSH authentication, including MFA, in your terminal. Open clients recheck failed machines every 30 seconds, so no restart is needed after fixing a connection. (#3763)
-- Interactive `machine add` finds the Herdr sessions already running on the host and lets you pick one. `--label` is optional; the machine is named after its SSH host. (#4204, #4678, thanks @JJLiebig and @dhh)
+- `kelpie machine status` checks saved machines without prompting. `kelpie machine reconnect` finishes SSH authentication, including MFA, in your terminal. Open clients recheck failed machines every 30 seconds, so no restart is needed after fixing a connection. (#3763)
+- Interactive `machine add` finds the Kelpie sessions already running on the host and lets you pick one. `--label` is optional; the machine is named after its SSH host. (#4204, #4678, thanks @JJLiebig and @dhh)
 - `terminal session control` accepts `terminal.mouse` events, so bridge clients can click buttons in apps that enable mouse reporting. (#4685)
 - Restored agents start one at a time, 100 ms apart by default, instead of all at once. Change the spacing with `[session] startup_per_agent_delay_ms`. (#4102, thanks @JJLiebig)
 
@@ -29,14 +29,14 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Images render faster and more reliably. Local Ghostty receives image data through temporary files instead of terminal output. Popups and notifications crop images around themselves instead of hiding them. Images that scroll out of view stay loaded, so scrolling back no longer resends them. (#4561, #4652, #4686)
 - SSH connections request compression. On slow links, remote panes catch up after scrolling in a fraction of the time. (#4340)
 - Scrolling output on saved machines sends only the rows that changed, cutting bandwidth for build logs and streaming agents. Older clients and servers keep working with the previous format. (#4711)
-- New panes set `TERM_PROGRAM=herdr` and `TERM_PROGRAM_VERSION`. They no longer inherit terminal session IDs, such as iTerm2's, or Claude Code session markers from the terminal that started the server. (#4104)
+- New panes set `TERM_PROGRAM=kelpie` and `TERM_PROGRAM_VERSION`. They no longer inherit terminal session IDs, such as iTerm2's, or Claude Code session markers from the terminal that started the server. (#4104)
 - Windows panes default to PowerShell 7 (`pwsh`) when it is installed, falling back to Windows PowerShell. An explicit `default_shell` still wins. (#4297, thanks @JJLiebig)
 - Closing the last tab of a workspace now asks for confirmation. (#4379, #4409, thanks @minatoaquaMK2)
 - Event subscriptions deliver bursts in full. A reader that falls too far behind now gets an `events_lost` error instead of silently skipping events. (#4178, #4225, thanks @minatoaquaMK2)
-- On Unix, sending `SIGWINCH` to a Herdr client re-reads the host terminal's colors, so theme switchers that change colors without a light/dark notification can refresh panes. (#4349, thanks @dhh)
+- On Unix, sending `SIGWINCH` to a Kelpie client re-reads the host terminal's colors, so theme switchers that change colors without a light/dark notification can refresh panes. (#4349, thanks @dhh)
 
 ### Fixed
-- Saved layouts survive host shutdown and failed restores. On Linux with logind, Herdr saves before the system shuts down. Every platform keeps up to 48 layout snapshots in `session-snapshots/` for manual recovery. (#4320)
+- Saved layouts survive host shutdown and failed restores. On Linux with logind, Kelpie saves before the system shuts down. Every platform keeps up to 48 layout snapshots in `session-snapshots/` for manual recovery. (#4320)
 - Clicking a pane no longer sends a stray Escape that interrupts a working agent. (#3480)
 - An agent's first task now counts as done, even when it started with a prompt. Startup, restored sessions, and Pi's `/new` no longer fire false done notifications. Hook-reported status survives live handoff. (#3338, #3990, #3916)
 - The server uses far less CPU with many populated panes. The navigator, pane splits, and named targets stay fast in large sessions, and bursts of external events no longer stall rendering. (#4506, #4546, #4426, #4669, #4670, #4671, #4672, thanks @JJLiebig and @minatoaquaMK2)
@@ -59,15 +59,15 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Socket error responses keep the original request ID, including subscription setup errors. (#4344)
 - `plugin install` accepts options before the repository. (#4446)
 - Windows panes pick up the host terminal's light or dark colors from the start, so apps no longer default to dark mode inside a light terminal. (#1530, #4369)
-- After `herdr update`, Herdr lists which running servers are still on the old version, with the exact commands to restart each one, and reminds you to update your saved SSH machines.
+- After `kelpie update`, Kelpie lists which running servers are still on the old version, with the exact commands to restart each one, and reminds you to update your saved SSH machines.
 
 ## [0.9.1] - 2026-09-16
 
 ### Added
-- Control agents, panes, workspaces, and worktrees on saved SSH machines with `herdr --machine <label-or-id>`. Commands use the saved machine's session without needing an open Herdr window. Update Herdr on both machines to use CLI forwarding; failed remote commands never fall back to Local. (#3918)
+- Control agents, panes, workspaces, and worktrees on saved SSH machines with `kelpie --machine <label-or-id>`. Commands use the saved machine's session without needing an open Kelpie window. Update Kelpie on both machines to use CLI forwarding; failed remote commands never fall back to Local. (#3918)
 - Connect to Windows SSH hosts from Linux, macOS, or Windows. Interactive setup can install or update the complete Windows package after confirmation; background reconnects never install updates. (#3651, #3701, #3661, #3687, thanks @JJLiebig)
-- Edit names, filters, and search text at the cursor instead of only at the end. Herdr inputs now support character and word movement, Home/End, deletion, and familiar Ctrl+A/E/K/U/W/Y shortcuts, including Unicode text. (#1803, #3698, thanks @markjaquith)
-- Added Letta Code detection and native conversation restore, including default conversations. Its experimental integration is installed through `herdr integration install letta`, not the Settings integration list or JSON integration API. (#3106, #3107, thanks @just-cameron)
+- Edit names, filters, and search text at the cursor instead of only at the end. Kelpie inputs now support character and word movement, Home/End, deletion, and familiar Ctrl+A/E/K/U/W/Y shortcuts, including Unicode text. (#1803, #3698, thanks @markjaquith)
+- Added Letta Code detection and native conversation restore, including default conversations. Its experimental integration is installed through `kelpie integration install letta`, not the Settings integration list or JSON integration API. (#3106, #3107, thanks @just-cameron)
 - Hold Ctrl over a link to highlight it before opening it. Wrapped URLs and OSC 8 links remain clickable even when their beginning or end is outside the viewport. (#1282)
 - Sidebar token rules can now hide matching tokens and their separators with `hide = true`; rows disappear when no tokens remain. (#3925)
 
@@ -103,8 +103,8 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Deleting a session now requires its exact name, including case, on case-insensitive filesystems. Names beginning with a hyphen can be passed after `--`. (#3819, #4233, #3220, thanks @minatoaquaMK2)
 - Newly started macOS servers retain access to user lookup and DNS across logout. Existing affected servers need a full session restart; live handoff cannot repair their inherited service context. (#4100)
 - Linux process discovery stays responsive around stuck WSL agents and avoids repeatedly scanning an ever-growing process tree. (#2179, #3621, #3674, thanks @dark2momo and @caner-akca)
-- Linux desktop notifications identify Herdr as their source. (#3638)
-- `pane split` without a target now splits the calling pane when invoked inside Herdr, rather than another client's focused pane. Explicit targets keep their existing behavior. (#4123)
+- Linux desktop notifications identify Kelpie as their source. (#3638)
+- `pane split` without a target now splits the calling pane when invoked inside Kelpie, rather than another client's focused pane. Explicit targets keep their existing behavior. (#4123)
 - Live agent names survive temporary process-detection uncertainty instead of leaving an active agent unreachable by name. (#3225, #3574, thanks @caner-akca)
 - Windows Codex prompts reliably submit after pasted text instead of losing Enter, including long prompts. (#3187, #3961, thanks @JJLiebig)
 - OpenCode V2 reports lifecycle state from the pane displaying the conversation, so shared servers do not mix up panes. Completed and interrupted turns return to idle, while pending permissions, forms, and failed executions remain blocked. V1 remains supported; restart OpenCode after installing the updated integration. (#3757, thanks @markjaquith)
@@ -123,7 +123,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 ## [0.9.0] - 2026-09-07
 
 ### Added
-- Manage Local and saved SSH machines from one Herdr window, with a combined agent list, machine-scoped navigation, notifications, and automatic reconnects. Add and manage connections with `herdr machine`; a disconnected machine does not interrupt the others. (#3670)
+- Manage Local and saved SSH machines from one Kelpie window, with a combined agent list, machine-scoped navigation, notifications, and automatic reconnects. Add and manage connections with `kelpie machine`; a disconnected machine does not interrupt the others. (#3670)
 - Multiple clients can now view different workspaces and tabs independently. Different tabs fit their viewing clients; when clients share a tab, the last one to interact with it controls its size. (#3526)
 - Added Muse agent detection for idle, working, approval, and question states. (#2489, thanks @ohk)
 - Sidebar text and metadata tokens can now change color, boldness, and dimming based on their values, using ordered text or numeric rules. (#3693)
@@ -140,7 +140,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 
 ### Fixed
 - Mouse selections now stay visible and copyable while terminal output continues, including with automatic copying disabled. Ctrl+C and Cmd+C copy a selection even before a delayed mouse release, and a failed copy no longer interrupts the agent. Selection highlights also remain visible when host colors are unavailable. (#3100, #2708, #3684, thanks @moret and @Pimpmuckl)
-- Wayland clipboard copies no longer freeze Herdr while `wl-copy` serves the selection. (#3014)
+- Wayland clipboard copies no longer freeze Kelpie while `wl-copy` serves the selection. (#3014)
 - Live handoff now preserves mouse forwarding for running pane applications. (#3000, thanks @xkrogen)
 - Interrupted pane exits during host shutdown no longer replace the saved session with an empty session or a new default workspace. (#3415)
 - SSH clients whose terminal disappears now detach instead of resizing running panes to a fallback size and triggering expensive history reflow. (#3519)
@@ -155,7 +155,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Long Codex prompts on Windows now wait long enough for the text to arrive before submitting Enter. Expired queued submissions are rejected before typing starts. (#3187)
 - Recent pane reads now include output that has not yet scrolled off the viewport, instead of returning empty text. (#3444)
 - `pane report-agent` and `pane report-agent-session` now accept options before the pane ID and `--option=value` arguments. (#2926)
-- `herdr agent explain --file` now reports unreadable files as structured JSON rather than raw Rust errors. (#3022)
+- `kelpie agent explain --file` now reports unreadable files as structured JSON rather than raw Rust errors. (#3022)
 - Running named servers now pick up detection manifests downloaded by another server without needing a restart. (#2711)
 - Agents that set their terminal title or progress once at startup no longer lose that detection signal when first recognized. (#3326, thanks @aneym)
 - Claude Code now recognizes visible turn and background-agent activity when terminal titles are unavailable, and remains working while background MCP tasks continue. An idle prompt with only a background shell running no longer stays working. (#1630, #3090, #3414)
@@ -186,15 +186,15 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 ## [0.8.2] - 2026-08-19
 
 ### Added
-- CLI help now points coding agents to Herdr's plain-text guide, documentation index, and built-in control skill.
+- CLI help now points coding agents to Kelpie's plain-text guide, documentation index, and built-in control skill.
 - Added Qwen Code detection for idle, working, and user-confirmation states, plus optional native session restore. (#2730, #2743)
-- Herdr now keeps the outer terminal window title in sync with the session through `ui.window_title`, so window managers and terminal tab bars show the active workspace and the host the panes actually run on. (#2627, thanks @dhh)
+- Kelpie now keeps the outer terminal window title in sync with the session through `ui.window_title`, so window managers and terminal tab bars show the active workspace and the host the panes actually run on. (#2627, thanks @dhh)
 - The desktop tab bar now has configurable right-aligned status entries for zoom state, hostname, date/time, literal text, and asynchronously refreshed command output.
 - Optional `keys.move_tab_previous` and `keys.move_tab_next` bindings now reorder the active tab in place, wrapping at either end. (#2561, thanks @dhh)
 - Optional `keys.resize_pane_left`, `keys.resize_pane_down`, `keys.resize_pane_up`, and `keys.resize_pane_right` bindings now resize the focused pane in one keystroke without entering resize mode. (#2558, thanks @dhh)
-- Windows clients can now use `herdr --remote` to attach to Herdr servers on Linux and macOS. (#2329)
+- Windows clients can now use `kelpie --remote` to attach to Kelpie servers on Linux and macOS. (#2329)
 - Cursor Agent CLI, MastraCode, Hermes Agent, and Grok CLI integrations now install and run natively on Windows.
-- Panes can now route normal right-click gestures to mouse-reporting applications through the pane menu, `herdr pane input`, `pane.input.set`, or the `pane split --right-click pane` launch option.
+- Panes can now route normal right-click gestures to mouse-reporting applications through the pane menu, `kelpie pane input`, `pane.input.set`, or the `pane split --right-click pane` launch option.
 - `ui.pane_outer_borders` can now keep or hide the outside edges of split-pane borders independently from internal dividers. (#2535, thanks @dhh)
 - `theme.custom.sidebar_bg` can now give the desktop sidebar its own background without changing built-in theme defaults.
 - Settings and `ui.status_indicators = "symbols"` can now use distinct static shapes for blocked, working, done, idle, and unknown agent states. (#2260)
@@ -219,13 +219,13 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - The Windows ARM64 installer now waits for x64 emulation to release the verified executable before activating the downloaded release. (#2916)
 - On Unix, Ctrl-click URL openers are now reaped after they exit, preventing defunct child processes from accumulating on long-running servers. (#2903)
 - Windows updates now reuse only verified local packages, avoiding security-tool download blocks while preserving checksum validation. (#2751, #2816, thanks @Pimpmuckl)
-- Herdr no longer sends the full OSC 4 palette query burst under WSL, preventing reply fragments from leaking into the shell through ConPTY. (#2440)
+- Kelpie no longer sends the full OSC 4 palette query burst under WSL, preventing reply fragments from leaking into the shell through ConPTY. (#2440)
 - Qwen Code panes now use locale-independent terminal-title states and localized confirmation fallbacks, preventing active or blocked turns from appearing idle. (#2756)
 - Claude Code panes now recognize and strip every half-circle title spinner frame, preventing active turns from appearing idle and keeping titles clean. (#2707, #2709, #2760, #2762)
 - Copilot prompts now focus the target pane before sending input, so background panes do not silently drop prompts. (#1698, #2734, thanks @xkrogen)
-- Agent hooks now invoke the running Herdr binary instead of whichever binary appears first on `PATH`. (#2722, thanks @Pimpmuckl)
-- Closing a terminal running `herdr --remote` no longer produces a local client core dump while the remote session stays alive. (#2424)
-- Active Space and Agent rows now use dedicated theme colors that remain visible when the host terminal background matches the selected Herdr theme. (#2792)
+- Agent hooks now invoke the running Kelpie binary instead of whichever binary appears first on `PATH`. (#2722, thanks @Pimpmuckl)
+- Closing a terminal running `kelpie --remote` no longer produces a local client core dump while the remote session stays alive. (#2424)
+- Active Space and Agent rows now use dedicated theme colors that remain visible when the host terminal background matches the selected Kelpie theme. (#2792)
 - `agent prompt` now rejects agents already waiting at approval or question dialogs with `agent_blocked`, without sending text or Enter. (#2788)
 - `agent start` now waits for new pane shells and first-run agent prompts to become ready instead of racing them or reporting premature readiness. (#2410, #2537, #2773, #2774, thanks @Pimpmuckl)
 - `prefix+e` now preserves logical lines when opening soft-wrapped scrollback in an editor. (#2733)
@@ -245,17 +245,17 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Fish `Ctrl+Alt` keybindings now work in panes after legacy Alt-prefixed control bytes are decoded with both modifiers. (#2514)
 - Windows recent-history reads no longer perform redundant snapshots, restoring `recent` output while reducing read cost. (#962, #2474, thanks @Pimpmuckl)
 - The Windows installer now activates releases with an atomic directory swap, preventing interrupted updates from leaving an empty release directory. (#2356, #2530, thanks @Pimpmuckl)
-- `herdr config check` now reports unknown built-in theme names instead of silently accepting them. (#2452)
-- macOS `herdr --remote` clients now keep the accepted bridge socket blocking, preventing an immediate disconnect after the protocol handshake. (#2478, thanks @mathijshenquet)
+- `kelpie config check` now reports unknown built-in theme names instead of silently accepting them. (#2452)
+- macOS `kelpie --remote` clients now keep the accepted bridge socket blocking, preventing an immediate disconnect after the protocol handshake. (#2478, thanks @mathijshenquet)
 - Prefix keybindings now preserve Shift in WezTerm Kitty keyboard mode, so commands such as config reload no longer trigger their unshifted action. (#2435)
 - Pane applications now receive modifyOtherKeys releases and shifted alternate reports without dropped releases or leaked Ctrl+Tab sequences. (#2296, #2302, #2303)
-- Detaching now restores host keyboard reporting, preventing enhanced keyboard sequences from leaking into the shell after Herdr exits. (#2393, #2395)
+- Detaching now restores host keyboard reporting, preventing enhanced keyboard sequences from leaking into the shell after Kelpie exits. (#2393, #2395)
 - Default mouse reports are decoded instead of leaking escape bytes into the focused pane. (#2309, #2312)
 - BEL characters emitted by pane programs now reach the outer terminal so its audible and visual bell settings can react. (#2453)
 - Stable direct installs, self-updates, and remote helper downloads now require and verify the SHA-256 digest published for each GitHub release asset.
 - `pane read` and `pane wait-output` now accept `--flag=value` and options before or after the pane ID. (#2183, thanks @KyleCo76)
 - `pane current`, `pane get`, and `pane layout --current` now resolve the calling pane instead of another client's focused pane. (#2297, #2298)
-- Configs containing the retired Herdr-written `ui.agent_panel_scope` setting no longer report it as an unknown key after upgrades. (#2292)
+- Configs containing the retired Kelpie-written `ui.agent_panel_scope` setting no longer report it as an unknown key after upgrades. (#2292)
 - Claude Code confirmation prompts using `Enter to confirm · Esc to cancel` now report `blocked` instead of `idle`. (#2268)
 - Kiro CLI prompts now have positive idle detection instead of remaining in an unknown state. (#2301, thanks @smileynet)
 - Cursor's Run Everything footer no longer produces a false blocked state. (#1763, #2220, thanks @Nagi-ovo)
@@ -269,13 +269,13 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Ctrl-clicking a URL no longer forwards its release after the browser takes host focus, preventing duplicate tabs. (#2290, #2291, thanks @kataokatsuki)
 - OSC 4 palette overrides now render with the requested color instead of forwarding the palette index. (#2162, thanks @hamidi-dev)
 - Host terminal appearance is re-queried when focus returns, keeping automatic light and dark themes current. (#2416, #2417)
-- The bundled and installable Herdr agent skill now matches this stable release's CLI and lifecycle behavior. (#2847)
+- The bundled and installable Kelpie agent skill now matches this stable release's CLI and lifecycle behavior. (#2847)
 - `pane send-keys` and `agent send-keys` now preserve Shift when sending `shift+tab`, allowing agent permission modes to be cycled programmatically. (#1561, thanks @keinstn and @tomohisa)
 
 ## [0.8.0] - 2026-08-03
 
 ### Added
-- Added `herdr --skill` to print the agent skill bundled with the running Herdr binary.
+- Added `kelpie --skill` to print the agent skill bundled with the running Kelpie binary.
 - Added `ui.pane_scrollbars = false` to hide terminal pane scrollbars and reclaim their reserved column. (#2167)
 - Added `ui.tab_bar_position = "bottom"` to place the desktop tab row below terminal panes. (#2117)
 - Added live filtering to the keybind help with `/`, Backspace, and `Ctrl+U`. (#1825, #1832, thanks @corrius)
@@ -290,11 +290,11 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Experimental options are no longer exposed in the Settings TUI and remain available through the config file.
 - Agent status indicators now use the same static workspace marks across the sidebar, navigator, and mobile views, eliminating continuous spinner rendering while agents work.
 - Hidden pane output no longer triggers unnecessary TUI rendering.
-- Windows preview downloads now include Herdr and a modern app-local ConPTY runtime in one archive. (#1533, #1644, #1828)
+- Windows preview downloads now include Kelpie and a modern app-local ConPTY runtime in one archive. (#1533, #1644, #1828)
 - Worktree parents and children now stay packed together in the sidebar, including while groups are reordered.
 - Public documentation now separates stable, preview, and immutable versioned release snapshots.
-- Repository and installation links now use `herdrdev/herdr` after the GitHub organization migration.
-- Relicensed Herdr from AGPL-3.0-or-later to Apache-2.0.
+- Repository and installation links now use `kelpie.example/kelpie` after the GitHub organization migration.
+- Relicensed Kelpie from AGPL-3.0-or-later to Apache-2.0.
 
 ### Fixed
 - Pane applications now receive semantic light/dark query responses and live Mode 2031 updates when the host appearance changes. (#714)
@@ -312,13 +312,13 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Kitty graphics remain visible during host repaints. (#1628)
 - Pane applications now receive correct XTWINOPS terminal and cell-size query responses. (#835)
 - WSL clients query the host cell size when the terminal ioctl reports no pixels, keeping graphics sharp instead of using the 8x16 fallback. (#2146, #2160, thanks @WakaTaira)
-- Linux runtimes without terminal foreground process groups can opt into child-group agent detection with `HERDR_PROCESS_DETECTION=child-groups`. (#1982)
-- Installing the Herdr agent skill with the `skills` CLI no longer copies the entire repository. (#2022)
-- Nix builds now include the bundled agent skill required by `herdr --skill`. (#1889, #1890, thanks @olafkfreund)
+- Linux runtimes without terminal foreground process groups can opt into child-group agent detection with `KELPIE_PROCESS_DETECTION=child-groups`. (#1982)
+- Installing the Kelpie agent skill with the `skills` CLI no longer copies the entire repository. (#2022)
+- Nix builds now include the bundled agent skill required by `kelpie --skill`. (#1889, #1890, thanks @olafkfreund)
 - Agent prompts now wait briefly after sending text before pressing Enter, preventing prompts from remaining in agent composers without starting a turn. (#1878)
 - Empty clipboard writes from pane applications no longer erase existing clipboard contents or show a copied confirmation. (#1893)
-- Plain mouse movement no longer triggers continuous full renders while preserving Herdr menu hover and pane application mouse tracking. (#1865)
-- Extended-button drags now preserve Herdr hover state while applications receive the drag.
+- Plain mouse movement no longer triggers continuous full renders while preserving Kelpie menu hover and pane application mouse tracking. (#1865)
+- Extended-button drags now preserve Kelpie hover state while applications receive the drag.
 - `ui.copy_on_select = false` now retains drag and double-click word selections without copying; `Ctrl+C`, or `Cmd+C` when the host terminal forwards it, copies and clears the selection. (#1782)
 - Pane and agent read responses now report `truncated: true` when older terminal rows were omitted. (#1717)
 - Pane applications that query OSC 4 palette colors now inherit the host terminal palette. (#1752)
@@ -356,16 +356,16 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 ## [0.7.5] - 2026-07-21
 
 ### Breaking Changes
-- Installed and linked plugins, including their enabled state, are now global to the current user instead of isolated by Herdr session. Plugins installed only in a named session on Herdr 0.7.3 must be installed or linked again. (#1174)
+- Installed and linked plugins, including their enabled state, are now global to the current user instead of isolated by Kelpie session. Plugins installed only in a named session on Kelpie 0.7.3 must be installed or linked again. (#1174)
 
 ### Added
 - Added a live-agent CLI facade with named `start`, atomic `prompt`, logical `send-keys`, and server-owned `wait` workflows. Agent startup targets an existing pane without changing topology, validates the requested interactive agent kind and strict agent name, and accepts native arguments after `--`.
 - Added transient declarative Agent view queries through `agent.view.set/clear`; filtered and sorted views now define sidebar, mobile, mouse, and agent-keybind navigation order.
 - Added one-shot plugin `[[startup]]` hooks for restoring plugin-owned state after server startup and live handoff.
 - Added per-token foreground, bold, and dim styling to expanded Space and Agent sidebar row layouts.
-- Added `ui.sidebar_start_collapsed` to launch Herdr with the sidebar collapsed. (#1463)
+- Added `ui.sidebar_start_collapsed` to launch Kelpie with the sidebar collapsed. (#1463)
 - Added `ui.prompt_new_workspace_name` to ask for a workspace name before interactive TUI creation.
-- Added macOS support for the `HERDR_AGENT=<agent>` foreground-process hint, allowing agents hidden behind host-visible wrappers such as `nono` to use the named agent's screen manifest. (#679)
+- Added macOS support for the `KELPIE_AGENT=<agent>` foreground-process hint, allowing agents hidden behind host-visible wrappers such as `nono` to use the named agent's screen manifest. (#679)
 
 ### Changed
 - Agent commands now accept only a unique live agent name or the pane ID currently hosting that agent. Names are cleared when the occupant exits, is released, or is replaced. The old top-level `wait` commands were replaced by `agent wait` and `pane wait-output`, and `agent send` was replaced by `agent send-keys`.
@@ -376,13 +376,13 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Linux sound notifications now terminate and reap audio players that do not exit, preventing unavailable audio from leaving CPU-bound `mpg123` processes behind. (#1622)
 - Oversized bracketed text pastes are now rejected with a client-local notification instead of disconnecting the client. (#1665)
 - Agent prompt waits now report `agent_prompt_stalled` after five seconds without an observed state change instead of waiting indefinitely after an ineffective submission.
-- `herdr config check` now reports unknown config keys with their full paths instead of treating ignored typos as valid configuration. (#1573)
+- `kelpie config check` now reports unknown config keys with their full paths instead of treating ignored typos as valid configuration. (#1573)
 - Codex panes with customized static terminal titles now fall back to the live working footer instead of remaining idle, while OSC activity remains preferred. (#1563)
 - Grok panes now preserve working and blocked state from terminal signals and pinned background-work status instead of falling back to idle mid-turn.
 - OpenCode lifecycle reports are now serialized so out-of-order plugin events cannot leave an idle pane marked working. (#1519)
 - Kimi question prompts now report blocked until the user answers or dismisses them.
 - Pi lifecycle reporting now uses settled events, preventing transient message boundaries from publishing an idle state mid-turn.
-- The Pi, OMP, OpenCode, and Kilo Code integrations can now be installed on Windows and report lifecycle state and native session identity through Herdr's named-pipe API. (#1531)
+- The Pi, OMP, OpenCode, and Kilo Code integrations can now be installed on Windows and report lifecycle state and native session identity through Kelpie's named-pipe API. (#1531)
 - Named agent prompts now honor live bracketed-paste mode before sending Enter, preserving OpenCode text such as `A != B` instead of triggering shell mode. (#1525)
 - New panes, tabs, layouts, and workspaces using `new_cwd = "follow"` now inherit the foreground process-group leader's working directory instead of an unrelated helper process directory. (#1472)
 - Cached pane working directories no longer trigger repeated filesystem checks, avoiding slow sidebar rendering on network filesystems such as Ceph. (#1603)
@@ -393,11 +393,11 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Mouse selections now remain visible when `ui.copy_on_select = false` while clipboard writes stay disabled. (#1471)
 - Workspace close confirmation now shows the current workspace name instead of a stale or unrelated label. (#1364)
 - Plugin command arrays now preserve whitespace-only arguments. (#1594, #1613)
-- Plugins can now be installed or linked while no Herdr server is running. (#1670)
-- Remote attach now discovers Herdr installed in mise's canonical tool path before offering to install a sidecar binary. (#1201)
+- Plugins can now be installed or linked while no Kelpie server is running. (#1670)
+- Remote attach now discovers Kelpie installed in mise's canonical tool path before offering to install a sidecar binary. (#1201)
 - Noninteractive update, plugin, integration, sound, custom-command, and Git subprocesses no longer flash console windows on Windows. (#1468)
 - Live handoff now preserves installed plugins and no longer lets the next plugin installation overwrite the existing registry. (#893)
-- `herdr agent wait` now returns `agent_not_running` promptly when its target pane closes instead of waiting for the full timeout. (#1439)
+- `kelpie agent wait` now returns `agent_not_running` promptly when its target pane closes instead of waiting for the full timeout. (#1439)
 - Pane graphics streams now shut down cleanly when a client disconnect races stream teardown.
 
 ## [0.7.4] - 2026-07-15
@@ -413,7 +413,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 
 ### Changed
 - Expanded Space and Agent sidebar entries now use a packed layout by default; set the corresponding `row_gap` to `1` to restore the previous spacing.
-- Refreshed the bundled Herdr agent skill for current public workspace, tab, and pane ids and the current CLI/API workflow. (#1297)
+- Refreshed the bundled Kelpie agent skill for current public workspace, tab, and pane ids and the current CLI/API workflow. (#1297)
 - Expanded Japanese and Simplified Chinese CLI documentation with shell completion setup and API schema usage. (#1151)
 
 ### Fixed
@@ -424,7 +424,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Amp, Codex, and Claude Code detection now recognizes current active-turn UI variants, including reordered Codex title spinners and Claude `/btw` turns. (#1208, #1281, #1366)
 - Pi lifecycle state now reanchors after native session replacement, avoiding working panes that remain idle or tied to an abandoned session. (#943, #1189, thanks @dmmulroy)
 - OMP lifecycle reports are now retried when startup races drop the first report. (#1310)
-- WSL now uses Herdr's drawn cursor by default, matching the native Windows workaround for host cursor flicker. (#930)
+- WSL now uses Kelpie's drawn cursor by default, matching the native Windows workaround for host cursor flicker. (#930)
 - Live handoff now preserves explicit named-session socket paths, waits for slower server shutdowns, and flushes API responses before the old server exits. (#1180, thanks @dvic)
 - The Windows installer no longer rewrites an existing config file or creates a duplicate onboarding line during first-run setup. (#1162)
 - Config diagnostics now reach CLI-only and attached-client startup paths reliably and clearly identify fallback configuration behavior.
@@ -434,12 +434,12 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Horizontal wheel and trackpad events now reach pane applications that enable mouse reporting. (#1349)
 - Copy mode `$` and End now stop at the final visible character on the row instead of jumping to the pane edge. (#1405)
 - Split SGR mouse reports are now reassembled across input reads, and a preceding standalone Escape is preserved instead of being swallowed or leaked as mouse bytes. (#1334, #1382)
-- Linux foreground-process discovery now stays within Herdr pane process trees instead of scanning unrelated host processes, reducing CPU use on busy multi-user systems. (#1399)
+- Linux foreground-process discovery now stays within Kelpie pane process trees instead of scanning unrelated host processes, reducing CPU use on busy multi-user systems. (#1399)
 - Single-codepoint emoji chosen from the Windows emoji picker now reach panes when WezTerm's kitty keyboard support sends them as CSI-u events with associated text. (#1404)
 - Outer-terminal focus gained and lost reports now reach the focused pane when its application enables focus reporting, restoring Neovim file autoreload and other focus-aware terminal behavior. (#1337)
 - Native Windows servers now detach from the terminal console that launched them, so closing WezTerm, Windows Terminal, or another host terminal no longer stops persistent pane processes. (#1329)
 - Windows API clients now remain connected while waiting for initial named-pipe request bytes, so `status server`, `api snapshot`, and other socket commands no longer intermittently fail with BrokenPipe. (#1279)
-- `herdr --remote` now installs remote helper binaries without routing the binary stream through a multiline `/bin/sh -c` command, fixing installs for non-POSIX login shells such as xonsh. (#1203, thanks @nhumrich)
+- `kelpie --remote` now installs remote helper binaries without routing the binary stream through a multiline `/bin/sh -c` command, fixing installs for non-POSIX login shells such as xonsh. (#1203, thanks @nhumrich)
 
 ## [0.7.3] - 2026-07-08
 
@@ -456,13 +456,13 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 ### Added
 - Added MastraCode integration support with lifecycle state reports and native thread restore. (#337, #788, thanks @wardpeet)
 - Added `ui.sidebar_collapsed_mode = "hidden"` to make a collapsed sidebar use zero width while keeping the existing compact rail as the default. (#842)
-- Added `herdr completion <shell>` / `herdr completions <shell>` to generate shell completion scripts for bash, elvish, fish, PowerShell, and zsh. (#435)
+- Added `kelpie completion <shell>` / `kelpie completions <shell>` to generate shell completion scripts for bash, elvish, fish, PowerShell, and zsh. (#435)
 - Added `session.snapshot` to bootstrap client runtime state in one socket API response before subscribing to events.
-- Added `herdr api schema` to inspect the bundled socket API schema, with `--json` for the full JSON Schema document and `--output PATH` for file output.
+- Added `kelpie api schema` to inspect the bundled socket API schema, with `--json` for the full JSON Schema document and `--output PATH` for file output.
 - Added `layout.updated` socket events so protocol clients can keep tab layout snapshots current after pane split, resize, swap, move, zoom, and layout mutations.
 - Added pane scroll metrics to pane socket API responses and `pane.scroll_changed` subscriptions for clients that need to show when a pane is scrolled back.
-- Added `herdr terminal session observe` for read-only live ANSI terminal streams that bridge processes can consume as newline-delimited JSON.
-- Added `herdr terminal session control` for bridge processes that need live ANSI frames plus input, resize, scroll, release, and takeover authority.
+- Added `kelpie terminal session observe` for read-only live ANSI terminal streams that bridge processes can consume as newline-delimited JSON.
+- Added `kelpie terminal session control` for bridge processes that need live ANSI frames plus input, resize, scroll, release, and takeover authority.
 - Added `ui.hide_tab_bar_when_single_tab` to hide the tab row when a workspace has one tab. (#448)
 - Added Japanese and Simplified Chinese website docs.
 
@@ -475,27 +475,27 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Windows clients now send shifted punctuation such as `!`, `?`, and `:` as literal text to Kitty-keyboard-mode pane apps, fixing Kiro CLI TUI prompts while preserving modified key chords. (#1066, #1105)
 - Alt-Shift letter chords are now preserved instead of being collapsed into plain uppercase input. (#1088)
 - Antigravity background-task waits are now detected even when the UI does not show a `/tasks` hint. (#755)
-- `herdr --remote` now prints clean remote attach failures and SSH authentication guidance instead of Rust Debug-formatted I/O errors when SSH authentication is denied. (#1034)
-- `herdr server stop` now stops Windows named-pipe servers instead of failing with `named pipes do not support I/O timeouts`. (#1113)
-- `herdr server stop` now waits until both server sockets are unreachable before returning, avoiding an immediate first-start failure when restarting right after replacing the binary.
-- macOS `herdr --remote` clients now bridge Finder-dropped image files to the remote pane instead of forwarding the local file path as typed text. (#828)
+- `kelpie --remote` now prints clean remote attach failures and SSH authentication guidance instead of Rust Debug-formatted I/O errors when SSH authentication is denied. (#1034)
+- `kelpie server stop` now stops Windows named-pipe servers instead of failing with `named pipes do not support I/O timeouts`. (#1113)
+- `kelpie server stop` now waits until both server sockets are unreachable before returning, avoiding an immediate first-start failure when restarting right after replacing the binary.
+- macOS `kelpie --remote` clients now bridge Finder-dropped image files to the remote pane instead of forwarding the local file path as typed text. (#828)
 - Grok Build agent detection now tracks the current Grok Build UI: panes report working while responses, tools, and subagents run, and blocked on permission prompts and question dialogs, instead of falling back to idle mid-turn. (#1017, #1055, thanks @TonyxSun)
 - GitHub Copilot CLI detection now recognizes the newer Esc interrupt prompt as working. (#1119, #1120, thanks @LaneBirmingham)
-- Unix local Herdr clients no longer treat empty bracketed paste as a clipboard-image bridge; `herdr --remote` keeps using it for local-desktop image paste over SSH. (#986)
+- Unix local Kelpie clients no longer treat empty bracketed paste as a clipboard-image bridge; `kelpie --remote` keeps using it for local-desktop image paste over SSH. (#986)
 - Custom command keybindings now run through `cmd.exe /d /c` on Windows instead of `/bin/sh`, so `type = "pane"` and `type = "shell"` bindings can launch native Windows commands. (#1041)
-- Plain PageUp/PageDown now reach primary-screen pager apps such as `less -X` and Git diff when they enter application cursor mode, while shell transcripts still use Herdr pane scrollback. (#953)
-- Copy mode now supports Ctrl-page navigation, keeps the Herdr prefix key available while copying, and restores the copy context correctly after prefix commands. (#681, #885, #1092, thanks @reobin)
+- Plain PageUp/PageDown now reach primary-screen pager apps such as `less -X` and Git diff when they enter application cursor mode, while shell transcripts still use Kelpie pane scrollback. (#953)
+- Copy mode now supports Ctrl-page navigation, keeps the Kelpie prefix key available while copying, and restores the copy context correctly after prefix commands. (#681, #885, #1092, thanks @reobin)
 - `prefix+e` scrollback editor panes now open on Windows without trying to run `/bin/sh`; Windows uses `VISUAL`, then `EDITOR`, then `notepad.exe` as the fallback editor. (#914)
-- `herdr pane split --current` now resolves to the calling Herdr pane instead of the UI-focused pane when run inside a pane. (#902)
+- `kelpie pane split --current` now resolves to the calling Kelpie pane instead of the UI-focused pane when run inside a pane. (#902)
 - Native Windows clients running inside Alacritty now preserve mouse reports and `ctrl+j` input instead of leaking mouse escape sequences into panes. `shift+enter` remains dependent on whether the outer terminal reports it as a distinct modified Enter key. (#792)
 - Windows clients now preserve bracketed paste, Backspace, modifier-only keys, host cursor drawing, native clipboard copies, recent pane reads, and wait connections across the native input path. (#670, #795, #907, #920, #930, #962, #963, #1067)
 - New tabs and workspaces now follow the focused pane's current directory more reliably, including PowerShell panes that report cwd through prompt shell integration on Windows. (#912, #919)
 - Pi and OMP integration state now survives internal session reloads, recovers after resumed sessions such as `omp -c`, and reports Ask/tool approval waits as blocked instead of leaving the pane working or stuck on the previous session. (#800, #879, #984, thanks @dmmulroy)
 - Pi state socket reports are now retried, reducing stale sidebar state when the report races server startup. (#1049)
 - OpenCode now reports subagent permission prompts as blocked and handles object-form `session.status` events. (#838, thanks @soar)
-- Remote attach now discovers compatible Homebrew, mise, and Nix profile installs before offering to install a sidecar binary to `~/.local/bin/herdr`. (#840)
-- `herdr --remote` sessions now keep the remote server in its own login-independent session and preserve compatible running servers after helper binary updates, so network drops should disconnect only the client instead of killing remote panes.
-- `herdr --remote` now reuses one OpenSSH connection across setup probes, installs, server checks, and the final bridge when `[remote].manage_ssh_config` is enabled, so password-based hosts prompt once instead of once per setup command. (#888)
+- Remote attach now discovers compatible Homebrew, mise, and Nix profile installs before offering to install a sidecar binary to `~/.local/bin/kelpie`. (#840)
+- `kelpie --remote` sessions now keep the remote server in its own login-independent session and preserve compatible running servers after helper binary updates, so network drops should disconnect only the client instead of killing remote panes.
+- `kelpie --remote` now reuses one OpenSSH connection across setup probes, installs, server checks, and the final bridge when `[remote].manage_ssh_config` is enabled, so password-based hosts prompt once instead of once per setup command. (#888)
 - Foreground agent session reports can now replace stale saved session references, so resumed panes do not stay tied to an older agent session. (#943)
 - Kitty graphics panes now repaint streaming image updates reliably and delete replaced host images instead of leaking them. (#947, #948, thanks @DevSrSouza)
 - Pane apps that query OSC 12 cursor color now receive a response. (#806)
@@ -515,8 +515,8 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 ## [0.7.1] - 2026-06-24
 
 ### Added
-- Added `[update].version_check` and `[update].manifest_check` so background Herdr version checks and remote agent-detection manifest checks can be disabled independently. Manual `herdr update` and bundled/local detection manifests still work when the background checks are disabled. (#677)
-- Added `HERDR_AGENT=<agent>` as a Linux foreground-process hint for agents hidden behind wrappers such as VMs, Bubblewrap, or `fence`, allowing Herdr to use the named agent's screen manifest when `/proc` cannot expose the real command. (#679)
+- Added `[update].version_check` and `[update].manifest_check` so background Kelpie version checks and remote agent-detection manifest checks can be disabled independently. Manual `kelpie update` and bundled/local detection manifests still work when the background checks are disabled. (#677)
+- Added `KELPIE_AGENT=<agent>` as a Linux foreground-process hint for agents hidden behind wrappers such as VMs, Bubblewrap, or `fence`, allowing Kelpie to use the named agent's screen manifest when `/proc` cannot expose the real command. (#679)
 - Added `ui.pane_borders` and `ui.pane_gaps` to make split pane dividers and spacing configurable. (#271)
 
 ### Changed
@@ -528,10 +528,10 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 
 ### Fixed
 - Windows Terminal multiline text paste now reaches pane apps as one bracketed paste, so OMP, Pi, and similar prompts no longer submit each pasted line separately. Plain Esc, Shift+Enter, mouse, focus, resize, and Unicode paste handling are preserved on the Windows client path. (#670)
-- Local Herdr clients no longer treat raw `Ctrl+V` as a clipboard-image paste trigger, so pane apps such as Vim and Neovim receive block-visual `Ctrl+V` even when the desktop clipboard contains an image. `herdr --remote` keeps `keys.remote_image_paste = "ctrl+v"` by default. (#647)
-- Herdr now refreshes cached host terminal colors when terminals report a light/dark color-scheme change, so pane apps that query OSC 10/11 no longer need detach/attach to see updated default colors. Opt-in `[theme].auto_switch` can also switch Herdr's own UI between configured `dark_name` and `light_name` themes. (#675)
-- Full-lifecycle hook agents can now recover when an old release/report sequence belongs to a previous agent generation. Herdr keeps process-exit validation active under lifecycle authority and re-anchors hook sequence guards after fresh session references or proven process exits. (#684)
-- OMP now reports a native session reference, so an OMP pane reappears in the Agents panel after exiting and rerunning `omp` in the same pane, and Herdr can resume it with `omp --resume=<session>`. Previously the released lifecycle hook stayed suppressed until a server restart. (#614)
+- Local Kelpie clients no longer treat raw `Ctrl+V` as a clipboard-image paste trigger, so pane apps such as Vim and Neovim receive block-visual `Ctrl+V` even when the desktop clipboard contains an image. `kelpie --remote` keeps `keys.remote_image_paste = "ctrl+v"` by default. (#647)
+- Kelpie now refreshes cached host terminal colors when terminals report a light/dark color-scheme change, so pane apps that query OSC 10/11 no longer need detach/attach to see updated default colors. Opt-in `[theme].auto_switch` can also switch Kelpie's own UI between configured `dark_name` and `light_name` themes. (#675)
+- Full-lifecycle hook agents can now recover when an old release/report sequence belongs to a previous agent generation. Kelpie keeps process-exit validation active under lifecycle authority and re-anchors hook sequence guards after fresh session references or proven process exits. (#684)
+- OMP now reports a native session reference, so an OMP pane reappears in the Agents panel after exiting and rerunning `omp` in the same pane, and Kelpie can resume it with `omp --resume=<session>`. Previously the released lifecycle hook stayed suppressed until a server restart. (#614)
 - Host terminal color query (OSC 10/11) replies that arrive split at their escape introducer no longer leak as text like `11;rgb:...` into the focused pane, most visible when launching agents that probe terminal colors on startup. (#549)
 - Long CJK Git branch names in the sidebar now truncate by display width instead of overflowing or cutting at the wrong cell boundary. (#644)
 - Temporary pane commands launched from API flows no longer steal focus from the previously focused pane after they finish. (#658)
@@ -545,17 +545,17 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Pi launched through npm wrappers on Windows is now detected as Pi instead of a generic wrapped process. (#754)
 - Windows builds now force the system ConPTY path through a vendored `portable-pty` patch, avoiding the bundled-path startup failure seen in affected Windows environments. (#761)
 - Key release events that fall back to encoded input no longer double-send text into pane apps. (#769)
-- Remote clients now allow a longer initial handshake, improving `herdr --remote` startup over high-latency links. (#753)
+- Remote clients now allow a longer initial handshake, improving `kelpie --remote` startup over high-latency links. (#753)
 
 ## [0.7.0] - 2026-06-15
 
 ### Added
 - Added local plugin v1 support with `plugin.link/list/unlink/enable/disable`, manifest-declared actions, event hooks, managed plugin panes, link handlers, command logs, keybinding integration, and authoring docs under Preview docs.
-- Added `herdr plugin install <owner>/<repo>[/subdir...]`, `plugin uninstall`, source metadata in `plugin.list`, offline registry fallback, and a human-readable default `plugin list` with `--json` for scripts.
-- Added `herdr plugin config-dir <id>` and automatic plugin config/state directory creation so plugin setup docs can point users at a stable config path.
-- Added Devin CLI automatic detection plus `herdr integration install devin` hooks that report session ids for restore with `devin --resume <id>`. Devin state remains screen-detected because Devin hooks do not cover every permission cancellation and user interrupt transition. (#606, #622, thanks @minatoaquaMK2)
+- Added `kelpie plugin install <owner>/<repo>[/subdir...]`, `plugin uninstall`, source metadata in `plugin.list`, offline registry fallback, and a human-readable default `plugin list` with `--json` for scripts.
+- Added `kelpie plugin config-dir <id>` and automatic plugin config/state directory creation so plugin setup docs can point users at a stable config path.
+- Added Devin CLI automatic detection plus `kelpie integration install devin` hooks that report session ids for restore with `devin --resume <id>`. Devin state remains screen-detected because Devin hooks do not cover every permission cancellation and user interrupt transition. (#606, #622, thanks @minatoaquaMK2)
 - Added supporting plugin host APIs for `pane.current`, `pane.process_info`, `client.window_title.set/clear`, `layout.export/apply`, plugin pane placement, plugin invocation context/env injection, and plugin pane ownership across `pane.move`.
-- Added `pane.move` and `herdr pane move` to relocate a running pane into another tab, a new tab, or a new workspace without restarting its terminal process. (#299)
+- Added `pane.move` and `kelpie pane move` to relocate a running pane into another tab, a new tab, or a new workspace without restarting its terminal process. (#299)
 - Tabs containing a zoomed pane are now marked in the tab bar so the zoom state is visible from other tabs.
 
 ### Changed
@@ -563,7 +563,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
 - Public workspace, tab, and pane ids are now short stable handles such as `w1`, `w1:t1`, and `w1:p1`; closed tab and pane ids no longer retarget later resources. (#569)
 
 ### Fixed
-- `pane.send_keys` and `pane.send_input.keys` now accept Herdr key-combo strings such as `ctrl+h`, `ctrl+j`, `ctrl+k`, and `ctrl+l`. (#613, thanks @dmmulroy)
+- `pane.send_keys` and `pane.send_input.keys` now accept Kelpie key-combo strings such as `ctrl+h`, `ctrl+j`, `ctrl+k`, and `ctrl+l`. (#613, thanks @dmmulroy)
 - Config startup and reload now warn about unknown top-level table sections, including a `[toast]` hint that points to `[ui.toast]`, instead of silently ignoring them.
 - Claude Code session restore now accepts real `/clear`, `/resume`, and compacted session identity changes while still ignoring nested `claude -p` startup sessions that inherit the pane environment. (#620)
 - Auto-named tab labels now stay compact after closing, moving, or creating tabs while public tab ids remain stable.
@@ -597,9 +597,9 @@ This is a hotfix release for v0.6.9. See the v0.6.9 notes for the full feature r
 - Worktree open, create, and remove actions now work from bare repositories instead of assuming a normal checkout. (#497)
 - Pane mouse handling no longer sends empty PTY writes for mouse events that produce no terminal input. (#496)
 - Pane output now renders flag emoji and other multi-codepoint grapheme clusters as complete symbols instead of blank cells. (#243)
-- Starting Herdr with no restored workspaces, or closing the last workspace, now opens a default workspace instead of leaving the client on an empty screen where direct keybindings such as `cmd+n` were shown but ignored. (#366)
+- Starting Kelpie with no restored workspaces, or closing the last workspace, now opens a default workspace instead of leaving the client on an empty screen where direct keybindings such as `cmd+n` were shown but ignored. (#366)
 - Resizing restored panes no longer aborts the server when libghostty-vt reflows a terminal whose pre-resize cursor row is past the new height. (#465)
-- Full-screen TUIs such as Neovim now receive resize-generated terminal responses after Herdr internal pane resizes, so grown panes redraw without waiting for extra input. (#471)
+- Full-screen TUIs such as Neovim now receive resize-generated terminal responses after Kelpie internal pane resizes, so grown panes redraw without waiting for extra input. (#471)
 - Nested agent session reports from child terminals no longer overwrite the owning pane's restored agent session id. (#511)
 - Headless servers now avoid repeated scrollback rendering work for inactive panes, reducing CPU in large sessions. (#512)
 - Mouse-click handling now respects `ui.prompt_new_tab_name`, so mouse-created tabs follow the same naming prompt setting as keyboard-created tabs. (#521, thanks @imrajyavardhan12)
@@ -607,26 +607,26 @@ This is a hotfix release for v0.6.9. See the v0.6.9 notes for the full feature r
 - Linux clipboard image reads now validate image payloads before accepting them, preventing malformed clipboard data from reaching pane image paste flows. (#534)
 
 ### Added
-- Added remote auto-updates for agent detection manifests, with per-agent validation, local override precedence, `herdr server agent-manifests` diagnostics, and explain output showing remote manifest status.
-- Added `herdr server update-agent-manifests` to fetch remote agent detection manifests immediately, reload the running server, and print the updated manifest status.
-- Added `herdr agent explain` to show the manifest source, matched rule, evaluated matcher and region evidence, visible evidence flags, skipped-update reason, and idle fallback reason for live panes or saved screen fixtures.
-- Added `herdr integration install kimi` for Kimi Code CLI hooks that report lifecycle state and session ids through Herdr's socket API. When native agent session restore is enabled, Herdr can resume Kimi panes with `kimi --session <id>`. (#431, #463, thanks @wbxl2000)
-- Added `herdr integration install droid` for Factory Droid hooks that report session ids through Herdr's socket API. When native agent session restore is enabled, Herdr can resume Droid panes with `droid --resume <id>`.
-- Added `herdr integration install kilo` for Kilo Code CLI plugins that report lifecycle state and session ids through Herdr's socket API. When native agent session restore is enabled, Herdr can resume Kilo panes with `kilo --session <id>`.
-- Added `herdr integration install cursor` for Cursor Agent CLI hooks that report session ids through Herdr's socket API. When native agent session restore is enabled, Herdr can resume Cursor panes with `cursor-agent --resume <id>`. (#506, thanks @udirom)
+- Added remote auto-updates for agent detection manifests, with per-agent validation, local override precedence, `kelpie server agent-manifests` diagnostics, and explain output showing remote manifest status.
+- Added `kelpie server update-agent-manifests` to fetch remote agent detection manifests immediately, reload the running server, and print the updated manifest status.
+- Added `kelpie agent explain` to show the manifest source, matched rule, evaluated matcher and region evidence, visible evidence flags, skipped-update reason, and idle fallback reason for live panes or saved screen fixtures.
+- Added `kelpie integration install kimi` for Kimi Code CLI hooks that report lifecycle state and session ids through Kelpie's socket API. When native agent session restore is enabled, Kelpie can resume Kimi panes with `kimi --session <id>`. (#431, #463, thanks @wbxl2000)
+- Added `kelpie integration install droid` for Factory Droid hooks that report session ids through Kelpie's socket API. When native agent session restore is enabled, Kelpie can resume Droid panes with `droid --resume <id>`.
+- Added `kelpie integration install kilo` for Kilo Code CLI plugins that report lifecycle state and session ids through Kelpie's socket API. When native agent session restore is enabled, Kelpie can resume Kilo panes with `kilo --session <id>`.
+- Added `kelpie integration install cursor` for Cursor Agent CLI hooks that report session ids through Kelpie's socket API. When native agent session restore is enabled, Kelpie can resume Cursor panes with `cursor-agent --resume <id>`. (#506, thanks @udirom)
 - Added directional pane swap with `prefix+shift+h/j/k/l`, a pane context-menu swap action, pane layout/neighbor/edge/focus/resize socket APIs, matching CLI commands, and optional `pane split --ratio` support. (#330, #421)
-- Added `herdr pane zoom` and the `pane.zoom` socket API to toggle, set, or clear tab-local pane zoom from scripts and integrations.
-- Added toast ergonomics controls for delayed agent notifications, in-app toast placement, copied-to-clipboard feedback, and the `notification.show` socket API with `herdr notification show` and optional `none`, `done`, or `request` sounds. (#486)
+- Added `kelpie pane zoom` and the `pane.zoom` socket API to toggle, set, or clear tab-local pane zoom from scripts and integrations.
+- Added toast ergonomics controls for delayed agent notifications, in-app toast placement, copied-to-clipboard feedback, and the `notification.show` socket API with `kelpie notification show` and optional `none`, `done`, or `request` sounds. (#486)
 
 ### Changed
-- OpenCode installed with the current Herdr plugin now reports lifecycle state directly instead of relying on screen manifest detection. Kimi Code CLI `0.14.0` or newer now reports full lifecycle state through hooks, including interrupts. Droid and Qoder CLI now report native session identity while leaving lifecycle state to screen manifest detection.
+- OpenCode installed with the current Kelpie plugin now reports lifecycle state directly instead of relying on screen manifest detection. Kimi Code CLI `0.14.0` or newer now reports full lifecycle state through hooks, including interrupts. Droid and Qoder CLI now report native session identity while leaving lifecycle state to screen manifest detection.
 
 ## [0.6.8] - 2026-06-04
 
 This is a hotfix release for v0.6.7, prioritizing a server-crash fix for panes that print complex Unicode or emoji output.
 
 ### Fixed
-- Fixed a Herdr server crash triggered by pane output containing complex Unicode, emoji, or decomposed accent graphemes. Affected sessions could lose running pane processes or crash again after restore if the same saved pane output was replayed. (#453)
+- Fixed a Kelpie server crash triggered by pane output containing complex Unicode, emoji, or decomposed accent graphemes. Affected sessions could lose running pane processes or crash again after restore if the same saved pane output was replayed. (#453)
 - Direct installs managed by mise now update through the mise install path instead of failing to replace the active binary.
 - Claude Code panes that are actively thinking or streaming no longer flicker to blocked because of custom status text. (#409)
 - Claude Code panes now detect running shell-command status more reliably.
@@ -639,15 +639,15 @@ This is a hotfix release for v0.6.7, prioritizing a server-crash fix for panes t
 
 ### Added
 - Added a compact collapse control to the expanded sidebar so mouse users can collapse and expand the sidebar from visible controls. (#278, #291, thanks @turgaybulut)
-- Added an opt-in preview update channel with `herdr channel set preview`, `[update].channel`, automated preview manifests, and GitHub prerelease publishing for users who want fixes before stable releases as Herdr transitions toward less frequent, more stable releases.
-- Added a remote SSH bridge keepalive fallback. `herdr --remote` now generates a temporary SSH config that includes the user's SSH config first, then adds `ServerAliveInterval` and `ServerAliveCountMax` only when the user has not already configured keepalives. Set `[remote].manage_ssh_config = false` to disable this. (#354, #355, thanks @SunskyXH)
-- Added `ui.right_click_passthrough_modifier` so a configured modifier such as `ctrl` can forward right-click hold and drag gestures to mouse-reporting pane apps while normal right-click still opens Herdr's pane menu. (#148)
+- Added an opt-in preview update channel with `kelpie channel set preview`, `[update].channel`, automated preview manifests, and GitHub prerelease publishing for users who want fixes before stable releases as Kelpie transitions toward less frequent, more stable releases.
+- Added a remote SSH bridge keepalive fallback. `kelpie --remote` now generates a temporary SSH config that includes the user's SSH config first, then adds `ServerAliveInterval` and `ServerAliveCountMax` only when the user has not already configured keepalives. Set `[remote].manage_ssh_config = false` to disable this. (#354, #355, thanks @SunskyXH)
+- Added `ui.right_click_passthrough_modifier` so a configured modifier such as `ctrl` can forward right-click hold and drag gestures to mouse-reporting pane apps while normal right-click still opens Kelpie's pane menu. (#148)
 - Added Kilo Code CLI automatic detection for idle, working, and blocked terminal states. (#270)
-- Added `herdr integration install copilot` for GitHub Copilot CLI hooks that report native session ids through Herdr's socket API. Copilot state still comes from Herdr's screen detection because Copilot hooks do not provide complete lifecycle coverage. When native agent session restore is enabled, Herdr can resume Copilot panes with `copilot --resume=<id>`. (#232, #386, thanks @LaneBirmingham)
+- Added `kelpie integration install copilot` for GitHub Copilot CLI hooks that report native session ids through Kelpie's socket API. Copilot state still comes from Kelpie's screen detection because Copilot hooks do not provide complete lifecycle coverage. When native agent session restore is enabled, Kelpie can resume Copilot panes with `copilot --resume=<id>`. (#232, #386, thanks @LaneBirmingham)
 
 ### Changed
 - Native agent session restore is now enabled by default for supported panes with current official integrations. Set `[session] resume_agents_on_restore = false` to disable it.
-- Claude Code, Codex, GitHub Copilot CLI, Droid, Kimi Code CLI, and Qoder CLI integrations now report session identity only. Native state for those agents comes from Herdr's screen detection, while Pi, OMP, OpenCode, Kilo Code CLI, Hermes Agent, and custom socket integrations can still report state.
+- Claude Code, Codex, GitHub Copilot CLI, Droid, Kimi Code CLI, and Qoder CLI integrations now report session identity only. Native state for those agents comes from Kelpie's screen detection, while Pi, OMP, OpenCode, Kilo Code CLI, Hermes Agent, and custom socket integrations can still report state.
 
 ### Fixed
 - Large long-running sessions no longer hit the frame-streaming crash fixed by the vendored libghostty-vt update. (#276)
@@ -655,8 +655,8 @@ This is a hotfix release for v0.6.7, prioritizing a server-crash fix for panes t
 - Leaving copy mode now restores the previous scroll position, or returns to the bottom when copy mode started at the bottom. (#398, #410, thanks @reobin)
 - Git branch labels now resolve correctly in repositories that use Git's reftable ref format instead of showing `.invalid`. (#384, #423, thanks @LaneBirmingham)
 - The official Nix flake now builds on macOS by providing Darwin SDK discovery helpers and Darwin cctools to the vendored libghostty-vt build. (#405, #407, thanks @DeevsDeevs)
-- Commands launched after `--`, such as `herdr agent start ... -- opencode --session <id>`, now preserve child argv flags instead of parsing them as Herdr flags. (#383)
-- Pane apps that request any-motion mouse tracking now receive hover/move events, making Textual-style TUI mouse interaction more reliable inside Herdr. (#419)
+- Commands launched after `--`, such as `kelpie agent start ... -- opencode --session <id>`, now preserve child argv flags instead of parsing them as Kelpie flags. (#383)
+- Pane apps that request any-motion mouse tracking now receive hover/move events, making Textual-style TUI mouse interaction more reliable inside Kelpie. (#419)
 - Claude Code background-agent wait text in scrollback no longer keeps an idle pane marked working after the background agent has completed.
 - Claude Code and Codex transcript or expanded-detail viewers no longer publish a false idle state while the pane is still showing active agent status.
 - Claude Code question prompts that use the arrow-glyph selector are now detected as blocked.
@@ -665,12 +665,12 @@ This is a hotfix release for v0.6.7, prioritizing a server-crash fix for panes t
 - Idle panes now avoid repeated full foreground-process scans, reducing idle CPU on sessions with many panes. (#439)
 - Restored native agent sessions now resume across background workspaces and tabs after the first client provides terminal context instead of waiting until each pane is focused.
 - Pane input no longer waits behind the PTY actor's idle read poll, restoring responsive typing at quiet shell prompts. (#379)
-- Pane apps that query OSC 4 ANSI palette colors now receive the active terminal palette response, so OpenCode and similar TUIs can enable system-theme behavior inside Herdr. (#387)
+- Pane apps that query OSC 4 ANSI palette colors now receive the active terminal palette response, so OpenCode and similar TUIs can enable system-theme behavior inside Kelpie. (#387)
 - Pane apps that query terminal capabilities with XTGETTCAP now receive supported capability responses, improving feature detection in Neovim and similar terminal apps. (#393)
-- Pane text selection now derives its highlight colors from the host terminal or active Herdr palette instead of forcing the theme's blue accent. (#298)
-- `herdr channel set preview` and `herdr channel set stable` now update direct installs from the selected channel immediately, reject preview on Homebrew and Nix installs before changing config, and show package-manager guidance for managed installs.
-- Plain `herdr update` and remote binary replacement now ask before stopping running sessions, avoid protocol-heavy prompt text, and leave the current install untouched when the user chooses not to stop active pane processes. Explicit `--handoff` update flows try live handoff without a second handoff prompt.
-- Remote bootstrap now uses the remote shell only for PATH discovery and runs internal probes through `/bin/sh`, so `herdr --remote` can detect existing installs when the remote login shell is fish. (#396)
+- Pane text selection now derives its highlight colors from the host terminal or active Kelpie palette instead of forcing the theme's blue accent. (#298)
+- `kelpie channel set preview` and `kelpie channel set stable` now update direct installs from the selected channel immediately, reject preview on Homebrew and Nix installs before changing config, and show package-manager guidance for managed installs.
+- Plain `kelpie update` and remote binary replacement now ask before stopping running sessions, avoid protocol-heavy prompt text, and leave the current install untouched when the user chooses not to stop active pane processes. Explicit `--handoff` update flows try live handoff without a second handoff prompt.
+- Remote bootstrap now uses the remote shell only for PATH discovery and runs internal probes through `/bin/sh`, so `kelpie --remote` can detect existing installs when the remote login shell is fish. (#396)
 
 ## [0.6.6] - 2026-05-31
 
@@ -683,7 +683,7 @@ This is a hotfix release for v0.6.7, prioritizing a server-crash fix for panes t
 - Claude Code panes no longer stay blocked after stale permission-prompt reports when the visible screen has returned to idle or working state. (#349)
 - Codex panes no longer stay working because stale `esc to interrupt` text remains above a visible idle prompt, and visible approval-review work is now preserved as working. (#352)
 - Sidebar Git status refresh now deduplicates workspaces from the same checkout and reuses cached ahead/behind results when refs have not changed, reducing idle CPU from repeated `git` polling. (#353)
-- Update prompts, toasts, and docs now distinguish installing a new binary from stopping or reattaching a running Herdr session to use it.
+- Update prompts, toasts, and docs now distinguish installing a new binary from stopping or reattaching a running Kelpie session to use it.
 - Large restored sessions no longer leave restored or newly split panes without shells after startup, and live handoff keeps PTY ownership bounded to one master fd per pane. (#357)
 - Pane shutdown no longer warns that a pane is still alive after the direct child has already exited and been reaped. (#338)
 - Closing the last pane or tab in a parent worktree workspace now shows the existing confirmation before closing the whole worktree group. (#369)
@@ -700,7 +700,7 @@ This is a hotfix release for v0.6.7, prioritizing a server-crash fix for panes t
 - WSL clipboard writes now prefer OSC 52 before WSLg clipboard tools, so mouse selection and double-click copy populate Windows clipboard history in Windows Terminal. (#333)
 - Incomplete host terminal OSC default-color replies no longer get misread as Alt-key input and forwarded into panes, preventing interactive prompts such as `gh auth login --web` from aborting on split `ESC ]` input. (#279, #306, #344)
 - Workspace rename prompts and background notifications now use live cwd-derived workspace labels instead of stale session labels. (#332)
-- `herdr session stop` no longer fails on zero-duration socket timeouts when the stop deadline is nearly exhausted.
+- `kelpie session stop` no longer fails on zero-duration socket timeouts when the stop deadline is nearly exhausted.
 - Update preview instructions now wrap long package-manager commands instead of truncating the shell command suffix.
 - Restored native agent resume panes now fall back to a shell when the resumed agent exits instead of closing the whole pane.
 
@@ -714,38 +714,38 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.6.3] - 2026-05-27
 
 ### Added
-- Added native agent session restore behind `[session] resume_agents_on_restore`, allowing supported Pi, Claude Code, Codex, OpenCode, and Hermes panes with current official integrations to restart into their previous agent conversation after a Herdr server restart. (#233)
+- Added native agent session restore behind `[session] resume_agents_on_restore`, allowing supported Pi, Claude Code, Codex, OpenCode, and Hermes panes with current official integrations to restart into their previous agent conversation after a Kelpie server restart. (#233)
 - Added opt-in pane screen history across full server restarts with `[experimental] pane_history = true` and Settings > Experiments > pane screen history. (#217, #248, thanks @icedac)
 - Added a session navigator at `prefix+g` with a searchable workspace/tab/pane tree, agent state filters, mouse switching, and keyboard navigation. (#157)
 - Added configurable navigate-mode movement bindings for workspace and pane navigation keys. (#193)
 - Added a configurable `last_pane` keybinding action for tmux-style back-and-forth navigation to the last focused pane across workspaces and tabs. It is unset by default. (#287)
 - Added scrollback support to direct agent terminal attaches. Mouse wheel and plain PageUp/PageDown now scroll the attached terminal viewport, while terminal apps that request mouse or alternate-scroll input still receive those events. The client/server protocol is now version 11.
 - Added `ui.redraw_on_focus_gained` to keep the existing full redraw on outer-terminal focus gain by default while allowing users to opt out of the visible refresh. (#282)
-- Added `ui.mobile_width_threshold` to configure the terminal width at which Herdr switches to the mobile single-column layout. (#317)
-- Added `--handoff` for `herdr update` and `herdr --remote` to opt into live server handoff for supported running servers. Plain update and remote attach use the normal restart/stop flow by default.
-- Added `pane.report_metadata` and `herdr pane report-metadata` so user hooks can customize pane titles, displayed agent names, compact status labels, and visible state labels without taking over integration-owned lifecycle or session state. (#36)
+- Added `ui.mobile_width_threshold` to configure the terminal width at which Kelpie switches to the mobile single-column layout. (#317)
+- Added `--handoff` for `kelpie update` and `kelpie --remote` to opt into live server handoff for supported running servers. Plain update and remote attach use the normal restart/stop flow by default.
+- Added `pane.report_metadata` and `kelpie pane report-metadata` so user hooks can customize pane titles, displayed agent names, compact status labels, and visible state labels without taking over integration-owned lifecycle or session state. (#36)
 - Added tmux-style double-click token copy in panes, with temporary copy feedback and mouse passthrough preserved for terminal apps that request mouse input. (#142, #296, thanks @babymastodon)
-- Added Ctrl-click URL opening inside panes for OSC 8 hyperlinks and visible `http://` or `https://` URLs when the host terminal sends the modified click to Herdr. (#307)
-- Added Qoder CLI detection, terminal state heuristics, and `herdr integration install qodercli` hook support. (#308, #309, thanks @wayneleelwc)
+- Added Ctrl-click URL opening inside panes for OSC 8 hyperlinks and visible `http://` or `https://` URLs when the host terminal sends the modified click to Kelpie. (#307)
+- Added Qoder CLI detection, terminal state heuristics, and `kelpie integration install qodercli` hook support. (#308, #309, thanks @wayneleelwc)
 
 ### Fixed
-- Remote bootstrap now downloads exact-version release assets for Homebrew and Nix clients instead of copying package-manager-managed local binaries into `~/.local/bin/herdr`.
+- Remote bootstrap now downloads exact-version release assets for Homebrew and Nix clients instead of copying package-manager-managed local binaries into `~/.local/bin/kelpie`.
 - `website/latest.json` now stores asset URLs for archived releases under `releases[version].assets`, so remote bootstrap can fetch the current client version even when Homebrew and the top-level latest release are temporarily out of sync.
 - App and server event queues no longer stall under load, improving delivery of pane and agent state updates. (#265)
 - Agent status subscriptions now deliver already-matching states and event-hub notifications reliably for waits and automation. (#288, #295)
 - Codex background terminal waits are detected more reliably, and idle agent checking uses less CPU. (#300)
 - Split OSC 10/11 host color replies are buffered correctly, so terminal apps still receive host foreground/background color responses when replies arrive in chunks. (#306, #310)
-- `herdr session stop` is more reliable when the server closes the socket early or stops without sending a full response.
+- `kelpie session stop` is more reliable when the server closes the socket early or stops without sending a full response.
 - The OpenCode integration now releases pane ownership on plugin dispose, preventing stale integration state after OpenCode exits. (#314)
-- Linux sound alerts no longer fall back to `aplay` for mp3 files, preventing static noise on systems without `paplay`. Herdr now tries mp3-capable players such as `pw-play`, `ffplay`, `mpg123`, and `mpv` instead. (#290)
+- Linux sound alerts no longer fall back to `aplay` for mp3 files, preventing static noise on systems without `paplay`. Kelpie now tries mp3-capable players such as `pw-play`, `ffplay`, `mpg123`, and `mpv` instead. (#290)
 
 ## [0.6.2] - 2026-05-23
 
 ### Added
-- Added optional Nix flake support for building, running, installing, and developing Herdr with Nix. (#208, #221, #264)
-- Added `terminal.new_cwd` to choose whether new panes, tabs, and workspaces follow the source pane/workspace, start in `$HOME`, use Herdr's process directory, or use a fixed path.
-- Added `herdr integration install omp` for OMP's `.omp` extension directory. The extension reports OMP pane state through Herdr's socket API without relying on native `omp` process detection.
-- Added CLI and socket API support for Git worktrees with `herdr worktree list/create/open/remove`, optional worktree provenance on workspace responses, and client/server protocol version 10.
+- Added optional Nix flake support for building, running, installing, and developing Kelpie with Nix. (#208, #221, #264)
+- Added `terminal.new_cwd` to choose whether new panes, tabs, and workspaces follow the source pane/workspace, start in `$HOME`, use Kelpie's process directory, or use a fixed path.
+- Added `kelpie integration install omp` for OMP's `.omp` extension directory. The extension reports OMP pane state through Kelpie's socket API without relying on native `omp` process detection.
+- Added CLI and socket API support for Git worktrees with `kelpie worktree list/create/open/remove`, optional worktree provenance on workspace responses, and client/server protocol version 10.
 
 ### Fixed
 - GitHub Copilot CLI sessions now use tested terminal heuristics for approval prompts, freeform input, plan review, and thinking states in the Agents panel. (#232, #256, thanks @LaneBirmingham)
@@ -757,13 +757,13 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 
 ### Added
 - Added `ui.mouse_scroll_lines` to configure how many pane scrollback lines each mouse wheel notch scrolls. The default remains 3. (#236)
-- Added `--remote-keybindings local|server` for `herdr --remote`. Remote attach now uses the launching client's local keybindings by default without copying config files to the remote host; use `--remote-keybindings server` to keep the remote server's keybindings. The client/server protocol is now version 9.
+- Added `--remote-keybindings local|server` for `kelpie --remote`. Remote attach now uses the launching client's local keybindings by default without copying config files to the remote host; use `--remote-keybindings server` to keep the remote server's keybindings. The client/server protocol is now version 9.
 - Added `experimental.reveal_hidden_cursor_for_cjk_ime = false` (opt-in), `experimental.cjk_ime_agents = []` (optional allow-list), and `experimental.cjk_ime_cursor_shape = "steady_block"` to expose the focused pane's cursor anchor to the outer terminal even when the pane requested `?25l`, restoring macOS IME candidate-window tracking for TUIs that paint their own cursor (Claude Code, pi, codex). When `cjk_ime_agents` is non-empty, the reveal applies only to focused panes whose detected agent matches one of the listed names. When the pane reports no cursor position, the anchor falls back to the pane's top-left so a stable IME hint is always available. Trade-off when enabled: an extra hardware cursor may appear in the outer terminal for apps that hide the cursor without painting a replacement. (#149, thanks @ChihGodlee)
 - Added explicit sidebar Git worktree groups plus native worktree creation, existing checkout open, and safe checkout cleanup flows, configured by `[worktrees].directory`, `keys.new_worktree`, optional `keys.open_worktree`, and optional `keys.remove_worktree`. (#137)
 - Added named-session reattach and stop command hints so detach and update guidance point back to the active session. (#199, thanks @Golden-Pigeon)
 
 ### Fixed
-- Pane apps that query OSC 10/11 default foreground/background colors now receive the host terminal colors, so OpenCode and similar TUIs can detect light terminal themes inside Herdr. (#253)
+- Pane apps that query OSC 10/11 default foreground/background colors now receive the host terminal colors, so OpenCode and similar TUIs can detect light terminal themes inside Kelpie. (#253)
 - Codex Plan mode question prompts now override stale integration `working` reports when the visible terminal UI is clearly waiting for an answer, stale hook authority is cleared when foreground process detection sees Codex exit back to the shell, and Claude Code cancellations now recover from stale hook `working` reports when the idle prompt returns. (#249)
 - Keybinding parsing now accepts non-ASCII printable keys such as `ö`, `é`, and `ğ`, including UTF-8 Alt chords. (#247)
 - Kimi Code CLI sessions now use structural terminal detection for approval prompts and live thinking/tool status, improving working and blocked state reporting in the Agents panel. (#215)
@@ -771,28 +771,28 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 - Cursor Agent sessions launched as `cursor-agent` or symlink aliases such as `agent` are now detected, and their terminal UI now reports working and blocked states in the Agents panel. (#225)
 - Agent detection now ignores runtime argument strings when identifying foreground processes, reducing false positives from helper commands and wrapped processes. (#238)
 - In-app notifications now stay below interactive floating overlays, so dialogs and menus remain readable and clickable while a toast is visible. (#228)
-- `herdr --remote` now offers to restart the remote server after installing or replacing a remote binary, or when the running server version differs, even if the client/server protocol is still compatible.
+- `kelpie --remote` now offers to restart the remote server after installing or replacing a remote binary, or when the running server version differs, even if the client/server protocol is still compatible.
 
 ## [0.6.0] - 2026-05-20
 
 ### Added
 - Added keybinding v2 with explicit `prefix+...` syntax, array bindings per action, configurable prefix-mode pane focus, tab switching, and direct modified chords for users who opt in. (#154, #201, #202, #219)
-- Added `herdr config reset-keys` to back up `config.toml` and remove custom keybindings so built-in v2 defaults apply on restart or config reload. (#154)
-- Added an integrations tab in settings and first-run onboarding so users can install recommended agent integrations from inside Herdr.
+- Added `kelpie config reset-keys` to back up `config.toml` and remove custom keybindings so built-in v2 defaults apply on restart or config reload. (#154)
+- Added an integrations tab in settings and first-run onboarding so users can install recommended agent integrations from inside Kelpie.
 - Added update badges on the sidebar menu, settings menu item, and integrations settings tab when installed integrations are outdated.
-- Added `terminal.default_shell` to choose the executable used for new interactive panes. When unset, Herdr still falls back to `$SHELL`, then `/bin/sh`. (#196)
+- Added `terminal.default_shell` to choose the executable used for new interactive panes. When unset, Kelpie still falls back to `$SHELL`, then `/bin/sh`. (#196)
 - Added native Kiro CLI detection with idle and working state heuristics. (#185)
 
 ### Fixed
 - Keybinding conflict warnings now stay visible and show one readable yellow row per conflicting binding.
 - Update prompts that need to stop a running server now default Enter to yes and show `[Y/n]`.
 - Pending release notes no longer open automatically on startup; the latest notes remain available from the menu.
-- Running `herdr server` directly now prints socket and log paths and explains that normal TUI users should run `herdr`.
+- Running `kelpie server` directly now prints socket and log paths and explains that normal TUI users should run `kelpie`.
 - Kitty graphics virtual Unicode placeholders now render image placements instead of leaving placeholder cells behind. (#136)
-- Clipboard image reads are now capped to Herdr's image payload limit, preventing oversized local clipboard images from being read into memory.
-- The install script now reads Herdr's public latest-release manifest, so fresh installs use the same binary URLs as `herdr update`.
+- Clipboard image reads are now capped to Kelpie's image payload limit, preventing oversized local clipboard images from being read into memory.
+- The install script now reads Kelpie's public latest-release manifest, so fresh installs use the same binary URLs as `kelpie update`.
 - The Claude Code integration no longer lets subagent completion hooks report durable `working`, preventing delayed recap or subagent completion events from reviving an idle pane. (#198)
-- Remote clients now bridge local clipboard images into the remote pane by staging them as temporary image files and pasting the remote path, so Claude Code image paste works over `herdr --remote`. (#205)
+- Remote clients now bridge local clipboard images into the remote pane by staging them as temporary image files and pasting the remote path, so Claude Code image paste works over `kelpie --remote`. (#205)
 
 ### Breaking Changes
 - Removed the separate `keys.quit` binding. Use `keys.detach`, which detaches in server mode and exits in `--no-session` mode. The default detach binding is now `prefix+q`.
@@ -802,28 +802,28 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.5.12] - 2026-05-19
 
 ### Fixed
-- The Claude Code integration no longer reports successful or failed post-tool hooks as `working`, and installing the updated integration removes Herdr's deprecated post-tool hook entries from existing Claude settings. (#198)
+- The Claude Code integration no longer reports successful or failed post-tool hooks as `working`, and installing the updated integration removes Kelpie's deprecated post-tool hook entries from existing Claude settings. (#198)
 - The Codex integration now reports native `PermissionRequest` hooks as `blocked`, so permission prompts no longer stay pinned as `working` after a tool-use hook. (#198)
 - Workspace and tab rename prompts now handle Backspace, Ctrl+Backspace, Alt+Backspace, Cmd+Backspace, Ctrl+H, Ctrl+W, and Ctrl+U as editing shortcuts instead of inserting stray characters or clearing unexpectedly. (#204)
 
 ## [0.5.11] - 2026-05-19
 
 ### Added
-- Added the `terminal` built-in theme, which uses the host terminal's ANSI palette for Herdr UI colors. (#140, #146, thanks @babymastodon)
+- Added the `terminal` built-in theme, which uses the host terminal's ANSI palette for Kelpie UI colors. (#140, #146, thanks @babymastodon)
 - Added Hermes Agent foreground-process detection with basic idle, working, and blocked heuristics. (#144)
 - Added a Hermes Agent plugin integration for direct state reporting. (#144)
 - Added `ui.sidebar_min_width` and `ui.sidebar_max_width` to configure the sidebar's expanded resize bounds. Defaults remain 18 and 36 columns; existing configs are unchanged. (#132, #135, thanks @ChihGodlee)
 
 ### Fixed
-- Running the internal `herdr client` command from inside Herdr now respects the nested-launch guard, and the command is no longer advertised in root help. (#187)
-- The Herdr agent skill now refuses to claim pane ownership unless it is running inside Herdr. (#152)
+- Running the internal `kelpie client` command from inside Kelpie now respects the nested-launch guard, and the command is no longer advertised in root help. (#187)
+- The Kelpie agent skill now refuses to claim pane ownership unless it is running inside Kelpie. (#152)
 - Terminal-style docs code blocks now keep their copy button in the top-right corner. (#190)
 - The sidebar `new` workspace button now aligns with the sidebar's left padding. (#189)
-- Herdr now preserves `session.json` symlinks when saving persistent session state. (#139, #147, thanks @cloudmanic)
+- Kelpie now preserves `session.json` symlinks when saving persistent session state. (#139, #147, thanks @cloudmanic)
 - Alt+Backspace is now preserved when forwarded into panes. (#155, #165)
 - Directional pane focus now works while a tab is zoomed. (#151, #167)
 - Agent detection now prefers the foreground process group leader, reducing false matches from child helper processes. (#161, #172)
-- Remote attach now uses a matching `herdr` already available on the remote `PATH` before installing a new copy. (#170)
+- Remote attach now uses a matching `kelpie` already available on the remote `PATH` before installing a new copy. (#170)
 - Modified Enter input such as Shift+Enter is now preserved in supported terminals. (#168)
 - Sidebar agent entries now show user-assigned agent names when available. (#145)
 
@@ -836,7 +836,7 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 - Added indexed keybind families under `[keys.indexed]` for jumping directly to workspace, tab, or visible agent positions 1-9.
 - Added hook-owned custom agent status labels, so integrations can show short visual states like `indexing` without changing semantic agent status.
 - Added terminal-backed agent commands and socket API methods for listing, reading, sending to, renaming, focusing, waiting on, attaching to, and starting agent terminals.
-- Added direct terminal attach with `herdr agent attach <target>` and `herdr terminal attach <terminal_id>`.
+- Added direct terminal attach with `kelpie agent attach <target>` and `kelpie terminal attach <terminal_id>`.
 - Added `ui.prompt_new_tab_name = false` for creating new tabs immediately with generated names instead of opening the rename dialog. (#123)
 - Added optional `keys.edit_scrollback` to open the focused pane's retained scrollback in `$EDITOR` inside a temporary zoomed pane. (#122)
 
@@ -846,7 +846,7 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ### Fixed
 - Grok Build is now detected as `grok`, with basic working, blocked, and idle state detection. Conflicting known-agent hook labels are ignored once native foreground-process detection identifies a different known agent. (#133)
 - Terminal cursor shapes now forward through attached clients. (#116)
-- Herdr now redraws immediately when the outer terminal regains focus.
+- Kelpie now redraws immediately when the outer terminal regains focus.
 - GitHub Copilot is now correctly detected when its process name is `copilot`. (#118)
 - Integration installs now respect `PI_CODING_AGENT_DIR`, `CLAUDE_CONFIG_DIR`, and `CODEX_HOME` when choosing Pi, Claude Code, and Codex config paths. (#121)
 - Split pane resize hit areas no longer overlap the first content column or row, making text selection work from the start of right and bottom panes. (#120)
@@ -865,20 +865,20 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 - Moved experimental settings into `[experimental]`.
 
 ### Fixed
-- PageUp and PageDown now scroll Herdr pane scrollback for normal panes while still forwarding keys to full-screen or mouse-reporting apps.
+- PageUp and PageDown now scroll Kelpie pane scrollback for normal panes while still forwarding keys to full-screen or mouse-reporting apps.
 - Enhanced tilde key sequences now parse correctly, improving compatibility with terminals that emit them.
-- `herdr integration install codex` now enables the current Codex `[features] hooks = true` flag and migrates the deprecated top-level `codex_hooks` flag.
+- `kelpie integration install codex` now enables the current Codex `[features] hooks = true` flag and migrates the deprecated top-level `codex_hooks` flag.
 
 ### Breaking Changes
-- `advanced.allow_nested` has moved to `experimental.allow_nested`; update configs that allow nested Herdr launches.
+- `advanced.allow_nested` has moved to `experimental.allow_nested`; update configs that allow nested Kelpie launches.
 - The client/server protocol is now version 5. Stop and restart any running v0.5.8 server before attaching with this release.
 
 ## [0.5.8] - 2026-05-12
 
 ### Added
-- Added manual pane labels through `herdr pane rename`, the `pane.rename` socket API, an optional `keys.rename_pane` binding, and the right-click pane menu.
+- Added manual pane labels through `kelpie pane rename`, the `pane.rename` socket API, an optional `keys.rename_pane` binding, and the right-click pane menu.
 - Added `ui.show_agent_labels_on_pane_borders`, which can show detected or reported agent names in split pane borders when no manual pane label is set.
-- Added `herdr integration status [--outdated-only]` so installed agent integrations can be checked for legacy or outdated versions.
+- Added `kelpie integration status [--outdated-only]` so installed agent integrations can be checked for legacy or outdated versions.
 - Added an optional `keys.open_notification_target` binding for jumping to the pane behind the current notification.
 - Added optional `keys.previous_agent` and `keys.next_agent` bindings for cycling through sidebar agent entries.
 
@@ -900,7 +900,7 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.5.7] - 2026-05-10
 
 ### Added
-- Added ANSI-formatted pane reads to the CLI and socket API with `herdr pane read --format ansi` / `--ansi`, preserving colors and styles for visible and recent pane output.
+- Added ANSI-formatted pane reads to the CLI and socket API with `kelpie pane read --format ansi` / `--ansi`, preserving colors and styles for visible and recent pane output.
 
 ### Changed
 - The agents panel now highlights the currently focused agent entry, matching the active workspace styling. (#84, thanks @soomtong)
@@ -908,20 +908,20 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ### Fixed
 - Git branch and ahead/behind refreshes now run off the main loop, preventing slow Git status checks from freezing the UI.
 - Update and startup flows now detect incompatible running servers earlier and give clear stop/restart guidance instead of trying to attach with a mismatched client/server protocol.
-- `herdr update` now downloads and prepares the new binary before stopping a running server, reducing the chance of interrupting an active session when download or install preparation fails.
+- `kelpie update` now downloads and prepares the new binary before stopping a running server, reducing the chance of interrupting an active session when download or install preparation fails.
 
 ## [0.5.6] - 2026-05-09
 
 ### Added
 - Added the `vesper` built-in theme. (#71, thanks @nexxeln)
-- Added `herdr --remote <ssh-target>`, so you can use Herdr as a thin client for remote servers without SSHing in first. Herdr connects over SSH, bootstraps a matching remote `herdr` binary when needed, starts the remote server automatically, and streams an efficient terminal view back to your local terminal.
+- Added `kelpie --remote <ssh-target>`, so you can use Kelpie as a thin client for remote servers without SSHing in first. Kelpie connects over SSH, bootstraps a matching remote `kelpie` binary when needed, starts the remote server automatically, and streams an efficient terminal view back to your local terminal.
 
 ### Changed
 - Updated the bundled `libghostty-vt` engine and removed the custom Linux C++ runtime link workaround from static builds.
 - CLI workspace, tab, and pane creation now preserve the current focus by default; pass `--focus` to switch to the newly created item.
 
 ### Fixed
-- OSC 8 hyperlinks emitted inside panes now remain clickable after Herdr renders them, including titled markdown-style links.
+- OSC 8 hyperlinks emitted inside panes now remain clickable after Kelpie renders them, including titled markdown-style links.
 - Agent panel scope now defaults to `all` and is saved to config when changed, so choosing `current` or `all` survives session resets and upgrades.
 - Native agent hook state now clears when the detected native agent exits, preventing stale hook-reported status from sticking to a pane.
 - Clicking an in-app agent toast now jumps to the relevant pane and clears the toast after focus.
@@ -929,7 +929,7 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.5.5] - 2026-05-06
 
 ### Added
-- Added a mobile layout for narrow terminals, making it practical to SSH into your machine and run herdr from your phone.
+- Added a mobile layout for narrow terminals, making it practical to SSH into your machine and run kelpie from your phone.
 
 ### Fixed
 - Non-ASCII terminal input is no longer dropped when UTF-8 characters arrive split across multiple reads.
@@ -939,28 +939,28 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.5.4] - 2026-05-03
 
 ### Fixed
-- Visible active-tab panes that finish while the outer terminal is unfocused are now marked as seen when you return to herdr, preventing stale done/attention indicators.
+- Visible active-tab panes that finish while the outer terminal is unfocused are now marked as seen when you return to kelpie, preventing stale done/attention indicators.
 - IME candidate windows and mobile SSH cursor tracking now stay anchored to the focused pane during client redraws, including apps that hide the cursor, instead of drifting to sidebar or repaint positions.
 
 ## [0.5.3] - 2026-04-30
 
 ### Added
-- Added named persistent sessions, so you can keep separate herdr environments for different projects or contexts while sharing the same global config. See the docs for the full session CLI. (#57, thanks @fbettag)
-- Added `herdr status`, `herdr status server`, and `herdr status client` to inspect the local client, running server, protocol compatibility, socket path, and whether a restart is needed.
+- Added named persistent sessions, so you can keep separate kelpie environments for different projects or contexts while sharing the same global config. See the docs for the full session CLI. (#57, thanks @fbettag)
+- Added `kelpie status`, `kelpie status server`, and `kelpie status client` to inspect the local client, running server, protocol compatibility, socket path, and whether a restart is needed.
 
 ### Changed
-- Focused panes can now still alert you through terminal notifications when the herdr terminal window is unfocused, so active work does not go quiet just because you switched to another app.
+- Focused panes can now still alert you through terminal notifications when the kelpie terminal window is unfocused, so active work does not go quiet just because you switched to another app.
 
 ### Fixed
 - Dragging pane split borders now works when the app inside the pane has mouse reporting enabled, including Claude Code no-flicker mode. (#61, thanks @EYH0602)
 - Pressing the prefix key twice now forwards a literal prefix key into the focused pane in client mode again.
-- `herdr integration install` and `herdr integration uninstall` now work without requiring a running herdr server.
+- `kelpie integration install` and `kelpie integration uninstall` now work without requiring a running kelpie server.
 - Pane PTYs now keep their last attached size while detached, preventing detached output from being resized or rewrapped to fallback dimensions.
 
 ## [0.5.2] - 2026-04-27
 
 ### Added
-- Config can now be reloaded in the running app/server from the global menu or with `herdr server reload-config`, applying safe live settings without restarting the persistent server.
+- Config can now be reloaded in the running app/server from the global menu or with `kelpie server reload-config`, applying safe live settings without restarting the persistent server.
 
 ### Fixed
 - Persistent server startup now surfaces config diagnostics in attached clients instead of silently hiding parse or validation errors.
@@ -971,8 +971,8 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.5.1] - 2026-04-25
 
 ### Added
-- Toast notifications can now be delivered through the outer terminal as desktop notifications. Configure this with `ui.toast.delivery = "terminal"`; see the [configuration docs](https://herdr.dev/docs/configuration/) for details.
-- Herdr now writes separate capped support logs for app, client, and server modes, making persistent-session issue reports easier to diagnose without unbounded log growth.
+- Toast notifications can now be delivered through the outer terminal as desktop notifications. Configure this with `ui.toast.delivery = "terminal"`; see the [configuration docs](https://kelpie.example/docs/configuration/) for details.
+- Kelpie now writes separate capped support logs for app, client, and server modes, making persistent-session issue reports easier to diagnose without unbounded log growth.
 - The bundled opencode plugin now reports question prompts as blocked while waiting for user input, then returns to working or idle when answered or dismissed. Question prompts are also detected by the default terminal-screen heuristics. (#51, thanks @mspiegel31)
 
 ### Changed
@@ -983,18 +983,18 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 - Panes now advertise a stable `TERM=xterm-256color` and `COLORTERM=truecolor` by default, improving redraw and cursor behavior in shells and remote sessions.
 - Pane scrollbars once again reserve their own rightmost column instead of overlaying terminal content in persistent session mode.
 - Terminal-delivered toast notifications now use the server-approved delivery decision in persistent session mode, so attaching clients do not incorrectly suppress them.
-- In-app toast delivery now stays inside herdr instead of also forwarding a terminal/desktop notification.
+- In-app toast delivery now stays inside kelpie instead of also forwarding a terminal/desktop notification.
 
 ## [0.5.0] - 2026-04-21
 
 ### Breaking Changes Please Read
-- herdr now defaults to a persistent server/client session model. running `herdr` starts or reattaches to a background session server instead of launching the old single-process UI.
-- quitting the UI in default mode now detaches the current client and leaves the shared session running. use `herdr server stop` to stop the background server explicitly.
-- the old monolithic behavior is still available as an escape hatch with `herdr --no-session`.
+- kelpie now defaults to a persistent server/client session model. running `kelpie` starts or reattaches to a background session server instead of launching the old single-process UI.
+- quitting the UI in default mode now detaches the current client and leaves the shared session running. use `kelpie server stop` to stop the background server explicitly.
+- the old monolithic behavior is still available as an escape hatch with `kelpie --no-session`.
 
 ### Added
 - Persistent sessions are now the default product behavior. You can detach and reattach without stopping pane processes.
-- Added the thin client and headless server as first-class product components, including auto-detect launch, explicit `herdr client`, and `herdr server stop`.
+- Added the thin client and headless server as first-class product components, including auto-detect launch, explicit `kelpie client`, and `kelpie server stop`.
 - Sessions now restore cleanly after full restart, preserving workspaces, tabs, panes, and running process state.
 - Multi-client attach is now supported. Multiple clients can connect to the same shared session.
 
@@ -1006,17 +1006,17 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.4.11] - 2026-04-16
 
 ### Breaking Changes Please Read
-- The update flow changes in `0.4.11`. Herdr no longer installs updates silently in the background. Starting with this release, herdr only checks for updates and shows them in the UI. To install a new release, quit herdr and then run `herdr update` manually in your shell.
-- This prepares the upcoming `0.5.0` persistence release. Herdr is moving from the old single-binary update model toward a persistent server/client session model, so your workspace can keep running while clients attach, detach, and reconnect.
-- The reason for this change is upgrade safety. Herdr needs to stop the old running process cleanly before the new client/server model takes over, so manual update avoids mixed-version states during the transition.
+- The update flow changes in `0.4.11`. Kelpie no longer installs updates silently in the background. Starting with this release, kelpie only checks for updates and shows them in the UI. To install a new release, quit kelpie and then run `kelpie update` manually in your shell.
+- This prepares the upcoming `0.5.0` persistence release. Kelpie is moving from the old single-binary update model toward a persistent server/client session model, so your workspace can keep running while clients attach, detach, and reconnect.
+- The reason for this change is upgrade safety. Kelpie needs to stop the old running process cleanly before the new client/server model takes over, so manual update avoids mixed-version states during the transition.
 
 ### Added
-- Hook-reported agent state can now use custom agent labels, so integrations are no longer limited to herdr’s built-in agent names. Custom labels now flow through pane/workspace UI and the socket API anywhere agent names are shown.
+- Hook-reported agent state can now use custom agent labels, so integrations are no longer limited to kelpie’s built-in agent names. Custom labels now flow through pane/workspace UI and the socket API anywhere agent names are shown.
 
 ## [0.4.10] - 2026-04-14
 
 ### Added
-- Prefix mode now supports custom command keybindings via `[[keys.command]]`, so you can launch detached shell helpers or open temporary overlay panes from inside herdr using the active workspace, tab, pane, and cwd context.
+- Prefix mode now supports custom command keybindings via `[[keys.command]]`, so you can launch detached shell helpers or open temporary overlay panes from inside kelpie using the active workspace, tab, pane, and cwd context.
 - Pressing the prefix key twice now forwards a literal prefix keystroke into the focused pane, which makes nested tools and terminal apps that use the same prefix easier to control.
 
 ### Fixed
@@ -1028,14 +1028,14 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.4.9] - 2026-04-13
 
 ### Fixed
-- Droid's primary-screen redraws no longer erase pane scrollback inside herdr, while normal scrollback-clear behavior is preserved elsewhere.
+- Droid's primary-screen redraws no longer erase pane scrollback inside kelpie, while normal scrollback-clear behavior is preserved elsewhere.
 - `q` is now dedicated to quitting in navigate mode instead of also acting as a generic cancel key in modals and overlays, reducing accidental quits.
 - Tab bar scrolling is tighter: the scroll-right button and new-tab button now sit directly adjacent to the last visible tab without a gap, and manual scroll no longer overscrolls past the last tab.
 
 ## [0.4.8] - 2026-04-12
 
 ### Added
-- Themes can now set `panel_bg = "reset"` to let herdr’s panel chrome inherit the host terminal background instead of painting an opaque panel fill. This also accepts the aliases `default`, `none`, and `transparent`.
+- Themes can now set `panel_bg = "reset"` to let kelpie’s panel chrome inherit the host terminal background instead of painting an opaque panel fill. This also accepts the aliases `default`, `none`, and `transparent`.
 - Ghostty-backed panes now preserve the host terminal’s default background when it matches the outer terminal theme, so terminal window transparency can show through pane content instead of being repainted as an opaque color.
 
 ### Fixed
@@ -1067,12 +1067,12 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.4.5] - 2026-04-09
 
 ### Added
-- `herdr workspace create` and `herdr tab create` now support `--label`, so scripts and agents can name new workspaces and tabs immediately instead of creating them first and renaming them afterward.
-- The global menu now includes a manual **reload keybinds** action, so you can apply `config.toml` keybinding changes without restarting herdr.
-- The socket API and CLI now expose a `done` agent status, including `herdr wait agent-status --status done`, so automation can distinguish finished agent runs from panes that are merely idle.
+- `kelpie workspace create` and `kelpie tab create` now support `--label`, so scripts and agents can name new workspaces and tabs immediately instead of creating them first and renaming them afterward.
+- The global menu now includes a manual **reload keybinds** action, so you can apply `config.toml` keybinding changes without restarting kelpie.
+- The socket API and CLI now expose a `done` agent status, including `kelpie wait agent-status --status done`, so automation can distinguish finished agent runs from panes that are merely idle.
 
 ### Changed
-- Session state is now saved automatically with a debounce while you work, so recent workspace, tab, pane, and sidebar changes are preserved more reliably even if herdr exits unexpectedly.
+- Session state is now saved automatically with a debounce while you work, so recent workspace, tab, pane, and sidebar changes are preserved more reliably even if kelpie exits unexpectedly.
 
 ### Fixed
 - Only the focused pane now owns the terminal cursor, which removes stray cursor blocks from unfocused panes.
@@ -1086,14 +1086,14 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 
 ### Fixed
 - IME input now works properly for Chinese and other UTF-8 input methods in pane terminals, so candidate selection no longer falls back to typing raw digit keys. (#9, thanks @Edmund-a7)
-- `herdr pane run ...` now uses the bracketed-paste-aware input path, improving compatibility with shells and terminal apps that expect pasted command text to arrive atomically.
+- `kelpie pane run ...` now uses the bracketed-paste-aware input path, improving compatibility with shells and terminal apps that expect pasted command text to arrive atomically.
 - The local socket API is more robust and secure: its Unix socket is now restricted to the current user, and long-running output waits and subscriptions stop cleanly on disconnect or shutdown instead of hanging indefinitely.
 
 ## [0.4.3] - 2026-04-07
 
 ### Fixed
 - Update checks and in-app **What's New** release notes no longer depend on GitHub’s release API, which avoids the transient 403 failures from the previous update path.
-- `herdr pane run ...` now submits the full command atomically in one request, fixing cases where scripted commands did not reliably execute because the final Enter was sent separately.
+- `kelpie pane run ...` now submits the full command atomically in one request, fixing cases where scripted commands did not reliably execute because the final Enter was sent separately.
 - Bare line-feed input is now preserved in raw terminal input instead of being normalized to Enter, fixing Linux terminal cases where inputs like Shift+Enter or Ctrl+J could be interpreted incorrectly.
 
 ## [0.4.2] - 2026-04-07
@@ -1122,7 +1122,7 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.4.0] - 2026-04-05
 
 ### Major Changes
-- Herdr now uses a Ghostty-backed terminal engine as its pane runtime.
+- Kelpie now uses a Ghostty-backed terminal engine as its pane runtime.
 - The legacy vt100 pane backend has been removed, making Ghostty the single terminal backend going forward.
 
 ### UX and Interaction
@@ -1151,10 +1151,10 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 
 ### Changed
 - Polished modal layout and spacing across onboarding, settings, keybind help, and release notes so overlays feel more consistent and their content/actions line up more cleanly.
-- Debug builds now use separate runtime/config paths from normal releases, which avoids local development sessions colliding with your main herdr install.
+- Debug builds now use separate runtime/config paths from normal releases, which avoids local development sessions colliding with your main kelpie install.
 
 ### Fixed
-- Starting a second herdr instance against an active socket now fails fast with a clear error instead of clobbering the running session.
+- Starting a second kelpie instance against an active socket now fails fast with a clear error instead of clobbering the running session.
 - Fixed pane and agent state updates being dropped under internal event queue pressure, which could leave a pane showing stale status after work finished.
 - Fixed onboarding modal sizing and click targets, and corrected release-notes scroll calculations when a scrollbar is present.
 
@@ -1162,9 +1162,9 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 
 ### Major Changes
 - Added tabs within workspaces, so a single workspace can now hold multiple terminal tab contexts with their own pane layouts.
-- Added first-class tab support to the local socket API and CLI wrappers, including `herdr tab ...` commands and tab ids like `1:2` alongside workspace-scoped pane ids.
+- Added first-class tab support to the local socket API and CLI wrappers, including `kelpie tab ...` commands and tab ids like `1:2` alongside workspace-scoped pane ids.
 - Added built-in direct integrations for pi, claude code, codex, and opencode, plus authoritative hook-driven state reporting so supported agents can report semantic state directly instead of relying only on screen heuristics.
-- Added a post-update release-notes screen so herdr can explain what changed after an update is installed.
+- Added a post-update release-notes screen so kelpie can explain what changed after an update is installed.
 
 ### UX and Controls
 - Added optional direct pane-focus keybindings for terminal mode, so you can switch panes with modifier shortcuts like `alt+h` or `alt+right` without entering navigate mode first.
@@ -1191,25 +1191,25 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.2.3] - 2026-03-31
 
 ### Changed
-- Mouse wheel handling now follows the tmux/Ghostty model more closely: fullscreen apps receive wheel input when they own scrolling, while herdr keeps host scrollback for panes that are behaving like a normal terminal transcript.
-- Pane scrollbars now only appear when herdr has real host scrollback for that pane, instead of implying a host-managed scroll position for app-owned scrolling.
+- Mouse wheel handling now follows the tmux/Ghostty model more closely: fullscreen apps receive wheel input when they own scrolling, while kelpie keeps host scrollback for panes that are behaving like a normal terminal transcript.
+- Pane scrollbars now only appear when kelpie has real host scrollback for that pane, instead of implying a host-managed scroll position for app-owned scrolling.
 
 ### Fixed
-- Fixed Codex and pi panes becoming unscrollable in herdr by preserving recoverable host history for top-anchored normal-screen output, without relying on alternate-screen scrollback retention.
-- Fixed pane wheel routing so apps using mouse reporting or alternate-scroll behavior can receive scroll input directly instead of having herdr always intercept it.
+- Fixed Codex and pi panes becoming unscrollable in kelpie by preserving recoverable host history for top-anchored normal-screen output, without relying on alternate-screen scrollback retention.
+- Fixed pane wheel routing so apps using mouse reporting or alternate-scroll behavior can receive scroll input directly instead of having kelpie always intercept it.
 
 ## [0.2.2] - 2026-03-31
 
 ### Fixed
 - Fixed pane scrollbars so they reserve their own lane instead of drawing over terminal content, which makes scrolling and scrollbar dragging behave more cleanly in narrow panes.
-- Fixed alternate-screen scrollback handling so full-screen terminal apps can preserve recoverable history inside herdr panes instead of losing rows that scroll off.
-- Fixed Codex in herdr panes losing transcript/history while running in alternate screen, so past output remains scrollable instead of disappearing as the session grows.
+- Fixed alternate-screen scrollback handling so full-screen terminal apps can preserve recoverable history inside kelpie panes instead of losing rows that scroll off.
+- Fixed Codex in kelpie panes losing transcript/history while running in alternate screen, so past output remains scrollable instead of disappearing as the session grows.
 - Hid the rendered terminal cursor while a pane is scrolled back, avoiding stray cursor blocks appearing in the wrong place during history navigation.
 
 ## [0.2.1] - 2026-03-31
 
 ### Added
-- Herdr now checks for updates at startup and periodically while it stays open, so long-running sessions can still discover new releases without a restart cycle.
+- Kelpie now checks for updates at startup and periodically while it stays open, so long-running sessions can still discover new releases without a restart cycle.
 - Added a lightweight bottom-right toast when an update has been downloaded and is ready, with a simple restart-to-use-it flow.
 
 ### Changed
@@ -1223,17 +1223,17 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 ## [0.2.0] - 2026-03-30
 
 ### Added
-- Added a local Unix socket API for controlling running herdr sessions, including workspace and pane management, pane reads, text/key input, pane splitting, and output waits.
+- Added a local Unix socket API for controlling running kelpie sessions, including workspace and pane management, pane reads, text/key input, pane splitting, and output waits.
 - Added event subscriptions over the socket API for workspace and pane lifecycle events, pane output matches, and agent state changes.
-- Added CLI wrappers on top of the socket API with `herdr workspace ...`, `herdr pane ...`, and `herdr wait ...`, using compact public ids for scripting and agent orchestration.
-- Added a settings popup with mouse support for changing themes, sound alerts, and toast notifications from inside herdr.
+- Added CLI wrappers on top of the socket API with `kelpie workspace ...`, `kelpie pane ...`, and `kelpie wait ...`, using compact public ids for scripting and agent orchestration.
+- Added a settings popup with mouse support for changing themes, sound alerts, and toast notifications from inside kelpie.
 - Added 9 built-in themes: catppuccin, tokyo night, dracula, nord, gruvbox, one dark, solarized, kanagawa, and rosé pine.
 - Added interactive pane scrollbars, manual sidebar resizing, and upstream git ahead/behind indicators in the workspace sidebar.
 
 ### Changed
 - Redesigned the sidebar into a two-section layout that separates workspace-level triage from per-agent detail, making it easier to supervise multiple agents in parallel.
 - Agent state names exposed in the UI and integration surfaces now use `working` and `blocked`.
-- Herdr now blocks nested launches by default when started inside a herdr-managed pane; set `advanced.allow_nested = true` to opt back in.
+- Kelpie now blocks nested launches by default when started inside a kelpie-managed pane; set `advanced.allow_nested = true` to opt back in.
 
 ### Fixed
 - Improved terminal keyboard protocol parsing and input forwarding across terminal variants, including better handling for shifted printable keys.
@@ -1241,14 +1241,14 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 - Refined sidebar rollups and pane ordering so workspace status and agent lists stay more stable and predictable.
 
 ### Documentation
-- Refreshed the README, socket API reference, and reusable agent skill docs to better explain herdr's agent multiplexer model and integration surface.
+- Refreshed the README, socket API reference, and reusable agent skill docs to better explain kelpie's agent multiplexer model and integration surface.
 
 ## [0.1.2] - 2026-03-28
 
 ### Added
 - Added first-run onboarding flow that lets you choose notification preferences (sound and toast) on startup.
 - Added optional visual toast notifications in the top-right corner for background workspace events (completion and attention-needed alerts).
-- Added configurable keybindings for all navigate mode actions: new workspace, rename workspace, close workspace, resize mode, and toggle sidebar. See the [configuration docs](https://herdr.dev/docs/configuration/) for the full key reference.
+- Added configurable keybindings for all navigate mode actions: new workspace, rename workspace, close workspace, resize mode, and toggle sidebar. See the [configuration docs](https://kelpie.example/docs/configuration/) for the full key reference.
 - Added configuration validation with startup diagnostics. Invalid key combinations or duplicate bindings now fall back to safe defaults with a visible warning.
 
 ### Changed
@@ -1271,7 +1271,7 @@ This is a hotfix for v0.6.3. See the v0.6.3 notes for the full feature release.
 - Request alerts now play even when the agent is in the active workspace, while completion sounds remain limited to background workspaces.
 
 ### Fixed
-- Improved foreground job detection on Linux and macOS so herdr can recognize agents that run through wrapper processes or generic runtimes, including cases like Codex running under `node`.
+- Improved foreground job detection on Linux and macOS so kelpie can recognize agents that run through wrapper processes or generic runtimes, including cases like Codex running under `node`.
 - Made Claude Code state detection more stable by handling more spinner variants and smoothing short busy/idle flicker during screen updates.
 
 ## [0.1.0] - 2026-03-27

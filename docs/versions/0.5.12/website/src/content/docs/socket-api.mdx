@@ -1,9 +1,9 @@
 ---
 title: Socket API
-description: Control a running Herdr server from scripts, tools, and coding agents.
+description: Control a running Kelpie server from scripts, tools, and coding agents.
 ---
 
-Herdr exposes a local socket API for scripts and agents that need to inspect or control a running session.
+Kelpie exposes a local socket API for scripts and agents that need to inspect or control a running session.
 
 Most automation should start with the CLI wrappers. Use the raw socket API only when you need direct request/response control or long-lived event subscriptions.
 
@@ -11,7 +11,7 @@ Most automation should start with the CLI wrappers. Use the raw socket API only 
 
 | Layer | Use it for |
 | --- | --- |
-| Agent skill | Teaching a coding agent how to use Herdr from inside a pane. |
+| Agent skill | Teaching a coding agent how to use Kelpie from inside a pane. |
 | CLI wrappers | Shell scripts, simple orchestration, and human debugging. |
 | Raw socket API | Custom tools, protocol clients, and event subscribers. |
 
@@ -35,32 +35,32 @@ The socket API can:
 Create a workspace:
 
 ```bash
-herdr workspace create --cwd ~/project --label api
+kelpie workspace create --cwd ~/project --label api
 ```
 
 Create a tab:
 
 ```bash
-herdr tab create --label logs
+kelpie tab create --label logs
 ```
 
 Split a pane and run a command:
 
 ```bash
-herdr pane split 1-1 --direction right
-herdr pane run 1-2 "npm test"
+kelpie pane split 1-1 --direction right
+kelpie pane run 1-2 "npm test"
 ```
 
 Wait for an agent:
 
 ```bash
-herdr wait agent-status 1-1 --status done
+kelpie wait agent-status 1-1 --status done
 ```
 
 Read pane output:
 
 ```bash
-herdr pane read 1-2 --source recent --lines 50
+kelpie pane read 1-2 --source recent --lines 50
 ```
 
 ## Raw methods
@@ -77,11 +77,11 @@ Raw socket method names use dot notation:
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
 
-Some CLI commands are conveniences around these methods. For example, `herdr agent wait` resolves an agent target and then subscribes to pane agent state events.
+Some CLI commands are conveniences around these methods. For example, `kelpie agent wait` resolves an agent target and then subscribes to pane agent state events.
 
 ## Socket transport
 
-Herdr uses newline-delimited JSON over a Unix domain socket.
+Kelpie uses newline-delimited JSON over a Unix domain socket.
 
 Send one request per line:
 
@@ -99,23 +99,23 @@ Event subscriptions keep the connection open after the initial response.
 
 ## Socket paths
 
-The default socket lives under your Herdr config directory.
+The default socket lives under your Kelpie config directory.
 
 Named sessions have separate sockets:
 
 ```text
-~/.config/herdr/herdr.sock
-~/.config/herdr/sessions/<name>/herdr.sock
+~/.config/kelpie/kelpie.sock
+~/.config/kelpie/sessions/<name>/kelpie.sock
 ```
 
 Resolution order:
 
 1. explicit CLI `--session <name>`
-2. `HERDR_SOCKET_PATH`
-3. `HERDR_SESSION=<name>`
+2. `KELPIE_SOCKET_PATH`
+3. `KELPIE_SESSION=<name>`
 4. default session socket
 
-Use `HERDR_SOCKET_PATH` only for low-level overrides.
+Use `KELPIE_SOCKET_PATH` only for low-level overrides.
 
 ## Agent state reporting
 
@@ -165,9 +165,9 @@ Use `events.wait` when you want one matching event and then a response.
 Use `pane.read` through the CLI unless you are writing a protocol client.
 
 ```bash
-herdr pane read 1-1 --source visible --lines 80
-herdr pane read 1-1 --source recent --lines 120
-herdr pane read 1-1 --source recent-unwrapped --lines 120
+kelpie pane read 1-1 --source visible --lines 80
+kelpie pane read 1-1 --source recent --lines 120
+kelpie pane read 1-1 --source recent-unwrapped --lines 120
 ```
 
 `recent-unwrapped` is useful for logs because it ignores soft wrapping.
@@ -177,8 +177,8 @@ herdr pane read 1-1 --source recent-unwrapped --lines 120
 Use waits to coordinate agents and scripts.
 
 ```bash
-herdr wait agent-status 1-1 --status done
-herdr wait agent-status 1-1 --status blocked
+kelpie wait agent-status 1-1 --status done
+kelpie wait agent-status 1-1 --status blocked
 ```
 
 Agent waits observe semantic state, not arbitrary command completion.
@@ -219,6 +219,6 @@ Errors look like this:
 
 ## Protocol stability
 
-Herdr has a protocol version for client/server compatibility. Protocol changes are reviewed with release compatibility in mind.
+Kelpie has a protocol version for client/server compatibility. Protocol changes are reviewed with release compatibility in mind.
 
-Check the server protocol with `ping` or `herdr status` before depending on new behavior. Handle unknown fields gracefully.
+Check the server protocol with `ping` or `kelpie status` before depending on new behavior. Handle unknown fields gracefully.

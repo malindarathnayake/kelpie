@@ -157,7 +157,7 @@ pub(crate) fn run_bounded(
 
     let (output_tx, output_rx) = mpsc::channel();
     if let Some(stdout) = child.stdout.take() {
-        let spawned = crate::thread_spawn::spawn_named("herdr-host-probe-out", move || {
+        let spawned = crate::thread_spawn::spawn_named("kelpie-host-probe-out", move || {
             let mut buffer = Vec::new();
             let _ = stdout.take(STDOUT_LIMIT as u64).read_to_end(&mut buffer);
             let _ = output_tx.send(buffer);
@@ -223,7 +223,7 @@ pub(crate) fn is_absolute_for(path: &Path, windows: bool) -> bool {
 mod tests {
     use super::*;
 
-    const HANG_ENV: &str = "HERDR_HOST_FACTS_TEST_HANG";
+    const HANG_ENV: &str = "KELPIE_HOST_FACTS_TEST_HANG";
 
     /// Helper process for `probe_timeout_kills_hung_process`. A normal test run
     /// returns at once; only the probe test sets the env var that makes it hang.
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn probe_missing_program_is_spawn_failure() {
-        let missing = std::env::temp_dir().join("herdr-host-facts-definitely-missing.exe");
+        let missing = std::env::temp_dir().join("kelpie-host-facts-definitely-missing.exe");
         assert_eq!(
             run_bounded(&missing, &["--version"], Duration::from_secs(1), |_| {}),
             ProbeRun::SpawnFailed

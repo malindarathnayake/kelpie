@@ -6,14 +6,14 @@ mod completion;
 mod machine;
 
 pub(super) fn command() -> Command {
-    let command = Command::new("herdr")
+    let command = Command::new("kelpie")
         .about("terminal workspace manager for AI coding agents")
         .disable_help_flag(true)
         .disable_version_flag(true)
         .arg(help_flag())
         .arg(option("session", "NAME").help("Use or create a named persistent session"))
         .arg(option("machine", "LABEL-OR-ID").help("Run an API command on a saved SSH machine"))
-        .arg(option("remote", "TARGET").help("Attach through SSH to a remote Herdr server"))
+        .arg(option("remote", "TARGET").help("Attach through SSH to a remote Kelpie server"))
         .arg(
             option("remote-keybindings", "MODE")
                 .value_parser(["local", "server"])
@@ -94,7 +94,7 @@ fn write_requested_help(
     let mut root = command();
     root.build();
     let mut selected = &mut root;
-    let mut path = vec!["herdr".to_string()];
+    let mut path = vec!["kelpie".to_string()];
     for segment in &args[1..help_index] {
         if selected.find_subcommand(segment).is_none() {
             break;
@@ -342,7 +342,7 @@ fn tab_command() -> Command {
 
 fn notification_command() -> Command {
     Command::new("notification")
-        .about("Show Herdr notifications")
+        .about("Show Kelpie notifications")
         .subcommand(
             Command::new("show")
                 .about("Show a notification")
@@ -389,7 +389,7 @@ fn agent_command() -> Command {
             Command::new("submit")
                 .about("Submit a prompt to an exact agent target")
                 .override_usage(
-                    "herdr agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID> <TEXT>",
+                    "kelpie agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID> <TEXT>",
                 )
                 .arg(
                     option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
@@ -403,14 +403,14 @@ fn agent_command() -> Command {
                 )
                 .arg(required("text", "TEXT"))
                 .after_help(
-                    "Prints the receipt. Delivery ends at written, fenced or indeterminate; herdr never claims the agent started the turn; acknowledged becomes confirmed only when the Claude integration (v12+) hook reports the same prompt, otherwise it stays unsupported. Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: herdr agent submit-status <ID>",
+                    "Prints the receipt. Delivery ends at written, fenced or indeterminate; kelpie never claims the agent started the turn; acknowledged becomes confirmed only when the Claude integration (v12+) hook reports the same prompt, otherwise it stays unsupported. Repeating a submit_id returns the same receipt and never writes again. A changed generation or server restart is rejected with stale_target.\n\nnext: kelpie agent submit-status <ID>",
                 ),
         )
         .subcommand(
             Command::new("answer")
                 .about("Answer the newest open prose question of an exact agent target")
                 .override_usage(
-                    "herdr agent answer --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --question-id <Q> --submit-id <ID> <TEXT>",
+                    "kelpie agent answer --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --question-id <Q> --submit-id <ID> <TEXT>",
                 )
                 .arg(
                     option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
@@ -429,14 +429,14 @@ fn agent_command() -> Command {
                 )
                 .arg(required("text", "TEXT"))
                 .after_help(
-                    "Same checks as agent submit. The question must still be shown on screen, otherwise question_not_current; structured approvals are question_not_answerable. The answer does not resolve the question.\n\nnext: herdr agent submit-status <ID>",
+                    "Same checks as agent submit. The question must still be shown on screen, otherwise question_not_current; structured approvals are question_not_answerable. The answer does not resolve the question.\n\nnext: kelpie agent submit-status <ID>",
                 ),
         )
         .subcommand(
             Command::new("interrupt")
                 .about("Send one Esc to a working agent target")
                 .override_usage(
-                    "herdr agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
+                    "kelpie agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
                 )
                 .arg(
                     option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
@@ -449,14 +449,14 @@ fn agent_command() -> Command {
                         .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
                 )
                 .after_help(
-                    "Agents with a profile (claude, codex, cursor). The agent must be working (else agent_not_working) and the draft clean. The receipt's turn_end_observed_after_write_at_ms is the first idle or awaiting-human edge after the write completed (an uncorrelated observation, not an acknowledgement).\n\nnext: herdr agent submit-status <ID>",
+                    "Agents with a profile (claude, codex, cursor). The agent must be working (else agent_not_working) and the draft clean. The receipt's turn_end_observed_after_write_at_ms is the first idle or awaiting-human edge after the write completed (an uncorrelated observation, not an acknowledgement).\n\nnext: kelpie agent submit-status <ID>",
                 ),
         )
         .subcommand(
             Command::new("reset")
                 .about("Submit /clear to an exact agent target")
                 .override_usage(
-                    "herdr agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
+                    "kelpie agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
                 )
                 .arg(
                     option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
@@ -469,14 +469,14 @@ fn agent_command() -> Command {
                         .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
                 )
                 .after_help(
-                    "Same checks as agent submit. The receipt's reset is verified only when a new session with start source clear is reported after the write; otherwise it stays pending (unverified when the write failed or another replacement came first).\n\nnext: herdr agent submit-status <ID>",
+                    "Same checks as agent submit. The receipt's reset is verified only when a new session with start source clear is reported after the write; otherwise it stays pending (unverified when the write failed or another replacement came first).\n\nnext: kelpie agent submit-status <ID>",
                 ),
         )
         .subcommand(
             Command::new("clear-draft")
                 .about("Clear the supervisor's own interrupted draft")
                 .override_usage(
-                    "herdr agent clear-draft --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
+                    "kelpie agent clear-draft --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
                 )
                 .arg(
                     option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
@@ -489,14 +489,14 @@ fn agent_command() -> Command {
                         .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
                 )
                 .after_help(
-                    "Only agents that support restoring interrupted drafts can clear them. The draft must exactly match the supervisor's own interrupted text; the owner latch and fence are preserved. An already clean draft is refused with draft_already_clean; another draft is refused with draft_not_own. Currently Cursor supports this; Claude and Codex return unsupported_agent.\n\nnext: herdr agent submit-status <ID>",
+                    "Only agents that support restoring interrupted drafts can clear them. The draft must exactly match the supervisor's own interrupted text; the owner latch and fence are preserved. An already clean draft is refused with draft_already_clean; another draft is refused with draft_not_own. Currently Cursor supports this; Claude and Codex return unsupported_agent.\n\nnext: kelpie agent submit-status <ID>",
                 ),
         )
         .subcommand(
             Command::new("resume")
                 .about("Resume an agent session in a pane that hosts no agent")
                 .override_usage(
-                    "herdr agent resume --pane <ID> --session-id <ID> --submit-id <ID> [--agent <LABEL>]",
+                    "kelpie agent resume --pane <ID> --session-id <ID> --submit-id <ID> [--agent <LABEL>]",
                 )
                 .arg(
                     option("pane", "ID")
@@ -518,7 +518,7 @@ fn agent_command() -> Command {
                         .help("Agent to resume: claude (default), codex or cursor"),
                 )
                 .after_help(
-                    "Agents with a profile (claude, codex, cursor). Launches the agent's resume command through the agent start path. The receipt's state is launched when the start was accepted, failed (with start_error) when it was refused before anything was sent, or indeterminate (start_unconfirmed) when it failed after the command was sent. A pane where the owner typed is rejected draft_not_clean unless a one-time handoff is armed. Its resume is verified only when the pane's agent reports the requested session id (start source resume or startup) after the launch, mismatch (with reported_session) when it reports a different id first, and pending otherwise. new_generation is the pane's generation once the agent was observed. Repeating a submit_id returns the same receipt and never launches again.\n\nnext: herdr agent submit-status <ID>",
+                    "Agents with a profile (claude, codex, cursor). Launches the agent's resume command through the agent start path. The receipt's state is launched when the start was accepted, failed (with start_error) when it was refused before anything was sent, or indeterminate (start_unconfirmed) when it failed after the command was sent. A pane where the owner typed is rejected draft_not_clean unless a one-time handoff is armed. Its resume is verified only when the pane's agent reports the requested session id (start source resume or startup) after the launch, mismatch (with reported_session) when it reports a different id first, and pending otherwise. new_generation is the pane's generation once the agent was observed. Repeating a submit_id returns the same receipt and never launches again.\n\nnext: kelpie agent submit-status <ID>",
                 ),
         )
         .subcommand(
@@ -530,7 +530,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("read")
                 .about("Read agent terminal output")
-                .override_usage("herdr agent read <TARGET> [OPTIONS]")
+                .override_usage("kelpie agent read <TARGET> [OPTIONS]")
                 .arg(required("target", "TARGET"))
                 .arg(read_source_option(true))
                 .arg(option("lines", "N"))
@@ -540,7 +540,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("rename")
                 .about("Rename an agent")
-                .override_usage("herdr agent rename <TARGET> <NAME>|--clear")
+                .override_usage("kelpie agent rename <TARGET> <NAME>|--clear")
                 .arg(required("target", "TARGET"))
                 .arg(Arg::new("name").value_name("NAME"))
                 .arg(flag("clear"))
@@ -554,7 +554,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("wait")
                 .about("Wait until an agent reaches one of the requested states")
-                .override_usage("herdr agent wait <TARGET> [OPTIONS]")
+                .override_usage("kelpie agent wait <TARGET> [OPTIONS]")
                 .arg(required("target", "TARGET"))
                 .arg(
                     option("until", "STATUS")
@@ -570,7 +570,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("attach")
                 .about("Attach directly to an agent terminal")
-                .override_usage("herdr agent attach <TARGET> [OPTIONS]")
+                .override_usage("kelpie agent attach <TARGET> [OPTIONS]")
                 .arg(required("target", "TARGET"))
                 .arg(flag("takeover")),
         )
@@ -578,7 +578,7 @@ fn agent_command() -> Command {
             Command::new("start")
                 .about("Start a supported interactive agent in an existing pane")
                 .override_usage(
-                    "herdr agent start <NAME> --kind <KIND> --pane <ID> [OPTIONS] [-- [AGENT_ARG]...]",
+                    "kelpie agent start <NAME> --kind <KIND> --pane <ID> [OPTIONS] [-- [AGENT_ARG]...]",
                 )
                 .arg(required("name", "NAME"))
                 .arg(
@@ -603,7 +603,7 @@ fn agent_command() -> Command {
                         .last(true),
                 )
                 .after_help(
-                    "The pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.\n\nnext: herdr agent digest, then herdr agent submit --target-ref <TARGET_REF> --submit-id <ID> <TEXT>",
+                    "The pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.\n\nnext: kelpie agent digest, then kelpie agent submit --target-ref <TARGET_REF> --submit-id <ID> <TEXT>",
                 ),
         )
         .subcommand(
@@ -711,7 +711,7 @@ fn pane_command() -> Command {
                 .args(current_pane_args())
                 .arg(
                     option("right-click", "TARGET")
-                        .value_parser(["herdr", "pane"])
+                        .value_parser(["kelpie", "pane"])
                         .required(true),
                 ),
         )
@@ -724,7 +724,7 @@ fn pane_command() -> Command {
                 .arg(option("ratio", "FLOAT"))
                 .arg(path_option("cwd", "PATH"))
                 .arg(env_option())
-                .arg(option("right-click", "TARGET").value_parser(["herdr", "pane"]))
+                .arg(option("right-click", "TARGET").value_parser(["kelpie", "pane"]))
                 .arg(flag("focus"))
                 .arg(flag("no-focus")),
         )
@@ -759,7 +759,7 @@ fn pane_command() -> Command {
                 .arg(required("pane_id", "PANE_ID"))
                 .arg(required("text", "TEXT"))
                 .after_help(
-                    "next: herdr pane run <PANE_ID> <COMMAND> sends text and Enter in one call",
+                    "next: kelpie pane run <PANE_ID> <COMMAND> sends text and Enter in one call",
                 ),
         )
         .subcommand(
@@ -852,7 +852,7 @@ fn resume_argv_arg() -> Arg {
         .value_name("RESUME_ARG")
         .num_args(0..)
         .last(true)
-        .help("Command that resumes this session after a Herdr restart; starts with a plain command name")
+        .help("Command that resumes this session after a Kelpie restart; starts with a plain command name")
 }
 
 fn release_agent_command() -> Command {
@@ -1242,7 +1242,7 @@ mod tests {
         }
         assert!(!has_option(watch, "json"));
         assert!(super::command()
-            .try_get_matches_from(["herdr", "agent", "watch"])
+            .try_get_matches_from(["kelpie", "agent", "watch"])
             .is_ok());
     }
 
@@ -1255,7 +1255,7 @@ mod tests {
         assert!(argument(submit, "text").is_required_set());
         assert!(super::command()
             .try_get_matches_from([
-                "herdr",
+                "kelpie",
                 "agent",
                 "submit",
                 "--target-ref",
@@ -1266,9 +1266,9 @@ mod tests {
             ])
             .is_ok());
         for missing in [
-            &["herdr", "agent", "submit", "--submit-id", "s1", "hello"][..],
+            &["kelpie", "agent", "submit", "--submit-id", "s1", "hello"][..],
             &[
-                "herdr",
+                "kelpie",
                 "agent",
                 "submit",
                 "--target-ref",
@@ -1276,7 +1276,7 @@ mod tests {
                 "hello",
             ][..],
             &[
-                "herdr",
+                "kelpie",
                 "agent",
                 "submit",
                 "--target-ref",
@@ -1306,7 +1306,7 @@ mod tests {
         assert!(has_option(resume, "agent"));
         assert!(!option_arg(resume, "agent").is_required_set());
         let full = [
-            "herdr",
+            "kelpie",
             "agent",
             "resume",
             "--pane",
@@ -1344,7 +1344,7 @@ mod tests {
         assert!(argument(answer, "text").is_required_set());
         assert!(super::command()
             .try_get_matches_from([
-                "herdr",
+                "kelpie",
                 "agent",
                 "answer",
                 "--target-ref",
@@ -1358,7 +1358,7 @@ mod tests {
             .is_ok());
         assert!(super::command()
             .try_get_matches_from([
-                "herdr",
+                "kelpie",
                 "agent",
                 "answer",
                 "--target-ref",
@@ -1376,7 +1376,7 @@ mod tests {
             assert!(!has_option(sub, "question-id"), "{name}");
             assert!(super::command()
                 .try_get_matches_from([
-                    "herdr",
+                    "kelpie",
                     "agent",
                     name,
                     "--target-ref",
@@ -1387,7 +1387,7 @@ mod tests {
                 .is_ok());
             assert!(super::command()
                 .try_get_matches_from([
-                    "herdr",
+                    "kelpie",
                     "agent",
                     name,
                     "--target-ref",
@@ -1398,10 +1398,10 @@ mod tests {
                 ])
                 .is_err());
             assert!(super::command()
-                .try_get_matches_from(["herdr", "agent", name, "--submit-id", "c1"])
+                .try_get_matches_from(["kelpie", "agent", name, "--submit-id", "c1"])
                 .is_err());
             assert!(super::command()
-                .try_get_matches_from(["herdr", "agent", name, "--target-ref", "e:w1:p1:3"])
+                .try_get_matches_from(["kelpie", "agent", name, "--target-ref", "e:w1:p1:3"])
                 .is_err());
         }
     }
@@ -1472,13 +1472,13 @@ mod tests {
         for alias in crate::config::THEME_NAME_ALIASES {
             assert!(
                 super::command()
-                    .try_get_matches_from(["herdr", "theme", "set", alias])
+                    .try_get_matches_from(["kelpie", "theme", "set", alias])
                     .is_ok(),
                 "{alias}"
             );
         }
         assert!(super::command()
-            .try_get_matches_from(["herdr", "theme", "set", "Kelpie"])
+            .try_get_matches_from(["kelpie", "theme", "set", "Kelpie"])
             .is_ok());
         let mut set = super::command();
         set.build();
@@ -1489,13 +1489,13 @@ mod tests {
         assert!(help.contains("aliases"), "{help}");
         assert!(!help.contains("tokyonight-day"), "{help}");
         assert!(super::command()
-            .try_get_matches_from(["herdr", "theme", "set", "midnight"])
+            .try_get_matches_from(["kelpie", "theme", "set", "midnight"])
             .is_ok());
         assert!(super::command()
-            .try_get_matches_from(["herdr", "theme", "set", "midnite"])
+            .try_get_matches_from(["kelpie", "theme", "set", "midnite"])
             .is_err());
         assert!(super::command()
-            .try_get_matches_from(["herdr", "theme", "set"])
+            .try_get_matches_from(["kelpie", "theme", "set"])
             .is_err());
     }
 
@@ -1517,19 +1517,19 @@ mod tests {
 
         for path in paths {
             for flag in ["-h", "--help"] {
-                let mut args = vec!["herdr".to_string()];
+                let mut args = vec!["kelpie".to_string()];
                 args.extend(path.iter().cloned());
                 args.push(flag.to_string());
                 let mut output = Vec::new();
                 assert!(
                     super::write_requested_help(&args, &mut output, || {}).unwrap(),
-                    "help was not handled for herdr {} {flag}",
+                    "help was not handled for kelpie {} {flag}",
                     path.join(" ")
                 );
                 let output = String::from_utf8(output).unwrap();
                 assert!(
-                    output.contains(&format!("Usage: herdr {}", path.join(" "))),
-                    "unexpected help for herdr {}: {output}",
+                    output.contains(&format!("Usage: kelpie {}", path.join(" "))),
+                    "unexpected help for kelpie {}: {output}",
                     path.join(" ")
                 );
             }
@@ -1603,7 +1603,7 @@ mod tests {
             for option in options {
                 assert!(
                     option_arg(&cmd, option).is_required_set(),
-                    "herdr {} --{option} should be required",
+                    "kelpie {} --{option} should be required",
                     path.join(" ")
                 );
             }
@@ -1613,14 +1613,14 @@ mod tests {
     #[test]
     fn agent_rename_requires_exactly_one_name_or_clear() {
         for valid in [
-            &["herdr", "agent", "rename", "reviewer", "worker"][..],
-            &["herdr", "agent", "rename", "reviewer", "--clear"][..],
+            &["kelpie", "agent", "rename", "reviewer", "worker"][..],
+            &["kelpie", "agent", "rename", "reviewer", "--clear"][..],
         ] {
             assert!(super::command().try_get_matches_from(valid).is_ok());
         }
         for invalid in [
-            &["herdr", "agent", "rename", "reviewer"][..],
-            &["herdr", "agent", "rename", "reviewer", "worker", "--clear"][..],
+            &["kelpie", "agent", "rename", "reviewer"][..],
+            &["kelpie", "agent", "rename", "reviewer", "worker", "--clear"][..],
         ] {
             assert!(super::command().try_get_matches_from(invalid).is_err());
         }
@@ -1628,7 +1628,7 @@ mod tests {
         let mut help = Vec::new();
         super::write_requested_help(
             &[
-                "herdr".to_string(),
+                "kelpie".to_string(),
                 "agent".to_string(),
                 "rename".to_string(),
                 "--help".to_string(),
@@ -1639,7 +1639,7 @@ mod tests {
         .unwrap();
         assert!(String::from_utf8(help)
             .unwrap()
-            .contains("Usage: herdr agent rename <TARGET> <NAME>|--clear"));
+            .contains("Usage: kelpie agent rename <TARGET> <NAME>|--clear"));
     }
 
     #[test]
@@ -1649,7 +1649,7 @@ mod tests {
             let worktree_command = command_path(&cmd, &["worktree", subcommand]);
             assert!(
                 !has_option(worktree_command, "json"),
-                "herdr worktree {subcommand} should not advertise --json"
+                "kelpie worktree {subcommand} should not advertise --json"
             );
         }
     }
@@ -1742,13 +1742,13 @@ mod tests {
     }
 
     fn long_help(path: &[&str]) -> String {
-        let mut args = vec!["herdr".to_string()];
+        let mut args = vec!["kelpie".to_string()];
         args.extend(path.iter().map(|segment| segment.to_string()));
         args.push("--help".to_string());
         let mut output = Vec::new();
         assert!(
             super::write_requested_help(&args, &mut output, || {}).unwrap(),
-            "help was not handled for herdr {}",
+            "help was not handled for kelpie {}",
             path.join(" ")
         );
         String::from_utf8(output).unwrap()
@@ -1760,7 +1760,7 @@ mod tests {
             let help = long_help(&[group]);
             assert!(
                 help.contains(super::super::AGENT_HELP_FOOTER),
-                "herdr {group} is missing agent resources: {help}"
+                "kelpie {group} is missing agent resources: {help}"
             );
         }
 
@@ -1779,14 +1779,14 @@ mod tests {
             "agent start dropped its existing after_help: {agent_start}"
         );
         assert!(
-            agent_start.contains("next: herdr agent digest, then herdr agent submit"),
+            agent_start.contains("next: kelpie agent digest, then kelpie agent submit"),
             "agent start is missing its next-step hint: {agent_start}"
         );
 
         let pane_send_text = long_help(&["pane", "send-text"]);
         assert!(
             pane_send_text.contains(
-                "next: herdr pane run <PANE_ID> <COMMAND> sends text and Enter in one call"
+                "next: kelpie pane run <PANE_ID> <COMMAND> sends text and Enter in one call"
             ),
             "pane send-text is missing its next-step hint: {pane_send_text}"
         );
@@ -1803,7 +1803,7 @@ mod tests {
         ] {
             let mut cmd = super::command();
             let mut output = Vec::new();
-            clap_complete::generate(shell, &mut cmd, "herdr", &mut output);
+            clap_complete::generate(shell, &mut cmd, "kelpie", &mut output);
             assert!(!output.is_empty(), "empty {shell:?} completion output");
         }
     }

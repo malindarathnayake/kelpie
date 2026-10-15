@@ -53,7 +53,7 @@ fn encode_profile_key(runtime: &crate::terminal::TerminalRuntime, key: ProfileKe
 /// Debug builds only: delays a submission write so a fixture can trip the fence while it
 /// is queued. Never compiled into release builds.
 #[cfg(debug_assertions)]
-pub(crate) const DEV_SUBMIT_HOLD_ENV: &str = "HERDR_DEV_SUBMIT_HOLD_MS";
+pub(crate) const DEV_SUBMIT_HOLD_ENV: &str = "KELPIE_DEV_SUBMIT_HOLD_MS";
 #[cfg(debug_assertions)]
 const DEV_SUBMIT_HOLD_MAX_MS: u64 = 60_000;
 
@@ -353,13 +353,15 @@ impl App {
         };
         let executable = crate::detect::interactive_agent_executable(resume_agent);
         let resume_label = crate::detect::agent_label(resume_agent);
-        let Some(args) =
-            crate::agent_resume::plan(&format!("herdr:{resume_label}"), resume_label, &session_ref)
-                .and_then(|plan| match plan.argv.split_first() {
-                    Some((program, args)) if program == executable => Some(args.to_vec()),
-                    _ => None,
-                })
-        else {
+        let Some(args) = crate::agent_resume::plan(
+            &format!("kelpie:{resume_label}"),
+            resume_label,
+            &session_ref,
+        )
+        .and_then(|plan| match plan.argv.split_first() {
+            Some((program, args)) if program == executable => Some(args.to_vec()),
+            _ => None,
+        }) else {
             return reject(
                 id,
                 "unsupported_agent",
@@ -873,7 +875,7 @@ impl App {
                 .attach_handoff(&req.submit_id, handoff);
             let event_tx = self.event_tx.clone();
             let submit_id = req.submit_id.clone();
-            let spawned = crate::thread_spawn::spawn_named("herdr-submit-hold", move || {
+            let spawned = crate::thread_spawn::spawn_named("kelpie-submit-hold", move || {
                 std::thread::sleep(hold);
                 let _ = event_tx.blocking_send(AppEvent::SupervisorSubmit(SubmitEvent::Release {
                     submit_id,
@@ -1074,7 +1076,7 @@ impl App {
         let (handoff_tx, handoff_rx) =
             std::sync::mpsc::channel::<std::sync::mpsc::Receiver<std::io::Result<()>>>();
         let event_tx = self.event_tx.clone();
-        crate::thread_spawn::spawn_named("herdr-agent-submit", move || {
+        crate::thread_spawn::spawn_named("kelpie-agent-submit", move || {
             let Ok(completion) = handoff_rx.recv() else {
                 // Queueing failed or was abandoned; the App already settled the receipt.
                 return;
@@ -1880,7 +1882,7 @@ mod tests {
                 id: "hook".into(),
                 method: Method::PaneReportPromptSubmitted(PaneReportPromptSubmittedParams {
                     pane_id,
-                    source: format!("herdr:{}", agent.trim()),
+                    source: format!("kelpie:{}", agent.trim()),
                     agent: agent.into(),
                     prompt_sha256_16: hash.into(),
                 }),
@@ -1966,7 +1968,7 @@ mod tests {
             let session_report =
                 |pane_id, value: &str, reason: &str, seq| AppEvent::AgentSessionReported {
                     pane_id,
-                    source: "herdr:cursor".into(),
+                    source: "kelpie:cursor".into(),
                     agent_label: "cursor".into(),
                     seq: Some(seq),
                     session_ref: crate::agent_resume::AgentSessionRef::id(value),
@@ -1986,7 +1988,7 @@ mod tests {
                     .get_mut(&terminal_id)
                     .unwrap()
                     .set_hook_authority_with_session_ref(
-                        "herdr:cursor".into(),
+                        "kelpie:cursor".into(),
                         "cursor".into(),
                         AgentState::Idle,
                         None,
@@ -1997,7 +1999,7 @@ mod tests {
             } else {
                 f.app.handle_internal_event(AppEvent::HookStateReported {
                     pane_id: f.pane_id,
-                    source: "herdr:cursor".into(),
+                    source: "kelpie:cursor".into(),
                     agent_label: "cursor".into(),
                     state: AgentState::Idle,
                     message: None,
@@ -2012,7 +2014,7 @@ mod tests {
             assert_eq!(
                 f.app.state.terminals[&terminal_id].current_session_identity(),
                 Some((
-                    "herdr:cursor".into(),
+                    "kelpie:cursor".into(),
                     "cursor".into(),
                     crate::agent_resume::AgentSessionRefKind::Id,
                     "cursor-old".into(),
@@ -2042,7 +2044,7 @@ mod tests {
             assert_eq!(verified.target_ref.generation, 1);
             assert_eq!(f.target().generation, 2, "verification does not bump again");
             let expected_identity = Some((
-                "herdr:cursor".into(),
+                "kelpie:cursor".into(),
                 "cursor".into(),
                 crate::agent_resume::AgentSessionRefKind::Id,
                 "cursor-new".into(),
@@ -2122,7 +2124,7 @@ mod tests {
             id: "hook".into(),
             method: Method::PaneReportPromptSubmitted(PaneReportPromptSubmittedParams {
                 pane_id: "w999:p1".into(),
-                source: "herdr:claude".into(),
+                source: "kelpie:claude".into(),
                 agent: "claude".into(),
                 prompt_sha256_16: prompt_ack_sha256_16("review this"),
             }),
@@ -2553,7 +2555,7 @@ mod tests {
             self.app
                 .handle_internal_event(AppEvent::AgentSessionReported {
                     pane_id: self.pane_id,
-                    source: "herdr:claude".into(),
+                    source: "kelpie:claude".into(),
                     agent_label: "claude".into(),
                     seq: Some(seq),
                     session_ref: Some(crate::agent_resume::AgentSessionRef {
@@ -3286,7 +3288,7 @@ mod tests {
                     identity.1.as_str(),
                     identity.3.as_str()
                 ),
-                ("herdr:claude", "claude", reported),
+                ("kelpie:claude", "claude", reported),
                 "foreign report must be accepted by the terminal"
             );
             assert_eq!(
@@ -3308,7 +3310,7 @@ mod tests {
             });
             f.app.handle_internal_event(AppEvent::AgentSessionReported {
                 pane_id: f.pane_id,
-                source: "herdr:cursor".into(),
+                source: "kelpie:cursor".into(),
                 agent_label: "cursor".into(),
                 seq: Some(1),
                 session_ref: crate::agent_resume::AgentSessionRef::id("requested"),
@@ -3323,7 +3325,7 @@ mod tests {
                     identity.1.as_str(),
                     identity.3.as_str()
                 ),
-                ("herdr:cursor", "cursor", "requested"),
+                ("kelpie:cursor", "cursor", "requested"),
                 "requested report must be accepted by the terminal"
             );
             let settled = receipt(&f.status("cursor-resume"));

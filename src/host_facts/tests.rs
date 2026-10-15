@@ -125,7 +125,7 @@ fn api_success_shape_is_tagged() {
 
 fn unique_dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "herdr-host-facts-{name}-{}-{}",
+        "kelpie-host-facts-{name}-{}-{}",
         std::process::id(),
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ))

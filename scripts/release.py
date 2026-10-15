@@ -14,14 +14,14 @@ RELEASE_FILES = {
     "docs/next/README.md",
     "docs/next/README.zh-CN.md",
     "docs/next/product-announcement.json",
-    "skills/herdr/SKILL.md",
+    "skills/kelpie/SKILL.md",
 }
 ASSETS = {
-    "herdr-linux-x86_64",
-    "herdr-linux-aarch64",
-    "herdr-macos-x86_64",
-    "herdr-macos-aarch64",
-    "herdr-windows-x86_64.zip",
+    "kelpie-linux-x86_64",
+    "kelpie-linux-aarch64",
+    "kelpie-macos-x86_64",
+    "kelpie-macos-aarch64",
+    "kelpie-windows-x86_64.zip",
 }
 
 
@@ -74,9 +74,9 @@ def normalized_cargo(text: str, path: str) -> tuple[dict, str]:
     if path == "Cargo.toml":
         version = data["package"].pop("version")
     else:
-        packages = [p for p in data["package"] if p["name"] == "herdr" and "source" not in p]
+        packages = [p for p in data["package"] if p["name"] == "kelpie" and "source" not in p]
         if len(packages) != 1:
-            raise ValueError("expected exactly one local herdr package in Cargo.lock")
+            raise ValueError("expected exactly one local kelpie package in Cargo.lock")
         version = packages[0].pop("version")
     return data, version
 
@@ -90,7 +90,7 @@ def validate_diff(preview: str, candidate: str, version: str | None = None) -> N
             before, _ = normalized_cargo(git("show", f"{preview}:{path}"), path)
             after, _ = normalized_cargo(git("show", f"{candidate}:{path}"), path)
             if before != after:
-                raise ValueError(f"{path}: only the herdr package version may change")
+                raise ValueError(f"{path}: only the kelpie package version may change")
         elif path not in RELEASE_FILES and not (
             path.startswith("docs/next/website/src/content/docs/")
             and path.endswith((".md", ".mdx"))
@@ -174,16 +174,16 @@ def main() -> None:
     prepare = commands.add_parser("check-source")
     prepare.add_argument("--preview", required=True)
     prepare.add_argument("--commit", default="HEAD")
-    prepare.add_argument("--repo", default="herdrdev/herdr")
+    prepare.add_argument("--repo", default="kelpie.example/kelpie")
     check = commands.add_parser("check")
     check.add_argument("--preview", required=True)
     check.add_argument("--version", required=True)
     check.add_argument("--previous", required=True)
     check.add_argument("--commit", default="HEAD")
-    check.add_argument("--repo", default="herdrdev/herdr")
+    check.add_argument("--repo", default="kelpie.example/kelpie")
     tag = commands.add_parser("check-tag")
     tag.add_argument("--tag", required=True)
-    tag.add_argument("--repo", default="herdrdev/herdr")
+    tag.add_argument("--repo", default="kelpie.example/kelpie")
     tag.add_argument("--github-output", type=Path)
     preview = commands.add_parser("preview-source")
     preview.add_argument("--commit", default="HEAD")

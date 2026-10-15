@@ -222,7 +222,7 @@ pub(super) fn render_settings_overlay(
                 content,
                 "notification popups",
                 "choose where background popup notifications should appear",
-                &["off", "inside herdr", "via terminal", "via system"],
+                &["off", "inside kelpie", "via terminal", "via system"],
                 settings.selected,
                 palette,
                 &mut choice_hits,

@@ -2,7 +2,7 @@
 //!
 //! Three layers stay separate: (1) layout, the workspace leaves the sidebar; (2) processes,
 //! its pane processes end through the existing `workspace.close`; (3) history, agent sessions
-//! are not deleted by herdr and stay resumable from the agent. Nothing closes automatically:
+//! are not deleted by kelpie and stay resumable from the agent. Nothing closes automatically:
 //! rows with running or unknown work start unticked and also need "also terminate".
 
 use super::sidebar_activity::{close_risks, format_idle, idle_bucket, workspace_idle_ms};
@@ -177,7 +177,7 @@ pub(super) fn workspace_close_audit_line(
 }
 
 fn emit_close_audit(line: &str) {
-    tracing::info!(target: "herdr::audit", "{line}");
+    tracing::info!(target: "kelpie::audit", "{line}");
 }
 
 impl ClientShellState {

@@ -1,85 +1,80 @@
-# herdr
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/kelpie-lockup-horizontal-dark.svg" />
+    <img src="assets/brand/kelpie-lockup-horizontal-light.svg" alt="Kelpie" width="400" />
+  </picture>
+</p>
 
+<p align="center"><b>Many agents. One calm shepherd's dog.</b></p>
 
 <p align="center">
-  <img src="assets/logo.png" alt="herdr" width="100" />
+  <a href="#安装">安装</a> · <a href="#功能">功能</a> · <a href="#开发">开发</a> · <a href="#致谢">致谢</a> · <a href="README.md">English</a> · 简体中文
 </p>
 
 <p align="center">
-  <a href="https://herdr.dev">herdr.dev</a> · <a href="#安装">安装</a> · <a href="https://herdr.dev/zh-cn/docs/quick-start/">快速开始</a> · <a href="https://herdr.dev/zh-cn/docs/">文档</a></p>
-
-<p align="center">
-  <a href="README.md">English</a> · 简体中文
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-d9a066?labelColor=1a1a24" alt="Apache 2.0 license" /></a>
+  <img src="https://img.shields.io/badge/Windows%2011-first--class-d9a066?labelColor=1a1a24" alt="First-class on Windows 11" />
+  <img src="https://img.shields.io/badge/built%20on-herdr-d9a066?labelColor=1a1a24" alt="Built on herdr" />
 </p>
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-666666?labelColor=333333" alt="Apache 2.0 license" /></a>
-  <a href="https://github.com/herdrdev/herdr/releases"><img src="https://img.shields.io/github/downloads/herdrdev/herdr/total?labelColor=333333&color=666666" alt="total GitHub release downloads" /></a>
-  <a href="https://github.com/herdrdev/herdr/stargazers"><img src="https://img.shields.io/github/stars/herdrdev/herdr?labelColor=333333&color=666666&logo=github" alt="GitHub stars" /></a>
-  <a href="https://github.com/herdrdev/herdr/releases/latest"><img src="https://img.shields.io/github/v/release/herdrdev/herdr?label=release&labelColor=333333&color=666666" alt="latest stable release" /></a>
-  <a href="https://formulae.brew.sh/formula/herdr"><img src="https://img.shields.io/homebrew/v/herdr?label=homebrew&labelColor=333333&color=666666" alt="Homebrew version" /></a>
-  <a href="https://x.com/herdrdev"><img src="https://img.shields.io/badge/follow-%40herdrdev-000000?logo=x&logoColor=white" alt="follow @herdrdev on X" /></a>
-</p>
+```
+▗▖ ▗▖
+▐▙▄▟▌     Kelpie
+███▘███▄  agent workspace
+███████▘  built on herdr
+▐██▌
+```
 
 ---
 
-https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
+Kelpie 是面向 AI 编程智能体(如 Claude Code、Codex、Cursor)的终端复用器和运行时。你可以并排运行十个或更多会话,每个会话保留各自原生的终端界面,背后是由服务器托管的运行时和本地 JSON API。监督智能体可以观察每个会话并推动它继续前进。最终决定权始终在人手里。在 Windows 11 和 PowerShell 7 上是一等公民,在 Linux 和 macOS 上同样好用。
 
-**智能体复用器，住在你的终端里。**
+## 功能
 
-- **每个智能体一目了然**——`blocked`、`working`、`done`。真实的终端视图，而不是包装过的转述。
-- **分离后工作继续运行**——关闭客户端或 SSH 断线后，后台服务器仍会保持终端运行。服务器或机器重启后，Herdr 会恢复已保存的布局，并可恢复受支持的智能体会话；原有进程不会保留。[会话状态 →](https://herdr.dev/zh-cn/docs/session-state/)
-- **多台机器，一个窗口**——将本地工作和已保存的 SSH 机器放在一起，使用汇总的智能体列表，各连接独立重连。[远程机器 →](https://herdr.dev/zh-cn/docs/connecting-machines/)
-- **智能体也能使用 herdr**——纯 socket api：智能体可以创建窗格、读取输出、互相等待。[智能体技能 →](https://herdr.dev/zh-cn/docs/agent-skill/) 在开发智能体？[为你的智能体添加 herdr 支持 →](https://herdr.dev/zh-cn/docs/add-herdr-support/)
-- **键盘和鼠标都是一等公民**——tmux 风格的前缀键，*以及*点击、拖动、分割。按当下的场景选择，而不是被工具锁死。
-- **插件**——扩展窗格和工作流。[浏览插件市场 →](https://herdr.dev/plugins/)
-- **单个 rust 二进制，没有 electron**——运行在你已经在用的任何终端里。
-
----
+- **断开连接,工作不停。** 关闭客户端或 SSH 断线后,终端仍在后台服务器中运行。重启后,Kelpie 会恢复保存的布局,并可恢复受支持的智能体会话。
+- **所有智能体一目了然。** 每个窗格都标记为工作中、等待中、空闲或完成。侧边栏显示空闲时长,标出过期的工作区,并用 `!!` 标出正在等你的那一个。
+- **先确认、再输入的监督者。** `kelpie agent watch` 输出所有智能体的有界视图。`kelpie agent submit`、`answer`、`interrupt`、`reset` 和 `resume` 只会写入干净的输入框,会避开你自己的按键,并留下可用 `kelpie agent submit-status` 查询的回执。
+- **智能体配置档。** 内置 Claude Code、Codex 和 Cursor:输入框形状、占位符样式、提交/中断/清除按键。Claude Code 还会通过其提示钩子确认送达。
+- **运行你已经在用的工具。** Claude Code、Codex、Cursor、OpenCode、Grok 等。Kelpie 不包装也不替换它们,只管理它们的终端。
+- **键盘和鼠标都是一等公民。** tmux 风格的前缀键(`ctrl+b`),也支持点击、拖拽、分屏。
+- **适合长时间使用的配色。** `midnight`、`dusk`、`ember`、`slate`、`forest` 和 `kelpie`,按 `ctrl+b t` 实时预览选择。
+- **主机信息。** `ctrl+b i` 显示机器、shell、GPU、Docker、WSL 以及智能体可用的命令行工具。
+- **单个 Rust 二进制文件,不用 Electron。** 在你现有的任何终端里运行。
 
 ## 安装
 
-```bash
-curl -fsSL https://herdr.dev/install.sh | sh
+Kelpie 还没有发布渠道,请从源码构建。在有发布渠道之前,自动更新是关闭的。
+
+需要:Rust(版本见 `rust-toolchain.toml`)和 Zig 0.16.0。
+
+```powershell
+git clone <kelpie repository>
+cd kelpie
+cargo build --release
+.\target\release\kelpie.exe
 ```
 
-或者 `brew install herdr` · `mise use -g herdr` · Windows：`powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"` · [受端点保护的 Windows](https://herdr.dev/zh-cn/docs/windows-beta/) · [二进制文件](https://github.com/herdrdev/herdr/releases)
+在 Linux 和 macOS 上,二进制文件是 `./target/release/kelpie`。
 
-然后在工作所在的目录启动它：
+Kelpie 使用自己的配置、状态和套接字,可以与已安装的 herdr 并存,互不影响。
 
-```bash
-herdr
-```
-
-运行你的智能体、分割窗格，然后安心离开。`ctrl+b q` 分离，`herdr` 重新连接。[快速开始 →](https://herdr.dev/zh-cn/docs/quick-start/)
-
-## 文档
-
-所有文档都在 [herdr.dev/docs](https://herdr.dev/zh-cn/docs/)：[快速开始](https://herdr.dev/zh-cn/docs/quick-start/) · [核心概念](https://herdr.dev/zh-cn/docs/concepts/) · [受支持的智能体](https://herdr.dev/zh-cn/docs/agents/) · [键盘](https://herdr.dev/zh-cn/docs/keyboard/) · [配置](https://herdr.dev/zh-cn/docs/configuration/) · [会话状态](https://herdr.dev/zh-cn/docs/session-state/) · [连接机器](https://herdr.dev/zh-cn/docs/connecting-machines/) · [远程访问](https://herdr.dev/zh-cn/docs/persistence-remote/) · [集成](https://herdr.dev/zh-cn/docs/integrations/) · [为智能体添加 herdr 支持](https://herdr.dev/zh-cn/docs/add-herdr-support/) · [插件](https://herdr.dev/zh-cn/docs/plugins/) · [socket api](https://herdr.dev/zh-cn/docs/socket-api/)
-
-## 致谢
-
-<a href="https://terminaltrove.com/"><img src="assets/sponsors/terminal-trove.png" alt="Terminal Trove" width="200" /></a>
-
-[Terminal Trove](https://terminaltrove.com/) 以及 [SPONSORS.md](./SPONSORS.md) 中列出的每一位支持者——谢谢 🐑
-
-企业/合作：hey@herdr.dev
-
-## 智能体须知
-
-如果你是协助本仓库的 AI 智能体：在改动代码前阅读 [`AGENTS.md`](./AGENTS.md)，在创建 issue 或 PR 前阅读 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+运行智能体、分屏,然后离开。`ctrl+b q` 断开,`kelpie` 重新连接。
 
 ## 开发
 
 ```bash
-git clone https://github.com/herdrdev/herdr
-cd herdr
-cargo build --release
-
 just test        # 单元测试
-just check       # 格式检查、测试和维护性检查
+just check       # 格式、测试和维护检查
 ```
+
+如果你是在本仓库中工作的 AI 智能体,修改前请阅读 [`AGENTS.md`](./AGENTS.md),提交 issue 或 PR 前请阅读 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+
+## 致谢
+
+Kelpie 是基于 [herdr](https://github.com/herdrdev/herdr) 的社区分支,herdr 由 Ogulcan Celik 及其贡献者开发。运行时、终端引擎、智能体检测以及 Kelpie 的大部分基础都来自 herdr。谢谢。
+
+herdr 过去的赞助者和支持者列在 [SPONSORS.md](./SPONSORS.md) 中。
 
 ## 许可证
 
-herdr 基于 [Apache License 2.0](LICENSE) 许可证发布。
+Kelpie 采用 [Apache License 2.0](LICENSE) 许可,与 herdr 相同。

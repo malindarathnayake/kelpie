@@ -376,7 +376,7 @@ mod tests {
         );
         let session = |seq: u64, id: &str, reason: &str| AppEvent::AgentSessionReported {
             pane_id,
-            source: "herdr:claude".into(),
+            source: "kelpie:claude".into(),
             agent_label: "claude".into(),
             seq: Some(seq),
             session_ref: crate::agent_resume::AgentSessionRef::id(id),

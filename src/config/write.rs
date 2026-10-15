@@ -41,7 +41,7 @@ impl ConfigEdit<'_> {
             Self::ToastDelivery(delivery) => {
                 let value = match delivery {
                     super::ToastDelivery::Off => "\"off\"",
-                    super::ToastDelivery::Herdr => "\"herdr\"",
+                    super::ToastDelivery::Kelpie => "\"kelpie\"",
                     super::ToastDelivery::Terminal => "\"terminal\"",
                     super::ToastDelivery::System => "\"system\"",
                 };
@@ -212,7 +212,7 @@ pub(crate) fn write_edit(edit: ConfigEdit<'_>) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    const COMMENTED_CONFIG: &str = r##"# my herdr config
+    const COMMENTED_CONFIG: &str = r##"# my kelpie config
 onboarding = false
 
 [theme]
@@ -229,7 +229,7 @@ sidebar_width = 30
 
     fn temp_config_dir(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "herdr-config-{label}-{}-{}",
+            "kelpie-config-{label}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -398,7 +398,7 @@ auto_switch = false
 
     #[test]
     fn update_file_at_writes_atomically_and_keeps_other_content() {
-        let dir = std::env::temp_dir().join(format!("herdr-config-theme-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kelpie-config-theme-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
@@ -426,7 +426,8 @@ auto_switch = false
 
     #[test]
     fn update_file_at_refuses_to_break_valid_toml() {
-        let dir = std::env::temp_dir().join(format!("herdr-config-invalid-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("kelpie-config-invalid-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
@@ -457,7 +458,7 @@ name = \"nord\"
 
     #[test]
     fn update_file_at_does_not_move_a_leading_bom_into_the_file() {
-        let dir = std::env::temp_dir().join(format!("herdr-config-bom-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kelpie-config-bom-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(

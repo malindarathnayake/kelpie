@@ -1,5 +1,5 @@
 ---
-title: Herdr documentation
+title: Kelpie documentation
 description: Terminal-native agent runtime and multiplexer.
 template: splash
 hero:
@@ -7,7 +7,7 @@ hero:
   image:
     file: ../../../public/assets/logo.svg
   actions:
-    - text: Install Herdr
+    - text: Install Kelpie
       link: /docs/install/
     - text: Quick start
       link: /docs/quick-start/
@@ -16,23 +16,23 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Herdr is a terminal-native agent runtime and multiplexer. It gives the whole herd persistent terminal workspaces with panes, tabs, mouse control, state awareness, and an API that agents can use themselves.
+Kelpie is a terminal-native agent runtime and multiplexer. It gives the whole herd persistent terminal workspaces with panes, tabs, mouse control, state awareness, and an API that agents can use themselves.
 
 ```bash
-curl -fsSL https://herdr.dev/install.sh | sh
-herdr
+curl -fsSL https://kelpie.example/install.sh | sh
+kelpie
 ```
 
 ## Core runtime
 
 <CardGrid>
   <Card title="Detach and reattach">
-    Herdr runs panes in a background session server, so agents keep running after the UI client detaches.
+    Kelpie runs panes in a background session server, so agents keep running after the UI client detaches.
 
     [Use persistence →](/docs/persistence-remote/)
   </Card>
   <Card title="Attach over SSH">
-    Run Herdr where the code and credentials live. Attach from any SSH client or use `herdr --remote` from your local terminal.
+    Run Kelpie where the code and credentials live. Attach from any SSH client or use `kelpie --remote` from your local terminal.
 
     [Use remote access →](/docs/persistence-remote/#remote-attach-over-ssh)
   </Card>
@@ -52,14 +52,14 @@ herdr
 
 <CardGrid>
   <Card title="Install">
-    Install Herdr on Linux or macOS, update it later, and verify the binary.
+    Install Kelpie on Linux or macOS, update it later, and verify the binary.
 
-    [Install Herdr →](/docs/install/)
+    [Install Kelpie →](/docs/install/)
   </Card>
   <Card title="Quick start">
     Create your first workspace, run agents in panes, split the layout, and detach safely.
 
-    [Start using Herdr →](/docs/quick-start/)
+    [Start using Kelpie →](/docs/quick-start/)
   </Card>
   <Card title="Concepts">
     Understand workspaces, tabs, panes, agents, sessions, modes, and state rollups.
@@ -79,7 +79,7 @@ herdr
   <Card title="Configuration">
     Configure keybindings, themes, sidebar behavior, notifications, scrollback, and advanced options.
 
-    [Configure Herdr →](/docs/configuration/)
+    [Configure Kelpie →](/docs/configuration/)
   </Card>
   <Card title="Integrations">
     Install agent integrations for Pi, Claude Code, Codex, and OpenCode.
@@ -87,17 +87,17 @@ herdr
     [Set up integrations →](/docs/integrations/)
   </Card>
   <Card title="CLI reference">
-    Use every Herdr command for sessions, workspaces, tabs, panes, agents, waits, and integrations.
+    Use every Kelpie command for sessions, workspaces, tabs, panes, agents, waits, and integrations.
 
     [Browse commands →](/docs/cli-reference/)
   </Card>
   <Card title="Socket API">
-    Control Herdr from scripts, tools, and agents through the local socket API.
+    Control Kelpie from scripts, tools, and agents through the local socket API.
 
     [Read the API guide →](/docs/socket-api/)
   </Card>
   <Card title="Agent skill">
-    Teach an agent running inside Herdr how to create panes, read output, and wait for neighboring agents.
+    Teach an agent running inside Kelpie how to create panes, read output, and wait for neighboring agents.
 
     [Use the skill →](/docs/agent-skill/)
   </Card>

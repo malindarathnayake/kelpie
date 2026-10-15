@@ -1,17 +1,17 @@
 ---
 title: エージェントスキルファイル
-description: Claude Code などのコーディングエージェントに Herdr の使い方をインストールします。
+description: Claude Code などのコーディングエージェントに Kelpie の使い方をインストールします。
 ---
 
-Herdr は再利用可能なエージェントスキルファイルを [`skills/herdr/SKILL.md`](https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md) として提供しています。
+Kelpie は再利用可能なエージェントスキルファイルを [`skills/kelpie/SKILL.md`](https://kelpie.example/source/blob/master/skills/kelpie/SKILL.md) として提供しています。
 
-このファイルを、再利用可能なスキルやカスタム指示に対応した任意のコーディングエージェントにインストールしてください。このスキルは、Herdr のペイン内から Herdr を制御する方法をエージェントに教えます。
+このファイルを、再利用可能なスキルやカスタム指示に対応した任意のコーディングエージェントにインストールしてください。このスキルは、Kelpie のペイン内から Kelpie を制御する方法をエージェントに教えます。
 
-Herdr は別の用途向けに [`herdr.dev/agent-guide.md`](https://herdr.dev/agent-guide.md) というガイドも提供しています。こちらは、人間が Herdr を学習・セットアップ・トラブルシューティングするのをエージェントが手伝うためのものです。スキルは Herdr を操作するエージェントのため、ガイドは人間に教えるエージェントのためのものです。
+Kelpie は別の用途向けに [`kelpie.example/agent-guide.md`](https://kelpie.example/agent-guide.md) というガイドも提供しています。こちらは、人間が Kelpie を学習・セットアップ・トラブルシューティングするのをエージェントが手伝うためのものです。スキルは Kelpie を操作するエージェントのため、ガイドは人間に教えるエージェントのためのものです。
 
 ## スキルがすること
 
-このスキルは、`HERDR_ENV=1` が設定されているときに `herdr` CLI を使うようエージェントに指示します。これは、エージェントが Herdr 管理下のペイン内で動作しており、ローカルの Herdr ソケットと安全に通信できることを意味します。
+このスキルは、`KELPIE_ENV=1` が設定されているときに `kelpie` CLI を使うようエージェントに指示します。これは、エージェントが Kelpie 管理下のペイン内で動作しており、ローカルの Kelpie ソケットと安全に通信できることを意味します。
 
 スキルをインストールすると、エージェントは次のことができます:
 
@@ -21,14 +21,14 @@ Herdr は別の用途向けに [`herdr.dev/agent-guide.md`](https://herdr.dev/ag
 - サーバー、テスト、別のエージェントの完了を待つ
 - 隣のペインでヘルパーエージェントを起動する
 
-このスキルは独立したアプリやサービスではありません。エージェント向けの markdown 指示ファイルです。Herdr がすでにインストールされている場合は、`herdr --skill` を実行すると、そのバイナリのリリースと一致する同梱コピーを表示できます。
+このスキルは独立したアプリやサービスではありません。エージェント向けの markdown 指示ファイルです。Kelpie がすでにインストールされている場合は、`kelpie --skill` を実行すると、そのバイナリのリリースと一致する同梱コピーを表示できます。
 
 ## インストールする
 
 `npx skills` でスキルをインストールします:
 
 ```bash
-npx skills add herdrdev/herdr --skill herdr -g
+npx skills add kelpie.example/kelpie --skill kelpie -g
 ```
 
 スキルがリポジトリのルートにあったときにインストールした場合は、`skills update` ではなく、この add コマンドを一度再実行してください。大きすぎる既存のコピーが置き換えられ、新しい場所が記録されます。
@@ -38,25 +38,25 @@ npx skills add herdrdev/herdr --skill herdr -g
 手動でのフォールバックおよび信頼できるソースとしては、リポジトリのコピーを使ってください:
 
 ```text
-https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md
+https://kelpie.example/source/blob/master/skills/kelpie/SKILL.md
 ```
 
-スキルシステムを持つエージェントには、このファイルを `herdr` という名前のスキルとしてインストールしてください。スキルシステムを持たないエージェントには、ファイルの内容をプロジェクト指示またはユーザー指示に貼り付けてください。
+スキルシステムを持つエージェントには、このファイルを `kelpie` という名前のスキルとしてインストールしてください。スキルシステムを持たないエージェントには、ファイルの内容をプロジェクト指示またはユーザー指示に貼り付けてください。
 
-インストール後、Herdr の中でエージェントを起動します:
+インストール後、Kelpie の中でエージェントを起動します:
 
 ```bash
-herdr
+kelpie
 claude
 ```
 
-他のコーディングエージェントを Herdr のペインで使っても構いません。重要なのは、エージェントのプロセスが Herdr 内で動作していて `HERDR_ENV=1` が利用できることです。
+他のコーディングエージェントを Kelpie のペインで使っても構いません。重要なのは、エージェントのプロセスが Kelpie 内で動作していて `KELPIE_ENV=1` が利用できることです。
 
 ## 安全ルール
 
-このスキルはひとつのガードレールから始まります: `HERDR_ENV=1` が設定されていない場合、エージェントは停止して、Herdr 管理下のペイン内で動作していないと伝えるべきです。
+このスキルはひとつのガードレールから始まります: `KELPIE_ENV=1` が設定されていない場合、エージェントは停止して、Kelpie 管理下のペイン内で動作していないと伝えるべきです。
 
-これにより、Herdr の外にいるエージェントが自分のものではないセッションを制御しようとするのを防ぎます。
+これにより、Kelpie の外にいるエージェントが自分のものではないセッションを制御しようとするのを防ぎます。
 
 ## エージェント向けリファレンス
 
@@ -64,4 +64,4 @@ claude
 
 ソースファイルはこちら:
 
-[GitHub で `SKILL.md` を開く →](https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md)
+[GitHub で `SKILL.md` を開く →](https://kelpie.example/source/blob/master/skills/kelpie/SKILL.md)

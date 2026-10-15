@@ -58,7 +58,7 @@ fn answer_host_facts_with(
     let request_id = request.id.clone();
     let reply_writer = writer.clone();
     let reply_in_flight = std::sync::Arc::clone(in_flight);
-    let spawned = crate::thread_spawn::spawn_named("herdr-host-facts-reply", move || {
+    let spawned = crate::thread_spawn::spawn_named("kelpie-host-facts-reply", move || {
         // Clears the flag even if `respond` panics, so the connection never stays busy.
         let guard = InFlightGuard(reply_in_flight);
         let response = respond(request.id, request.refresh);

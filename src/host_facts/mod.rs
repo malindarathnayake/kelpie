@@ -20,7 +20,7 @@ pub(crate) use collect::Collector;
 pub(crate) use probe::{HostProbes, SystemProbes};
 
 /// Env var naming the facts file inside pane processes.
-pub(crate) const HOST_FACTS_ENV_VAR: &str = "HERDR_HOST_FACTS";
+pub(crate) const HOST_FACTS_ENV_VAR: &str = "KELPIE_HOST_FACTS";
 pub(crate) const HOST_FACTS_FILE_NAME: &str = "host-facts.json";
 pub(crate) const DEFAULT_INTERVAL_SECS: u64 = 60;
 pub(crate) const MIN_INTERVAL_SECS: u64 = 30;
@@ -103,7 +103,7 @@ pub(crate) fn start(config: &crate::config::HostFactsConfig) -> Option<HostFacts
     shared.lock().stop = false;
     let state_dir = crate::config::state_dir();
     let worker_shared = Arc::clone(&shared);
-    let spawned = crate::thread_spawn::spawn_named("herdr-host-facts", move || {
+    let spawned = crate::thread_spawn::spawn_named("kelpie-host-facts", move || {
         run_worker(&worker_shared, &SystemProbes, interval, &state_dir);
     });
     match spawned {

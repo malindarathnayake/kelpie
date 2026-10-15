@@ -11,11 +11,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-DEFAULT_LIVE_MANIFEST_URL = "https://herdr.dev/latest.json"
+DEFAULT_LIVE_MANIFEST_URL = "https://kelpie.example/latest.json"
 
 SECTION_RE = re.compile(r"^##\s+(?:\[(?P<bracketed>[^\]]+)\]|(?P<plain>.+?))\s*$", re.MULTILINE)
 VERSION_WITH_DATE_RE = re.compile(r"^(?P<version>.+?)\s+-\s+\d{4}-\d{2}-\d{2}$")
-DEFAULT_RELEASE_REPO = "herdrdev/herdr"
+DEFAULT_RELEASE_REPO = "kelpie.example/kelpie"
 DEFAULT_LATEST_JSON_PATH = Path("distribution/latest.json")
 DEFAULT_PRODUCT_ANNOUNCEMENT_PATH = Path("docs/next/product-announcement.json")
 PROTOCOL_SOURCE_PATH = Path("src/protocol/wire.rs")
@@ -28,8 +28,8 @@ CORE_ASSET_TARGETS = (
 )
 ASSET_TARGETS = (*CORE_ASSET_TARGETS, "windows-x86_64")
 EXPECTED_ASSET_NAMES = {
-    **{target: f"herdr-{target}" for target in CORE_ASSET_TARGETS},
-    "windows-x86_64": "herdr-windows-x86_64.zip",
+    **{target: f"kelpie-{target}" for target in CORE_ASSET_TARGETS},
+    "windows-x86_64": "kelpie-windows-x86_64.zip",
 }
 
 

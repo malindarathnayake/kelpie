@@ -28,7 +28,7 @@ pub struct HostFacts {
     pub os: HostOsFacts,
     /// Total physical memory bucket.
     pub memory: HostBucketFact,
-    /// Free space bucket of the volume holding the herdr state directory.
+    /// Free space bucket of the volume holding the kelpie state directory.
     pub disk: HostBucketFact,
     pub shells: HostShellFacts,
     pub git: HostGitFacts,
@@ -52,7 +52,7 @@ pub struct HostOsFacts {
     pub build: Option<String>,
     /// Native machine architecture (`x86_64`, `aarch64`, `x86`).
     pub arch: String,
-    /// Architecture of the herdr binary; differs from `arch` under emulation.
+    /// Architecture of the kelpie binary; differs from `arch` under emulation.
     pub process_arch: String,
     pub checked_at_ms: u64,
 }

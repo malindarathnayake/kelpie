@@ -47,7 +47,7 @@ pub fn run_server() -> io::Result<()> {
     ) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-            eprintln!("error: herdr server is already running");
+            eprintln!("error: kelpie server is already running");
             eprintln!("api socket: {}", api::socket_path().display());
             std::process::exit(1);
         }
@@ -80,7 +80,7 @@ pub fn run_server() -> io::Result<()> {
         ) {
             Ok(server) => server,
             Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-                eprintln!("error: herdr server is already running");
+                eprintln!("error: kelpie server is already running");
                 eprintln!("client socket: {}", client_socket_path().display());
                 std::process::exit(1);
             }
@@ -90,7 +90,7 @@ pub fn run_server() -> io::Result<()> {
         info!(
             api_socket = %api::socket_path().display(),
             client_socket = %client_socket_path().display(),
-            "herdr server started"
+            "kelpie server started"
         );
         print_ready_message(&api::socket_path(), &client_socket_path());
         server.app.run_plugin_startup_hooks();
@@ -172,7 +172,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
             &mut imports,
         )?;
         crate::server::handoff::report_restored(&mut received.stream)?;
-        if std::env::var("HERDR_TEST_HANDOFF_IMPORT_FAIL").as_deref() == Ok("after_restored") {
+        if std::env::var("KELPIE_TEST_HANDOFF_IMPORT_FAIL").as_deref() == Ok("after_restored") {
             return Err(io::Error::other(
                 "test handoff import failure after restored",
             ));
@@ -224,15 +224,15 @@ fn run_handoff_import_server(_socket_path: &Path, _token: &str) -> io::Result<()
 
 fn print_ready_message(api_socket: &Path, client_socket: &Path) {
     let message = format!(
-        "herdr server running; you can use any herdr CLI command in another terminal.\n\
+        "kelpie server running; you can use any kelpie CLI command in another terminal.\n\
          api socket: {}\n\
          client socket: {}\n\
          logs: {}\n\
-         did you mean to open the Herdr TUI? run `herdr`; you do not need `herdr server`.\n",
+         did you mean to open the Kelpie TUI? run `kelpie`; you do not need `kelpie server`.\n",
         api_socket.display(),
         client_socket.display(),
         crate::session::data_dir()
-            .join("herdr-server.log")
+            .join("kelpie-server.log")
             .display()
     );
     // The launching terminal may already be gone; the server keeps running.
@@ -241,5 +241,5 @@ fn print_ready_message(api_socket: &Path, client_socket: &Path) {
 
 /// Initialize logging for the server process.
 fn init_logging() {
-    crate::logging::init_file_logging("herdr-server.log");
+    crate::logging::init_file_logging("kelpie-server.log");
 }

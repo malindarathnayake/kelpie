@@ -1,4 +1,4 @@
-//! `herdr theme list` / `herdr theme set <name>`: list built-in themes and persist
+//! `kelpie theme list` / `kelpie theme set <name>`: list built-in themes and persist
 //! `theme.name` in the local config, then ask a running server to reload config.
 
 use crate::api::schema::{EmptyParams, Method, Request};
@@ -58,7 +58,7 @@ fn theme_list_text(theme: &crate::config::ThemeConfig) -> String {
 /// Validates a theme argument and returns its canonical built-in name.
 fn parse_theme_set_args(args: &[String]) -> Result<&'static str, String> {
     let [name] = args else {
-        return Err("usage: herdr theme set <name>".into());
+        return Err("usage: kelpie theme set <name>".into());
     };
     crate::config::canonical_theme_name(name).ok_or_else(|| {
         format!(
@@ -109,9 +109,9 @@ fn theme_set(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_theme_help() {
-    eprintln!("herdr theme commands:");
-    eprintln!("  herdr theme list          list built-in themes (* marks the current one)");
-    eprintln!("  herdr theme set <name>    save theme.name in config and reload a running server (aliases accepted)");
+    eprintln!("kelpie theme commands:");
+    eprintln!("  kelpie theme list          list built-in themes (* marks the current one)");
+    eprintln!("  kelpie theme set <name>    save theme.name in config and reload a running server (aliases accepted)");
 }
 
 #[cfg(test)]

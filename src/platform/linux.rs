@@ -30,7 +30,7 @@ mod shutdown;
 pub(crate) use shutdown::monitor_host_shutdown;
 
 const WSL_MARKER_ENV_VARS: &[&str] = &["WSL_DISTRO_NAME", "WSL_INTEROP"];
-const PROCESS_DETECTION_ENV_VAR: &str = "HERDR_PROCESS_DETECTION";
+const PROCESS_DETECTION_ENV_VAR: &str = "KELPIE_PROCESS_DETECTION";
 const CHILD_GROUPS_SCAN_LIMIT: usize = 64;
 /// Upper bound on the number of processes visited while resolving a pane's
 /// foreground process-group tree. Foreground-job detection reads /proc/<pid>/stat
@@ -782,7 +782,7 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
 
-/// Read a Herdr agent identity hint from a process environment.
+/// Read a Kelpie agent identity hint from a process environment.
 pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
     if pid == 0 {
         return None;
@@ -981,7 +981,7 @@ fn show_desktop_notification_with_command(
     }
 
     let mut cmd = command("notify-send");
-    cmd.arg("--app-name").arg("Herdr").arg("--").arg(title);
+    cmd.arg("--app-name").arg("Kelpie").arg("--").arg(title);
     if let Some(body) = body.filter(|body| !body.is_empty()) {
         cmd.arg(body);
     }
@@ -1202,7 +1202,7 @@ fn detach_clipboard_owner(child: std::process::Child) -> bool {
     let child = std::sync::Arc::new(std::sync::Mutex::new(child));
     let reaper_child = std::sync::Arc::clone(&child);
     let reaper = std::thread::Builder::new()
-        .name("herdr-wl-copy-reaper".to_string())
+        .name("kelpie-wl-copy-reaper".to_string())
         .spawn(move || {
             let wait_result = match reaper_child.lock() {
                 Ok(mut child) => child.wait(),
@@ -1785,9 +1785,9 @@ mod tests {
                         Some(path) => std::env::set_var("PATH", path),
                         None => std::env::remove_var("PATH"),
                     }
-                    std::env::remove_var("HERDR_TEST_WL_COPY_MARKER");
-                    std::env::remove_var("HERDR_TEST_WL_COPY_PAYLOAD");
-                    std::env::remove_var("HERDR_TEST_WL_COPY_ARGS");
+                    std::env::remove_var("KELPIE_TEST_WL_COPY_MARKER");
+                    std::env::remove_var("KELPIE_TEST_WL_COPY_PAYLOAD");
+                    std::env::remove_var("KELPIE_TEST_WL_COPY_ARGS");
                 }
                 let _ = std::fs::remove_dir_all(&self.temp_dir);
             }
@@ -1799,7 +1799,7 @@ mod tests {
             .expect("system time should follow unix epoch")
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
-            "herdr-fake-wl-copy-{}-{unique}",
+            "kelpie-fake-wl-copy-{}-{unique}",
             std::process::id()
         ));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
@@ -1814,7 +1814,7 @@ mod tests {
         let args = temp_dir.join("args");
         std::fs::write(
             &fake_wl_copy,
-            "#!/bin/sh\ncat > \"$HERDR_TEST_WL_COPY_PAYLOAD\"\nprintf '%s\\n' \"$@\" > \"$HERDR_TEST_WL_COPY_ARGS\"\nprintf '%s' \"$$\" > \"$HERDR_TEST_WL_COPY_MARKER\"\nexec sleep 30\n",
+            "#!/bin/sh\ncat > \"$KELPIE_TEST_WL_COPY_PAYLOAD\"\nprintf '%s\\n' \"$@\" > \"$KELPIE_TEST_WL_COPY_ARGS\"\nprintf '%s' \"$$\" > \"$KELPIE_TEST_WL_COPY_MARKER\"\nexec sleep 30\n",
         )
         .expect("fake wl-copy should be written");
         let mut permissions = std::fs::metadata(&fake_wl_copy)
@@ -1834,9 +1834,9 @@ mod tests {
         };
         unsafe {
             std::env::set_var("PATH", test_path);
-            std::env::set_var("HERDR_TEST_WL_COPY_MARKER", &marker);
-            std::env::set_var("HERDR_TEST_WL_COPY_PAYLOAD", &payload);
-            std::env::set_var("HERDR_TEST_WL_COPY_ARGS", &args);
+            std::env::set_var("KELPIE_TEST_WL_COPY_MARKER", &marker);
+            std::env::set_var("KELPIE_TEST_WL_COPY_PAYLOAD", &payload);
+            std::env::set_var("KELPIE_TEST_WL_COPY_ARGS", &args);
         }
 
         let (result_tx, result_rx) = mpsc::channel();
@@ -1916,7 +1916,7 @@ mod tests {
                         Some(value) => std::env::set_var("DISPLAY", value),
                         None => std::env::remove_var("DISPLAY"),
                     }
-                    std::env::remove_var("HERDR_TEST_XCLIP_PAYLOAD");
+                    std::env::remove_var("KELPIE_TEST_XCLIP_PAYLOAD");
                 }
                 let _ = std::fs::remove_dir_all(&self.temp_dir);
             }
@@ -1928,7 +1928,7 @@ mod tests {
             .expect("system time should follow unix epoch")
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
-            "herdr-failed-wl-copy-{}-{unique}",
+            "kelpie-failed-wl-copy-{}-{unique}",
             std::process::id()
         ));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
@@ -1945,7 +1945,7 @@ mod tests {
             .expect("fake wl-copy should be written");
         std::fs::write(
             &fake_xclip,
-            "#!/bin/sh\n/bin/cat > \"$HERDR_TEST_XCLIP_PAYLOAD\"\n",
+            "#!/bin/sh\n/bin/cat > \"$KELPIE_TEST_XCLIP_PAYLOAD\"\n",
         )
         .expect("fake xclip should be written");
         for command in [&fake_wl_copy, &fake_xclip] {
@@ -1961,7 +1961,7 @@ mod tests {
             std::env::set_var("PATH", &temp_dir);
             std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
             std::env::set_var("DISPLAY", ":0");
-            std::env::set_var("HERDR_TEST_XCLIP_PAYLOAD", &payload);
+            std::env::set_var("KELPIE_TEST_XCLIP_PAYLOAD", &payload);
         }
 
         assert!(write_clipboard(b"clipboard fallback"));
@@ -2064,7 +2064,7 @@ mod tests {
     fn read_clipboard_image_rejects_xclip_text_served_for_image_target() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir =
-            std::env::temp_dir().join(format!("herdr-fake-xclip-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kelpie-fake-xclip-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let fake_xclip = temp_dir.join("xclip");
         std::fs::write(&fake_xclip, "#!/bin/sh\nprintf '# Tasks'\n")
@@ -2116,7 +2116,7 @@ mod tests {
     fn read_clipboard_image_rejects_wayland_xclip_fallback_text_for_image_target() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir =
-            std::env::temp_dir().join(format!("herdr-fake-wayland-xclip-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kelpie-fake-wayland-xclip-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let fake_wl_paste = temp_dir.join("wl-paste");
         let fake_xclip = temp_dir.join("xclip");
@@ -2243,14 +2243,14 @@ mod tests {
         }
 
         let path =
-            std::env::temp_dir().join(format!("herdr-notify-send-args-{}", std::process::id()));
-        let script = "printf '%s\\n' \"$@\" > \"$HERDR_NOTIFY_ARGS\"";
+            std::env::temp_dir().join(format!("kelpie-notify-send-args-{}", std::process::id()));
+        let script = "printf '%s\\n' \"$@\" > \"$KELPIE_NOTIFY_ARGS\"";
         let shown = show_desktop_notification_with_command("-danger", Some("body"), |_| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
                 .arg(script)
                 .arg("notify-send")
-                .env("HERDR_NOTIFY_ARGS", &path);
+                .env("KELPIE_NOTIFY_ARGS", &path);
             cmd
         })
         .expect("notification command should run");
@@ -2258,17 +2258,17 @@ mod tests {
         assert!(shown);
         let args = std::fs::read_to_string(&path).expect("args file");
         let _ = std::fs::remove_file(&path);
-        assert_eq!(args, "--app-name\nHerdr\n--\n-danger\nbody\n");
+        assert_eq!(args, "--app-name\nKelpie\n--\n-danger\nbody\n");
     }
 
     #[test]
     fn scrollback_editor_argv_preserves_unix_editor_shell_semantics() {
-        let path = std::path::Path::new("/tmp/herdr scrollback.txt");
+        let path = std::path::Path::new("/tmp/kelpie scrollback.txt");
         let argv = scrollback_editor_argv(path).unwrap();
 
         assert_eq!(argv[0], "/bin/sh");
         assert_eq!(argv[1], "-c");
         assert!(argv[2].contains("EDITOR:-vi"));
-        assert!(argv[2].contains("/tmp/herdr scrollback.txt"));
+        assert!(argv[2].contains("/tmp/kelpie scrollback.txt"));
     }
 }

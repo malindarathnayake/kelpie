@@ -1,16 +1,17 @@
 #!/bin/sh
 set -eu
 
-BIN="herdr"
-MANIFEST_URL="https://herdr.dev/latest.json"
-INSTALL_DIR="${HERDR_INSTALL_DIR:-$HOME/.local/bin}"
+BIN="kelpie"
+MANIFEST_URL="https://kelpie.example/latest.json"
+INSTALL_DIR="${KELPIE_INSTALL_DIR:-$HOME/.local/bin}"
 
 main() {
     echo ""
-    echo "      ,ww"
-    echo "     wWWWWWWW_)  herdr installer"
-    echo "     \`WWWWWW'    herdr.dev"
-    echo "      II  II"
+    echo "▗▖ ▗▖"
+    echo "▐▙▄▟▌     Kelpie"
+    echo "███▘███▄  installer"
+    echo "███████▘  built on herdr"
+    echo "▐██▌"
     echo ""
 
     # detect platform
@@ -22,7 +23,7 @@ main() {
     esac
 
     if [ "$OS" = "Linux" ] && [ "$(uname -o 2>/dev/null || true)" = "Android" ]; then
-        err "Android/Termux is not currently supported by Herdr release binaries. SSH to a supported host instead: https://herdr.dev/docs/how-to-work/#work-from-your-phone"
+        err "Android/Termux is not currently supported by Kelpie release binaries. SSH to a supported host instead: https://kelpie.example/docs/how-to-work/#work-from-your-phone"
     fi
 
     ARCH="$(uname -m)"
@@ -38,12 +39,12 @@ main() {
     need curl
     need awk
 
-    # use the same manifest as `herdr update` so installs and updates agree
+    # use the same manifest as `kelpie update` so installs and updates agree
     # on the public latest release.
     TARGET="${os}-${arch}"
     log "fetching latest release manifest..."
     MANIFEST="$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 20 "$MANIFEST_URL")" \
-        || err "can't reach ${MANIFEST_URL}. Please try again later; herdr.dev might be down. Who let the sheeps out? baaa."
+        || err "can't reach ${MANIFEST_URL}. Kelpie has no release feed yet; build it from source instead."
     URL="$(printf '%s\n' "$MANIFEST" | awk -v target="\"${TARGET}\"" '
         /^[[:space:]]*"assets"[[:space:]]*:/ { in_assets = 1; next }
         in_assets && /^[[:space:]]*}/ { exit }
@@ -105,7 +106,7 @@ main() {
         openssl)   ACTUAL_SHA256="$(openssl dgst -sha256 < "${TMP}/${BIN}" | awk '{ print $NF }')" ;;
     esac
     if [ "$ACTUAL_SHA256" != "$SHA256" ]; then
-        err "downloaded Herdr checksum did not match"
+        err "downloaded Kelpie checksum did not match"
     fi
 
     # install
@@ -131,7 +132,7 @@ main() {
     # verify
     if command -v "$BIN" >/dev/null 2>&1; then
         echo ""
-        log "ready. run 'herdr' to get started."
+        log "ready. run 'kelpie' to get started."
     fi
 
     echo ""
@@ -143,7 +144,7 @@ err()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 need() {
     if ! command -v "$1" >/dev/null 2>&1; then
-        err "requires '$1' — install it first, or download a binary manually from https://herdr.dev/docs/install/"
+        err "requires '$1' — install it first, or download a binary manually from https://kelpie.example/docs/install/"
     fi
 }
 

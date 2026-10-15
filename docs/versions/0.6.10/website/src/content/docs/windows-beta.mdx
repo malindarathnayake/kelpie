@@ -5,19 +5,19 @@ description: Native Windows support status, supported workflows, and known limit
 
 Native Windows support is experimental beta.
 
-Herdr on Windows uses ConPTY and Windows process/runtime behavior instead of the Unix PTY model Herdr was originally built around. Some Herdr features map cleanly to Windows, and some do not. This preview is not a commitment that every Linux/macOS feature will become fully supported on Windows.
+Kelpie on Windows uses ConPTY and Windows process/runtime behavior instead of the Unix PTY model Kelpie was originally built around. Some Kelpie features map cleanly to Windows, and some do not. This preview is not a commitment that every Linux/macOS feature will become fully supported on Windows.
 
-The goal of the beta is to learn from real use: install success, pane reliability, agent workflows, bug volume, missing features, and whether Windows users are getting enough value from Herdr. Based on that feedback, Windows support may graduate to stable, stay preview-only while it matures, or be reduced if the maintenance cost is not justified.
+The goal of the beta is to learn from real use: install success, pane reliability, agent workflows, bug volume, missing features, and whether Windows users are getting enough value from Kelpie. Based on that feedback, Windows support may graduate to stable, stay preview-only while it matures, or be reduced if the maintenance cost is not justified.
 
 Install native Windows beta builds with PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://kelpie.example/install.ps1 | iex"
 ```
 
-Windows beta builds ship only through the preview channel. The Windows installer defaults to preview, writes `channel = "preview"` to Herdr's config, stores releases under `%USERPROFILE%\.herdr\packages\standalone\releases`, points `%LOCALAPPDATA%\Programs\Herdr\bin` at the current release, and keeps a small number of older releases so running processes do not block updates.
+Windows beta builds ship only through the preview channel. The Windows installer defaults to preview, writes `channel = "preview"` to Kelpie's config, stores releases under `%USERPROFILE%\.kelpie\packages\standalone\releases`, points `%LOCALAPPDATA%\Programs\Kelpie\bin` at the current release, and keeps a small number of older releases so running processes do not block updates.
 
-For internal beta testing, `HERDR_MANIFEST_URL` can point the installer at a custom manifest instead of Herdr's stable or preview manifest.
+For internal beta testing, `KELPIE_MANIFEST_URL` can point the installer at a custom manifest instead of Kelpie's stable or preview manifest.
 
 ## Supported in beta
 
@@ -48,24 +48,24 @@ Windows agent process detection scans descendants of the pane shell and recogniz
 | CJK hidden-cursor reveal | beta |
 | Kitty graphics rendering | unverified |
 
-Herdr can launch panes in the right directory and can create the initial workspace from the directory where you started Herdr. PowerShell directory changes after startup are different: the process field Herdr can inspect does not reliably track later logical `cd` changes. Use Herdr integrations or prompt shell integration for live cwd reporting.
+Kelpie can launch panes in the right directory and can create the initial workspace from the directory where you started Kelpie. PowerShell directory changes after startup are different: the process field Kelpie can inspect does not reliably track later logical `cd` changes. Use Kelpie integrations or prompt shell integration for live cwd reporting.
 
-Windows Terminal may support image paste paths for specific agents, but Herdr's own clipboard-image reader is not wired on Windows yet. Treat `alt+v` image paste as unverified until the Windows clipboard bridge is implemented and tested. Remote clipboard image bridging is separate and remains tied to Unix/macOS `herdr --remote`.
+Windows Terminal may support image paste paths for specific agents, but Kelpie's own clipboard-image reader is not wired on Windows yet. Treat `alt+v` image paste as unverified until the Windows clipboard bridge is implemented and tested. Remote clipboard image bridging is separate and remains tied to Unix/macOS `kelpie --remote`.
 
 Kitty graphics remains experimental and is not claimed as Windows-supported yet. Leave `experimental.kitty_graphics = false` unless you are specifically testing image rendering in Windows Terminal.
 
 ## Copy and paste
 
-Herdr's pane text copy works on Windows beta. Drag-select text inside a pane to copy through Herdr.
+Kelpie's pane text copy works on Windows beta. Drag-select text inside a pane to copy through Kelpie.
 
-For paste, use `ctrl+shift+v` in Windows Terminal, or hold `shift` and right-click to use the outer terminal paste action instead of sending the click through Herdr.
+For paste, use `ctrl+shift+v` in Windows Terminal, or hold `shift` and right-click to use the outer terminal paste action instead of sending the click through Kelpie.
 
 ## Not supported on Windows beta
 
 | Capability | Status |
 | --- | --- |
 | Direct terminal attach | unsupported |
-| `herdr --remote` from the Windows binary | unsupported |
+| `kelpie --remote` from the Windows binary | unsupported |
 | Live server handoff | unsupported |
 | Unix file-descriptor handoff | unsupported |
 | Unix foreground process groups | unsupported |
@@ -73,25 +73,25 @@ For paste, use `ctrl+shift+v` in Windows Terminal, or hold `shift` and right-cli
 | Prefix input-source switching | unsupported |
 | Signed binary / SmartScreen avoidance | unsupported |
 
-For remote work from Windows, SSH into the server and run `herdr` there:
+For remote work from Windows, SSH into the server and run `kelpie` there:
 
 ```powershell
 ssh you@server
-herdr
+kelpie
 ```
 
-That mode runs Herdr on the remote host. Native Windows `herdr --remote` is not part of the beta.
+That mode runs Kelpie on the remote host. Native Windows `kelpie --remote` is not part of the beta.
 
-Windows updates run through the Windows installer and update the versioned install junction. Restart running Herdr sessions after updating. Live handoff is Unix-only.
+Windows updates run through the Windows installer and update the versioned install junction. Restart running Kelpie sessions after updating. Live handoff is Unix-only.
 
 ## Reporting Windows beta issues
 
 Include:
 
-- Herdr version.
+- Kelpie version.
 - Windows version.
 - Terminal app.
 - Shell, such as PowerShell or cmd.
-- Whether you used a named `HERDR_SESSION`.
-- Relevant Herdr logs.
+- Whether you used a named `KELPIE_SESSION`.
+- Relevant Kelpie logs.
 - Exact steps to reproduce.

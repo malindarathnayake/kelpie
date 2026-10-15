@@ -25,7 +25,7 @@ use super::{shell, ClientError};
 /// Time to wait for the server's Welcome reply during the handshake.
 ///
 /// A local client talks to an already-connected server, so 5s is plenty. The
-/// remote bridge client (`herdr --remote`) sits behind a fresh per-attach ssh
+/// remote bridge client (`kelpie --remote`) sits behind a fresh per-attach ssh
 /// connection whose cold-connect (TCP + key exchange + auth) happens inside this
 /// window; on a high-latency link that easily exceeds 5s, so it gets a far
 /// larger budget. See issue #753.
@@ -170,7 +170,7 @@ pub(super) struct HandshakePixelCapabilities {
 ///
 /// Direct terminal clients retain the same-install private protocol. Client-owned
 /// shells use the stable endpoint generation and negotiate whole codecs without
-/// comparing Herdr build versions. `local_transport` means the endpoint shares the
+/// comparing Kelpie build versions. `local_transport` means the endpoint shares the
 /// client's filesystem, not merely that its bridge exposes a local socket.
 pub(super) fn do_handshake(
     stream: &mut LocalStream,
@@ -255,7 +255,7 @@ pub(super) fn do_handshake(
             return Err(ClientError::Protocol(protocol::FramingError::Io(
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "server does not support the stable Herdr endpoint protocol; update this machine",
+                    "server does not support the stable Kelpie endpoint protocol; update this machine",
                 ),
             )));
         };

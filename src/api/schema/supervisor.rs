@@ -66,7 +66,7 @@ pub enum Background {
     Unknown,
 }
 
-/// Connection state between herdr and the agent.
+/// Connection state between kelpie and the agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Connection {
@@ -349,7 +349,7 @@ pub struct AgentSubmitStatusParams {
 pub enum SubmitState {
     /// Reserved; the write is queued or in progress.
     Accepted,
-    /// Text and Enter were written to the pane. Terminal for delivery: herdr never claims
+    /// Text and Enter were written to the pane. Terminal for delivery: kelpie never claims
     /// the agent started or acknowledged the turn (activity facts are reported separately).
     Written,
     /// Dropped by the write-boundary fence; zero bytes were written.

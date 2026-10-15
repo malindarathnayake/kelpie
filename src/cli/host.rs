@@ -1,4 +1,4 @@
-//! `herdr host facts [--json] [--refresh]`: print the host facts the server's
+//! `kelpie host facts [--json] [--refresh]`: print the host facts the server's
 //! worker wrote to `state_dir/host-facts.json`, or ask the server to refresh.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,7 +9,7 @@ use crate::api::schema::host::{
 };
 use crate::api::schema::{Method, Request};
 
-const USAGE: &str = "usage: herdr host facts [--json] [--refresh]";
+const USAGE: &str = "usage: kelpie host facts [--json] [--refresh]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FactsArgs {
@@ -85,7 +85,7 @@ fn host_facts(args: FactsArgs) -> std::io::Result<i32> {
             Ok(facts) => facts,
             Err(err) => {
                 eprintln!(
-                    "no host facts at {} ({err}); start the server (host facts are on by default) or run `herdr host facts --refresh`",
+                    "no host facts at {} ({err}); start the server (host facts are on by default) or run `kelpie host facts --refresh`",
                     path.display()
                 );
                 return Ok(1);
@@ -174,7 +174,7 @@ fn render_facts(facts: &HostFacts, now_ms: u64) -> String {
     }
     os_line.push_str(&format!(" ({}", os.arch));
     if os.process_arch != os.arch {
-        os_line.push_str(&format!(", herdr {}", os.process_arch));
+        os_line.push_str(&format!(", kelpie {}", os.process_arch));
     }
     os_line.push(')');
     let rows: Vec<(&str, String)> = vec![
@@ -296,10 +296,10 @@ fn render_facts(facts: &HostFacts, now_ms: u64) -> String {
 }
 
 fn print_host_help() {
-    eprintln!("herdr host commands:");
-    eprintln!("  herdr host facts             show host facts from the state directory file");
-    eprintln!("  herdr host facts --json      print them as JSON (ConvertFrom-Json friendly)");
-    eprintln!("  herdr host facts --refresh   ask the running server to refresh first");
+    eprintln!("kelpie host commands:");
+    eprintln!("  kelpie host facts             show host facts from the state directory file");
+    eprintln!("  kelpie host facts --json      print them as JSON (ConvertFrom-Json friendly)");
+    eprintln!("  kelpie host facts --refresh   ask the running server to refresh first");
 }
 
 #[cfg(test)]
@@ -396,7 +396,7 @@ mod tests {
         let text = render_facts(&facts, 52_000);
         assert!(text.starts_with("host facts (refreshed 42s ago, every 60s)\n"));
         assert!(
-            text.contains("os       Windows 11 24H2 build 26100.4061 (aarch64, herdr x86_64)\n")
+            text.contains("os       Windows 11 24H2 build 26100.4061 (aarch64, kelpie x86_64)\n")
         );
         assert!(text.contains("docker   not running\n"));
         assert!(text.contains("wsl      present: Ubuntu\n"));

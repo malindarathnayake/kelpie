@@ -81,11 +81,11 @@ const PASTED_CONTENT_OPEN: &str = "<pasted_content id=\"";
 const PASTED_CONTENT_CLOSE: &str = "</pasted_content id=\"";
 
 /// Text compared for a prompt-submit acknowledgement. Applied identically to the text
-/// herdr submits and to the `prompt` an agent's hook reports:
+/// kelpie submits and to the `prompt` an agent's hook reports:
 /// - CRLF and lone CR become LF;
 /// - surrounding whitespace (including trailing newlines) is trimmed;
 /// - a prompt that is exactly one `<pasted_content id="X">` … `</pasted_content id="X">`
-///   block (herdr's whole submission is one bracketed paste) is unwrapped and trimmed again.
+///   block (kelpie's whole submission is one bracketed paste) is unwrapped and trimmed again.
 pub fn prompt_ack_text(text: &str) -> String {
     let unified = text.replace("\r\n", "\n").replace('\r', "\n");
     let trimmed = unified.trim();

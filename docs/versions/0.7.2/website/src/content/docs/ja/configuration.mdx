@@ -1,33 +1,33 @@
 ---
 title: 設定
-description: Herdr のキーバインド、テーマ、サイドバーの挙動、通知、高度なオプションを設定します。
+description: Kelpie のキーバインド、テーマ、サイドバーの挙動、通知、高度なオプションを設定します。
 ---
 
-Herdr は設定ファイルなしで動作します。カスタムキー、テーマ、サイドバー設定、通知、高度な挙動が欲しくなったら追加してください。
+Kelpie は設定ファイルなしで動作します。カスタムキー、テーマ、サイドバー設定、通知、高度な挙動が欲しくなったら追加してください。
 
 ## 設定ファイル
 
-Herdr は次の場所から設定を読み込みます:
+Kelpie は次の場所から設定を読み込みます:
 
 ```text
-~/.config/herdr/config.toml
+~/.config/kelpie/config.toml
 ```
 
 完全なデフォルト設定を表示します:
 
 ```bash
-herdr --default-config
+kelpie --default-config
 ```
 
 完全な出発点が欲しい場合は、これを設定として保存してください:
 
 ```bash
-herdr --default-config > ~/.config/herdr/config.toml
+kelpie --default-config > ~/.config/kelpie/config.toml
 ```
 
-設定値が無効な場合、Herdr は安全なデフォルトにフォールバックし、起動時に警告を表示します。
+設定値が無効な場合、Kelpie は安全なデフォルトにフォールバックし、起動時に警告を表示します。
 
-`onboarding` が存在しないか true の場合、Herdr は初回セットアップを表示します。オンボーディングから先へ進むと `onboarding = false` が書き込まれ、設定のインテグレーションタブが開きます。セットアップ後にそのフローをスキップしたい場合に設定してください。
+`onboarding` が存在しないか true の場合、Kelpie は初回セットアップを表示します。オンボーディングから先へ進むと `onboarding = false` が書き込まれ、設定のインテグレーションタブが開きます。セットアップ後にそのフローをスキップしたい場合に設定してください。
 
 ```toml
 onboarding = false
@@ -44,34 +44,34 @@ version_check = true
 manifest_check = true
 ```
 
-`channel = "preview"` を設定すると、`herdr update` は現在の開発ブランチから手動公開されるプレビュービルドをインストールします。Homebrew、mise、Nix のインストールはプレビューチャンネルを無視し、それぞれのパッケージマネージャーでアップデートします。
+`channel = "preview"` を設定すると、`kelpie update` は現在の開発ブランチから手動公開されるプレビュービルドをインストールします。Homebrew、mise、Nix のインストールはプレビューチャンネルを無視し、それぞれのパッケージマネージャーでアップデートします。
 
-`version_check = false` を設定すると、新しい Herdr バージョンのバックグラウンドチェックを無効にします。手動の `herdr update` は引き続き設定済みチャンネルを使います。
+`version_check = false` を設定すると、新しい Kelpie バージョンのバックグラウンドチェックを無効にします。手動の `kelpie update` は引き続き設定済みチャンネルを使います。
 
-`manifest_check = false` を設定すると、リモートのエージェント検出マニフェストのバックグラウンドチェックを無効にします。Herdr はバンドルされたマニフェストとローカルオーバーライドを引き続き使います。
+`manifest_check = false` を設定すると、リモートのエージェント検出マニフェストのバックグラウンドチェックを無効にします。Kelpie はバンドルされたマニフェストとローカルオーバーライドを引き続き使います。
 
 ## 設定のリロード
 
 `config.toml` を編集した後、実行中のサーバーをリロードします:
 
 ```bash
-herdr server reload-config
+kelpie server reload-config
 ```
 
-Herdr のグローバルメニューを開いて `reload config` を選ぶこともできます。
+Kelpie のグローバルメニューを開いて `reload config` を選ぶこともできます。
 
 リロードは、ペインを再起動することなくほとんどの UI 設定を適用します。起動時のみの設定には引き続き再起動が必要です。
 
 ## ターミナルのデフォルト
 
-新しく作成される対話的ペインに Herdr が使う実行ファイルを設定します:
+新しく作成される対話的ペインに Kelpie が使う実行ファイルを設定します:
 
 ```toml
 [terminal]
 default_shell = "nu"
 ```
 
-未設定または空の場合、Herdr は `$SHELL`、次に `/bin/sh` を使います。これは実行ファイル名またはパスであり、シェルのコマンドラインではありません。既存のペインは再作成されるまで現在のシェルを保ちます。コマンドペインは引き続き `/bin/sh -c` を通して実行され、デタッチされたカスタムコマンドキーバインドは Herdr の既存の `/bin/sh -lc` 経路を使います。
+未設定または空の場合、Kelpie は `$SHELL`、次に `/bin/sh` を使います。これは実行ファイル名またはパスであり、シェルのコマンドラインではありません。既存のペインは再作成されるまで現在のシェルを保ちます。コマンドペインは引き続き `/bin/sh -c` を通して実行され、デタッチされたカスタムコマンドキーバインドは Kelpie の既存の `/bin/sh -lc` 経路を使います。
 
 新しく作成される対話的ペインのシェルの起動方法を設定します:
 
@@ -89,24 +89,24 @@ shell_mode = "auto"
 new_cwd = "follow"
 ```
 
-`new_cwd = "follow"` はデフォルトの挙動を保ち、元のペインまたはワークスペースを継承します。元のワークスペースがない場合、Herdr は `$HOME` で始めます。常に `$HOME` で始めるには `"home"` を、Herdr のプロセスディレクトリを使うには `"current"` を、または `"~/Projects"` のような固定パスを使ってください。CLI やソケット API からの明示的な `--cwd` 値は引き続き優先されます。
+`new_cwd = "follow"` はデフォルトの挙動を保ち、元のペインまたはワークスペースを継承します。元のワークスペースがない場合、Kelpie は `$HOME` で始めます。常に `$HOME` で始めるには `"home"` を、Kelpie のプロセスディレクトリを使うには `"current"` を、または `"~/Projects"` のような固定パスを使ってください。CLI やソケット API からの明示的な `--cwd` 値は引き続き優先されます。
 
 ## Worktree
 
-サイドバーから作成される Git worktree チェックアウトに Herdr が使うルートディレクトリを設定します:
+サイドバーから作成される Git worktree チェックアウトに Kelpie が使うルートディレクトリを設定します:
 
 ```toml
 [worktrees]
-directory = "~/.herdr/worktrees"
+directory = "~/.kelpie/worktrees"
 ```
 
-Herdr は `<directory>/<repo>/<branch-slug>` の下にチェックアウトを作成します。隣接ディレクトリ方式のチェックアウトにしたい場合は、`~/Projects/herdr-worktrees` のようなディレクトリを設定してください。相対値は、アプリが設定を適用する時点で絶対パスに解決されます。
+Kelpie は `<directory>/<repo>/<branch-slug>` の下にチェックアウトを作成します。隣接ディレクトリ方式のチェックアウトにしたい場合は、`~/Projects/kelpie-worktrees` のようなディレクトリを設定してください。相対値は、アプリが設定を適用する時点で絶対パスに解決されます。
 
-worktree アクションは Git ワークスペースの行から使えます。`New worktree` はチェックアウトを作成し、入力されたブランチが既存なら既存のローカルブランチをチェックアウトし、なければブランチを作成し、新しい Herdr ワークスペースとして開き、元のワークスペースの下にグループ化します。`Open worktree...` はそのリポジトリの既存の Git worktree チェックアウトを一覧します。すでに開いているチェックアウトを選ぶとフォーカスし、閉じているチェックアウトを選ぶと同じグループで開きます。
+worktree アクションは Git ワークスペースの行から使えます。`New worktree` はチェックアウトを作成し、入力されたブランチが既存なら既存のローカルブランチをチェックアウトし、なければブランチを作成し、新しい Kelpie ワークスペースとして開き、元のワークスペースの下にグループ化します。`Open worktree...` はそのリポジトリの既存の Git worktree チェックアウトを一覧します。すでに開いているチェックアウトを選ぶとフォーカスし、閉じているチェックアウトを選ぶと同じグループで開きます。
 
-グループ化された worktree も通常の Herdr ワークスペースと同じように振る舞います: フォーカス、名前変更、クローズができ、独自のタブとペインを持ちます。親の行は元のワークスペースです。親の行を閉じると Herdr のグループ全体が閉じますが、チェックアウトのフォルダーやブランチは削除されません。
+グループ化された worktree も通常の Kelpie ワークスペースと同じように振る舞います: フォーカス、名前変更、クローズができ、独自のタブとペインを持ちます。親の行は元のワークスペースです。親の行を閉じると Kelpie のグループ全体が閉じますが、チェックアウトのフォルダーやブランチは削除されません。
 
-worktree チェックアウトの削除は明示的です。グループ化された子ワークスペースで `Delete worktree checkout...` を使うと `git worktree remove` が実行されます。Herdr はまず Git に安全な削除を依頼します。チェックアウトに変更済みまたは未追跡のファイルがあって Git が拒否した場合、Herdr は強制削除を実行する前にもう一度確認します。ブランチは削除されません。
+worktree チェックアウトの削除は明示的です。グループ化された子ワークスペースで `Delete worktree checkout...` を使うと `git worktree remove` が実行されます。Kelpie はまず Git に安全な削除を依頼します。チェックアウトに変更済みまたは未追跡のファイルがあって Git が拒否した場合、Kelpie は強制削除を実行する前にもう一度確認します。ブランチは削除されません。
 
 ## リモートアタッチ
 
@@ -117,13 +117,13 @@ worktree チェックアウトの削除は明示的です。グループ化さ�
 manage_ssh_config = true
 ```
 
-有効な場合、`herdr --remote` はあなたの `~/.ssh/config` と `/etc/ssh/ssh_config` を最初に include し、その後にフォールバックの `ServerAliveInterval` と `ServerAliveCountMax` の値を加えたプライベートな一時 SSH 設定を書き込みます。あなた自身の SSH キープアライブ設定が優先されます。Herdr が生成する設定を使わず素の `ssh` でブリッジを実行するには `manage_ssh_config = false` を設定してください。
+有効な場合、`kelpie --remote` はあなたの `~/.ssh/config` と `/etc/ssh/ssh_config` を最初に include し、その後にフォールバックの `ServerAliveInterval` と `ServerAliveCountMax` の値を加えたプライベートな一時 SSH 設定を書き込みます。あなた自身の SSH キープアライブ設定が優先されます。Kelpie が生成する設定を使わず素の `ssh` でブリッジを実行するには `manage_ssh_config = false` を設定してください。
 
 ## キーバインド
 
 プレフィックスの導入ガイドと検証済みのプレフィックスなし構成については、[キーボード](/ja/docs/keyboard/)を参照してください。
 
-Herdr には tmux に似たプレフィックスモードがあります。デフォルトのプレフィックスは `ctrl+b` です。キーバインド文字列は明示的です: `prefix+n` は設定されたプレフィックスを押してから `n` を押すという意味で、`ctrl+alt+n` はターミナルモードの直接ショートカットです。
+Kelpie には tmux に似たプレフィックスモードがあります。デフォルトのプレフィックスは `ctrl+b` です。キーバインド文字列は明示的です: `prefix+n` は設定されたプレフィックスを押してから `n` を押すという意味で、`ctrl+alt+n` はターミナルモードの直接ショートカットです。
 
 小さなキーバインドの上書きは次のようになります:
 
@@ -198,11 +198,11 @@ next_tab = ["prefix+n", "ctrl+alt+]"]
 
 `last_pane` はワークスペースとタブをまたいで最後にフォーカスしていたペインに戻ります。tmux スタイルのペインバインド `prefix+l` がすでに右のペインへのフォーカスに使われているため、デフォルトでは未設定です。
 
-`remote_image_paste` は `herdr --remote` でのみ有効です。ローカルのクリップボード画像をリモートのペインに送るローカルクライアント側のショートカットです。空文字列に設定すると生キーのショートカットを無効にできます。外側のターミナルが送る paste-image シグナルは引き続き機能します。
+`remote_image_paste` は `kelpie --remote` でのみ有効です。ローカルのクリップボード画像をリモートのペインに送るローカルクライアント側のショートカットです。空文字列に設定すると生キーのショートカットを無効にできます。外側のターミナルが送る paste-image シグナルは引き続き機能します。
 
 キー文字列には、通常のキー、`ctrl+a`、`shift+n`、`alt+1`、`cmd+k` のような修飾キーの組み合わせ、`enter`、`tab`、`esc`、`left`、`right`、`up`、`down` のような特殊キーが使えます。`minus`、`comma`、`ampersand`、`plus`、`backtick` のような名前付き記号も受け付けます。`n` のような通常の印字可能キーの直接バインドはタイピングを妨げるため危険です。意図的に直接バインドしたいのでなければ `prefix+n` を使ってください。`navigate_workspace_*` と `navigate_pane_*` のフィールドはナビゲートモード専用で、`j` や `k` のような通常のキーを使えます。これらには `prefix+`、`esc`、`enter`、`tab`、`shift+tab`、`left`、`right`、修飾なしの `1` から `9` は使えません。左右の矢印キーは、左ペイン/右ペインナビゲーションの恒久的なエイリアスです。これらのナビゲートモードショートカットは `focus_pane_down = "prefix+j"` のような一般アクションバインドから独立しています。両方が同じキーを使う場合、ナビゲートモードが開いている間はナビゲートモードのショートカットが優先されます。Alt、Cmd/Super、修飾キー付き記号はターミナルと tmux の設定に依存します。
 
-古いカスタムキーバインドを持っていて新しいデフォルトが欲しい場合は、`herdr config reset-keys` を実行してください。Herdr は `config.toml` をバックアップし、`[keys]` と `[[keys.command]]` を削除し、再起動または `herdr server reload-config` の後に組み込みの v2 デフォルトを使います。
+古いカスタムキーバインドを持っていて新しいデフォルトが欲しい場合は、`kelpie config reset-keys` を実行してください。Kelpie は `config.toml` をバックアップし、`[keys]` と `[[keys.command]]` を削除し、再起動または `kelpie server reload-config` の後に組み込みの v2 デフォルトを使います。
 
 ## インデックス付きジャンプ
 
@@ -245,7 +245,7 @@ description = "apply layout"
 
 任意で `description` を指定できます。指定すると、キーバインドヘルプパネル (`prefix+?` で開く) にデフォルトの `'custom command'` ラベルの代わりに表示されます。
 
-カスタムコマンドは、利用可能な場合に `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID`、`HERDR_ACTIVE_PANE_CWD` を受け取ります。シェルコマンドは、Herdr が検出できる場合、フォーカス中のペインの作業ディレクトリから実行されます。
+カスタムコマンドは、利用可能な場合に `KELPIE_SOCKET_PATH`、`KELPIE_BIN_PATH`、`KELPIE_ACTIVE_WORKSPACE_ID`、`KELPIE_ACTIVE_TAB_ID`、`KELPIE_ACTIVE_PANE_ID`、`KELPIE_ACTIVE_PANE_CWD` を受け取ります。シェルコマンドは、Kelpie が検出できる場合、フォーカス中のペインの作業ディレクトリから実行されます。
 
 ## テーマ
 
@@ -260,9 +260,9 @@ name = "catppuccin"
 
 `catppuccin`、`catppuccin-latte`、`terminal`、`tokyo-night`、`tokyo-night-day`、`dracula`、`nord`、`gruvbox`、`gruvbox-light`、`one-dark`、`one-light`、`solarized`、`solarized-light`、`kanagawa`、`kanagawa-lotus`、`rose-pine`、`rose-pine-dawn`、`vesper`。
 
-Herdr の UI 色をホストターミナルの ANSI パレットに従わせたいときは `terminal` を使ってください。
+Kelpie の UI 色をホストターミナルの ANSI パレットに従わせたいときは `terminal` を使ってください。
 
-ホストターミナルがライト/ダークの外観変更を報告したときに Herdr が自分の UI テーマを切り替えるようにするには、テーマの自動切り替えを有効にします:
+ホストターミナルがライト/ダークの外観変更を報告したときに Kelpie が自分の UI テーマを切り替えるようにするには、テーマの自動切り替えを有効にします:
 
 ```toml
 [theme]
@@ -272,7 +272,7 @@ light_name = "catppuccin-latte"
 dark_name = "catppuccin"
 ```
 
-`auto_switch` のデフォルトは `false` なので、既存のテーマ設定は手動の挙動を保ちます。`light_name` または `dark_name` を省略すると、Herdr は設定された `name` に対応する組み込みの姉妹テーマが存在すればそれを使います (例: `tokyo-night`/`tokyo-night-day`、`gruvbox`/`gruvbox-light`)。設定画面での手動のテーマ選択は `auto_switch` を無効にします。
+`auto_switch` のデフォルトは `false` なので、既存のテーマ設定は手動の挙動を保ちます。`light_name` または `dark_name` を省略すると、Kelpie は設定された `name` に対応する組み込みの姉妹テーマが存在すればそれを使います (例: `tokyo-night`/`tokyo-night-day`、`gruvbox`/`gruvbox-light`)。設定画面での手動のテーマ選択は `auto_switch` を無効にします。
 
 個々の色を上書きできます:
 
@@ -290,7 +290,7 @@ yellow = "#f9e2af"
 
 ## UI とサイドバー
 
-サイドバーは Herdr のメインダッシュボードです。ワークスペース、タブ、ペイン、エージェントの状態を表示します。
+サイドバーは Kelpie のメインダッシュボードです。ワークスペース、タブ、ペイン、エージェントの状態を表示します。
 
 主なオプション:
 
@@ -315,17 +315,17 @@ accent = "cyan"
 
 `sidebar_min_width` と `sidebar_max_width` は、展開されたサイドバーのリサイズ範囲を桁数で制御します。デフォルトは 18 と 36 です。
 
-`mobile_width_threshold` は、Herdr がモバイル向けの単一カラムレイアウトを使うターミナル幅の閾値を制御します。デフォルトは 64 桁です。折りたたみ端末、タブレット、幅の広いスマートフォンターミナルでは増やしてください。
+`mobile_width_threshold` は、Kelpie がモバイル向けの単一カラムレイアウトを使うターミナル幅の閾値を制御します。デフォルトは 64 桁です。折りたたみ端末、タブレット、幅の広いスマートフォンターミナルでは増やしてください。
 
 エージェントパネルはすべてのスペースをまたいですべてのエージェントを表示します。`agent_panel_sort` には `spaces` または `priority` を指定できます。`workspaces` は `spaces` のエイリアスとして受け付けられます。デフォルトは `spaces` で、エージェントをスペース順にグループ化したまま保ちます。`priority` は注意の優先度順に並べます: blocked、done、working、idle、そして unknown です。同じステータス内では、最近状態が変わったエージェントが先に表示されます。
 
 `confirm_close` はワークスペースを閉じるときに確認を求めるかどうかを制御します。`prompt_new_tab_name` は新しいタブで先にラベルを尋ねるかどうかを制御します。
 
-URL の command+クリックなど、通常のクリックをターミナルに処理させたい場合は `mouse_capture = false` を設定してください。マウスキャプチャが有効な場合、ターミナルが修飾キー付きクリックを Herdr に送れば、Ctrl+クリックでペインのリンクを開けます。これは macOS も含みます。Herdr がマウス入力をキャプチャしている間、Cmd+クリックは通常のクリックと区別して報告されません。ターミナルネイティブのバイパス経路には、Linux では Shift+Ctrl+クリック、macOS では Shift+Cmd+クリックを使ってください。
+URL の command+クリックなど、通常のクリックをターミナルに処理させたい場合は `mouse_capture = false` を設定してください。マウスキャプチャが有効な場合、ターミナルが修飾キー付きクリックを Kelpie に送れば、Ctrl+クリックでペインのリンクを開けます。これは macOS も含みます。Kelpie がマウス入力をキャプチャしている間、Cmd+クリックは通常のクリックと区別して報告されません。ターミナルネイティブのバイパス経路には、Linux では Shift+Ctrl+クリック、macOS では Shift+Cmd+クリックを使ってください。
 
-マウスレポーティング対応のペインアプリの中で、Ctrl+右クリック、ホールド、ドラッグのジェスチャーを Herdr のペインメニューを開く代わりにアプリへ届けたい場合は `right_click_passthrough_modifier = "ctrl"` を設定してください。デフォルトは空で、このパススルーは無効です。対応する修飾キーは `ctrl`、`alt`、`cmd`、`super`、`meta`、`hyper` です。多くのターミナルが Shift+マウスを自分のマウスバイパスのために予約しているため、`shift` は拒否されます。
+マウスレポーティング対応のペインアプリの中で、Ctrl+右クリック、ホールド、ドラッグのジェスチャーを Kelpie のペインメニューを開く代わりにアプリへ届けたい場合は `right_click_passthrough_modifier = "ctrl"` を設定してください。デフォルトは空で、このパススルーは無効です。対応する修飾キーは `ctrl`、`alt`、`cmd`、`super`、`meta`、`hyper` です。多くのターミナルが Shift+マウスを自分のマウスバイパスのために予約しているため、`shift` は拒否されます。
 
-Herdr に戻ったときの目に見える全画面リフレッシュを避けるには `redraw_on_focus_gained = false` を設定してください。まれに発生する古い/汚れたホストターミナル表示から全再描画で回復できるため、デフォルトは `true` です。
+Kelpie に戻ったときの目に見える全画面リフレッシュを避けるには `redraw_on_focus_gained = false` を設定してください。まれに発生する古い/汚れたホストターミナル表示から全再描画で回復できるため、デフォルトは `true` です。
 
 マウスホイール 1 ノッチでスクロールするペインのスクロールバック行数を変えるには `mouse_scroll_lines` を設定します。デフォルトは 3 です。マウスレポーティングを要求するペインアプリは引き続きホイールイベントを直接受け取ります。オルタネートスクリーンのアプリにはスクロールするスクロールバックがありません。[スクロールバック](#スクロールバック)を参照してください。
 
@@ -335,14 +335,14 @@ Herdr に戻ったときの目に見える全画面リフレッシュを避け�
 
 ## 通知
 
-Herdr は、エージェントが完了したり入力を必要としたりしたときにポップアップ通知を表示できます。
+Kelpie は、エージェントが完了したり入力を必要としたりしたときにポップアップ通知を表示できます。
 
 ```toml
 [ui.toast]
 delivery = "off"
 delay_seconds = 1
 
-[ui.toast.herdr]
+[ui.toast.kelpie]
 position = "bottom-right"
 
 [ui.toast.clipboard]
@@ -352,30 +352,30 @@ position = "bottom-center"
 
 `delivery = "off"` はポップアップ通知を無効にします。これがデフォルトです。
 
-`delivery = "herdr"` は Herdr の UI 内にトーストを表示します。トーストをクリックするか、`keys.open_notification_target` をバインドすると、対象のワークスペース、タブ、ペインにフォーカスします。`ui.toast.herdr.position` には `top-left`、`top-right`、`bottom-left`、`bottom-right` を設定できます。デスクトップの位置は Herdr のフレーム全体を基準とします。
+`delivery = "kelpie"` は Kelpie の UI 内にトーストを表示します。トーストをクリックするか、`keys.open_notification_target` をバインドすると、対象のワークスペース、タブ、ペインにフォーカスします。`ui.toast.kelpie.position` には `top-left`、`top-right`、`bottom-left`、`bottom-right` を設定できます。デスクトップの位置は Kelpie のフレーム全体を基準とします。
 
-`delivery = "terminal"` は外側のターミナルにデスクトップ通知の表示を依頼します。Herdr は Ghostty、iTerm2、Kitty、WezTerm 向けのターミナル通知エスケープシーケンスを送ります。ローカルのターミナルが通知を所有するため、SSH 越しで便利です。
+`delivery = "terminal"` は外側のターミナルにデスクトップ通知の表示を依頼します。Kelpie は Ghostty、iTerm2、Kitty、WezTerm 向けのターミナル通知エスケープシーケンスを送ります。ローカルのターミナルが通知を所有するため、SSH 越しで便利です。
 
-`delivery = "system"` はローカルのオペレーティングシステムに直接依頼します。macOS では、Herdr は `terminal-notifier` が利用可能ならそれを使い、なければ `/usr/bin/osascript` にフォールバックします。`terminal-notifier` は通知をクリックしたときにホストのターミナルをアクティブにできます。Linux では、Herdr は `notify-send` を使い、`DISPLAY` または `WAYLAND_DISPLAY` を必要とします。
+`delivery = "system"` はローカルのオペレーティングシステムに直接依頼します。macOS では、Kelpie は `terminal-notifier` が利用可能ならそれを使い、なければ `/usr/bin/osascript` にフォールバックします。`terminal-notifier` は通知をクリックしたときにホストのターミナルをアクティブにできます。Linux では、Kelpie は `notify-send` を使い、`DISPLAY` または `WAYLAND_DISPLAY` を必要とします。
 
-ポップアップ通知はバックグラウンドの注意喚起のためのものです。Herdr はアクティブなタブについてはポップアップを抑制します。
+ポップアップ通知はバックグラウンドの注意喚起のためのものです。Kelpie はアクティブなタブについてはポップアップを抑制します。
 
-`delay_seconds` は、完了または入力要求のエージェント通知を送る前に待機します。Herdr は、遅延が切れた時点でペインがまだ同じ状態の場合にのみ通知します。即時通知には `0` を設定してください。有効な値は `0` から `3600` です。
+`delay_seconds` は、完了または入力要求のエージェント通知を送る前に待機します。Kelpie は、遅延が切れた時点でペインがまだ同じ状態の場合にのみ通知します。即時通知には `0` を設定してください。有効な値は `0` から `3600` です。
 
 クリップボードのフィードバックは、フォアグラウンドのコピー操作を確認するもので、terminal や system の配信では送られないため、別に設定します。コピー完了のポップアップを隠すには `ui.toast.clipboard.enabled = false` を設定してください。クリップボードの位置は `top-left`、`top-center`、`top-right`、`bottom-left`、`bottom-center`、`bottom-right` です。
 
 ## サウンド
 
-サウンド通知はデフォルトで有効で、ローカルの Herdr クライアントが再生します。
+サウンド通知はデフォルトで有効で、ローカルの Kelpie クライアントが再生します。
 
 ```toml
 [ui.sound]
 enabled = true
 ```
 
-Herdr は、エージェントが完了したときに完了音を、エージェントが入力を必要とするときに注意音を再生します。共有マシンやリモートサーバーでは、明示的に音が欲しいのでなければ `enabled = false` を設定してください。
+Kelpie は、エージェントが完了したときに完了音を、エージェントが入力を必要とするときに注意音を再生します。共有マシンやリモートサーバーでは、明示的に音が欲しいのでなければ `enabled = false` を設定してください。
 
-macOS では、Herdr は `afplay` を使います。Linux では、mp3 対応プレイヤーを順に試します: `paplay`、`pw-play`、`ffplay`、`mpg123`、そして `mpv` です。プレイヤーがない場合、音の再生はスキップされ、Herdr は警告をログに残します。
+macOS では、Kelpie は `afplay` を使います。Linux では、mp3 対応プレイヤーを順に試します: `paplay`、`pw-play`、`ffplay`、`mpg123`、そして `mpv` です。プレイヤーがない場合、音の再生はスキップされ、Kelpie は警告をログに残します。
 
 カスタムサウンドは mp3 ファイルでなければなりません。相対パスは設定ファイルのディレクトリから解決されます。
 
@@ -413,7 +413,7 @@ scrollback_limit_bytes = 10485760
 
 デフォルトでは、セッションの完全な再起動はワークスペース、タブ、ペイン、cwd、レイアウト、フォーカスを、ペインの内容を保存せずに復元します。
 
-ペイン画面履歴はデフォルトで無効です。ペイン出力にはシークレット、トークン、プロンプト、コマンド出力が含まれうるため、サーバーの完全な再起動をまたいで Herdr に直近のペイン内容を保存させたいときだけ有効にしてください:
+ペイン画面履歴はデフォルトで無効です。ペイン出力にはシークレット、トークン、プロンプト、コマンド出力が含まれうるため、サーバーの完全な再起動をまたいで Kelpie に直近のペイン内容を保存させたいときだけ有効にしてください:
 
 ```toml
 [experimental]
@@ -422,13 +422,13 @@ pane_history = true
 
 Settings > Experiments > pane screen history からも切り替えられます。
 
-有効にすると、Herdr は保存したペイン履歴を `session.json` の隣の `session-history.json` に保存します。
+有効にすると、Kelpie は保存したペイン履歴を `session.json` の隣の `session-history.json` に保存します。
 
 ペイン画面履歴が、ライブ永続化、スナップショット復元、エージェントネイティブのセッション復元、ライブハンドオフとどう違うかは[セッション状態と復元](/ja/docs/session-state/)を参照してください。
 
 ## ネストされた起動
 
-Herdr は通常、Herdr の中で Herdr を起動しないよう保護しています。
+Kelpie は通常、Kelpie の中で Kelpie を起動しないよう保護しています。
 
 ```toml
 [experimental]
@@ -450,16 +450,16 @@ kitty_graphics = false
 
 ## エージェントセッション復元
 
-Herdr は、Herdr サーバーの再起動後に、対応エージェントのペインをネイティブの会話セッションで再起動できます。
+Kelpie は、Kelpie サーバーの再起動後に、対応エージェントのペインをネイティブの会話セッションで再起動できます。
 
 ```toml
 [session]
 resume_agents_on_restore = true
 ```
 
-これはデフォルトで有効です。Herdr が resume するのは、公式 Herdr インテグレーションを通じてネイティブセッション参照を報告したペインだけです。対応する resume ターゲットは Claude Code、Codex、Cursor Agent CLI、GitHub Copilot CLI、Droid、Kimi Code CLI、Qoder CLI、Pi、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode です。未対応、欠落、無効、重複、または古くなったセッション参照は、保存されたペインディレクトリで通常のシェルとして復元されます。
+これはデフォルトで有効です。Kelpie が resume するのは、公式 Kelpie インテグレーションを通じてネイティブセッション参照を報告したペインだけです。対応する resume ターゲットは Claude Code、Codex、Cursor Agent CLI、GitHub Copilot CLI、Droid、Kimi Code CLI、Qoder CLI、Pi、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode です。未対応、欠落、無効、重複、または古くなったセッション参照は、保存されたペインディレクトリで通常のシェルとして復元されます。
 
-セッション参照はローカルの Herdr セッションスナップショットに保存されます。通常のペイン、エージェント、ステータス、イベント出力には表示されません。
+セッション参照はローカルの Kelpie セッションスナップショットに保存されます。通常のペイン、エージェント、ステータス、イベント出力には表示されません。
 
 エージェントネイティブのセッション復元が、ペイン画面履歴やライブハンドオフとどう違うかは[セッション状態と復元](/ja/docs/session-state/)を参照してください。
 
@@ -497,7 +497,7 @@ macOS では、非 ASCII の入力ソースがアクティブな間、プレフ�
 switch_ascii_input_source_in_prefix = false
 ```
 
-有効にすると、Herdr はプレフィックスモードに入った後にのみ入力ソースを切り替え、プレフィックスモードの終了時に以前の入力ソースを復元します。この設定は macOS 専用で、他のプラットフォームやシステムの入力ソース切り替えが失敗した場合は何もしません。
+有効にすると、Kelpie はプレフィックスモードに入った後にのみ入力ソースを切り替え、プレフィックスモードの終了時に以前の入力ソースを復元します。この設定は macOS 専用で、他のプラットフォームやシステムの入力ソース切り替えが失敗した場合は何もしません。
 
 Settings > Experiments > switch to ascii input source in prefix (macOS) からも切り替えられます。
 
@@ -505,11 +505,11 @@ Settings > Experiments > switch to ascii input source in prefix (macOS) から�
 
 | 変数 | 目的 |
 | --- | --- |
-| `HERDR_CONFIG_PATH` | 設定ファイルパスを上書きする。 |
-| `HERDR_SESSION` | CLI コマンドの名前付きセッションを選択する。 |
-| `HERDR_SOCKET_PATH` | 低レベルなソケットパスの上書き。 |
-| `HERDR_LOG` | ログフィルタリングを設定する。例: `HERDR_LOG=herdr=debug`。 |
-| `HERDR_DISABLE_SOUND` | `[ui.sound] enabled = true` でも音の再生を無効にする。 |
+| `KELPIE_CONFIG_PATH` | 設定ファイルパスを上書きする。 |
+| `KELPIE_SESSION` | CLI コマンドの名前付きセッションを選択する。 |
+| `KELPIE_SOCKET_PATH` | 低レベルなソケットパスの上書き。 |
+| `KELPIE_LOG` | ログフィルタリングを設定する。例: `KELPIE_LOG=kelpie=debug`。 |
+| `KELPIE_DISABLE_SOUND` | `[ui.sound] enabled = true` でも音の再生を無効にする。 |
 
 ## ログ
 
@@ -518,9 +518,9 @@ Settings > Experiments > switch to ascii input source in prefix (macOS) から�
 主なログファイル:
 
 ```text
-~/.config/herdr/herdr.log
-~/.config/herdr/herdr-client.log
-~/.config/herdr/herdr-server.log
+~/.config/kelpie/kelpie.log
+~/.config/kelpie/kelpie-client.log
+~/.config/kelpie/kelpie-server.log
 ```
 
 ログは自動的にローテーションされます。問題を報告するときは、現在のログとローテーションされたファイルを含めてください。

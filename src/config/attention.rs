@@ -3,7 +3,7 @@
 use serde::{de, Deserialize, Deserializer};
 
 /// Environment override for `[ui] animations` (`full`, `basic` or `none`).
-pub const ANIMATIONS_ENV_VAR: &str = "HERDR_ANIMATIONS";
+pub const ANIMATIONS_ENV_VAR: &str = "KELPIE_ANIMATIONS";
 
 const DEFAULT_STALE_AFTER_SECS: u64 = 2 * 60 * 60;
 
@@ -27,7 +27,7 @@ impl AnimationsConfig {
         }
     }
 
-    /// `HERDR_ANIMATIONS` wins when it names a valid mode; anything else keeps the config.
+    /// `KELPIE_ANIMATIONS` wins when it names a valid mode; anything else keeps the config.
     pub fn resolve(self, env: Option<&str>) -> Self {
         env.and_then(Self::parse).unwrap_or(self)
     }

@@ -23,9 +23,9 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
 
 pub fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kelpie-dev"
     } else {
-        "herdr"
+        "kelpie"
     }
 }
 
@@ -241,7 +241,7 @@ pub fn config_diagnostic_summary(diagnostics: &[String]) -> Option<String> {
         ""
     };
 
-    Some(format!("{target}{impact}; herdr config check"))
+    Some(format!("{target}{impact}; kelpie config check"))
 }
 
 pub fn load_live_config() -> Result<LoadedConfig, Vec<String>> {
@@ -897,10 +897,10 @@ interval_secs = 120
     #[test]
     fn remove_section_key_removes_matching_key_from_section() {
         let content =
-            "[ui.toast]\nenabled = true\ndelivery = \"herdr\"\n[ui.sound]\nenabled = true\n";
+            "[ui.toast]\nenabled = true\ndelivery = \"kelpie\"\n[ui.sound]\nenabled = true\n";
         let updated = remove_section_key(content, "ui.toast", "enabled");
         assert!(!updated.contains("[ui.toast]\nenabled = true"));
-        assert!(updated.contains("delivery = \"herdr\""));
+        assert!(updated.contains("delivery = \"kelpie\""));
         assert!(updated.contains("[ui.sound]\nenabled = true"));
     }
 
@@ -916,7 +916,7 @@ interval_secs = 120
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml; herdr config check")
+            Some("config.toml; kelpie config check")
         );
     }
 
@@ -929,7 +929,7 @@ interval_secs = 120
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml has unknown keys; herdr config check")
+            Some("config.toml has unknown keys; kelpie config check")
         );
     }
 
@@ -942,7 +942,7 @@ interval_secs = 120
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml; herdr config check")
+            Some("config.toml; kelpie config check")
         );
     }
 
@@ -955,7 +955,7 @@ interval_secs = 120
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml invalid; using defaults; herdr config check")
+            Some("config.toml invalid; using defaults; kelpie config check")
         );
     }
 
@@ -964,14 +964,14 @@ interval_secs = 120
         let startup = vec!["config read error: permission denied; using defaults".to_string()];
         assert_eq!(
             config_diagnostic_summary(&startup).as_deref(),
-            Some("config.toml unreadable; using defaults; herdr config check")
+            Some("config.toml unreadable; using defaults; kelpie config check")
         );
 
         let reload =
             vec!["config read error: permission denied; keeping current config".to_string()];
         assert_eq!(
             config_diagnostic_summary(&reload).as_deref(),
-            Some("config.toml unreadable; keeping current config; herdr config check")
+            Some("config.toml unreadable; keeping current config; kelpie config check")
         );
     }
 
@@ -984,7 +984,7 @@ interval_secs = 120
 
         assert_eq!(
             config_diagnostic_summary(&diagnostics).as_deref(),
-            Some("config.toml invalid; keeping current config; herdr config check")
+            Some("config.toml invalid; keeping current config; kelpie config check")
         );
     }
 
@@ -992,7 +992,7 @@ interval_secs = 120
     fn config_loaders_report_unreadable_path() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path =
-            std::env::temp_dir().join(format!("herdr-config-unreadable-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kelpie-config-unreadable-{}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         std::env::set_var(CONFIG_PATH_ENV_VAR, &path);
 
@@ -1050,7 +1050,7 @@ name = "catppucin"
 delivery = "system"
 
 [ui.toast]
-delivery = "herdr"
+delivery = "kelpie"
 "#,
         )
         .unwrap();
@@ -1062,7 +1062,7 @@ delivery = "herdr"
         assert!(loaded.invalid_sections.is_empty());
         assert_eq!(
             loaded.config.ui.toast.delivery,
-            super::super::ToastDelivery::Herdr
+            super::super::ToastDelivery::Kelpie
         );
     }
 
@@ -1121,7 +1121,7 @@ claude = [["terminal_title"]]
         assert!(!loaded.config.ui.mouse_capture);
         assert_eq!(
             loaded.config.ui.toast.delivery,
-            super::super::ToastDelivery::Herdr
+            super::super::ToastDelivery::Kelpie
         );
         assert!(loaded
             .config
@@ -1172,7 +1172,7 @@ mouse_captur = true
     fn startup_config_accepts_legacy_agent_panel_scope_without_warning() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
-            "herdr-config-legacy-agent-panel-scope-{}.toml",
+            "kelpie-config-legacy-agent-panel-scope-{}.toml",
             std::process::id()
         ));
         std::fs::write(&path, "[ui]\nagent_panel_scope = \"all\"\n").unwrap();
@@ -1190,7 +1190,7 @@ mouse_captur = true
     fn startup_config_load_warns_about_unknown_top_level_sections() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
-            "herdr-config-unknown-section-{}.toml",
+            "kelpie-config-unknown-section-{}.toml",
             std::process::id()
         ));
         std::fs::write(
@@ -1308,7 +1308,7 @@ mouse_capture = false
     fn config_load_recovers_from_a_mid_file_bom() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
-            "herdr-config-mid-file-bom-{}.toml",
+            "kelpie-config-mid-file-bom-{}.toml",
             std::process::id()
         ));
         std::fs::write(

@@ -1,11 +1,11 @@
 # Windows Terminal schemes for the long-session themes
 
-Herdr themes colour only Herdr's own chrome: the sidebar, tab bar, overlays and
+Kelpie themes colour only Kelpie's own chrome: the sidebar, tab bar, overlays and
 status markers. Everything inside a pane (Claude, shells, editors) is drawn with
 your terminal's colour scheme. To make pane contents match, use the matching
 Windows Terminal scheme from `windows-terminal-schemes.json`.
 
-| Herdr theme | Windows Terminal scheme |
+| Kelpie theme | Windows Terminal scheme |
 |---|---|
 | `midnight` | `Kelpie Midnight` |
 | `dusk` | `Kelpie Dusk` |
@@ -14,7 +14,7 @@ Windows Terminal scheme from `windows-terminal-schemes.json`.
 | `forest` | `Kelpie Forest` |
 | `kelpie` | `Kelpie Kelpie` |
 
-Nothing here is applied automatically. Herdr never writes to your Windows
+Nothing here is applied automatically. Kelpie never writes to your Windows
 Terminal settings.
 
 ## Add the schemes
@@ -40,15 +40,15 @@ Set it per profile in the JSON file:
 
 or pick it under **Settings > Profiles > (profile) > Appearance > Color scheme**.
 
-## Pick the Herdr theme
+## Pick the Kelpie theme
 
-- Inside Herdr press `prefix+t` (default `ctrl+b t`) to open the theme picker.
+- Inside Kelpie press `prefix+t` (default `ctrl+b t`) to open the theme picker.
   Moving the cursor previews the theme; Enter saves `theme.name`; Esc reverts.
-- Or from a shell: `herdr theme list` and `herdr theme set midnight`.
+- Or from a shell: `kelpie theme list` and `kelpie theme set midnight`.
 
 ## How the schemes are derived
 
-Each scheme uses the Herdr palette of the same name: background is `panel_bg`,
+Each scheme uses the Kelpie palette of the same name: background is `panel_bg`,
 foreground is `text`, cursor is `accent` and selection is `selection_bg`. The
 ANSI colours map `black` to `surface0`, `red`/`green`/`yellow`/`blue` to the
 palette colours of the same name, `purple` to `mauve`, `cyan` to `teal`,

@@ -94,7 +94,7 @@ pub(super) enum BackgroundWork {
     Active,
     /// An agent pane never reported a usable `background_jobs` count.
     Unknown,
-    /// A pane with no agent (plain shell) makes no background claim at all: herdr does not
+    /// A pane with no agent (plain shell) makes no background claim at all: kelpie does not
     /// track its child processes, so a quiet dev server looks exactly like an idle prompt.
     NoEvidence,
 }

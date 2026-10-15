@@ -1,15 +1,15 @@
 ---
 title: Agent skill
-description: A concise guide for coding agents running inside Herdr.
+description: A concise guide for coding agents running inside Kelpie.
 ---
 
-This page teaches coding agents how to use Herdr while they are running inside a Herdr pane.
+This page teaches coding agents how to use Kelpie while they are running inside a Kelpie pane.
 
-Use Herdr to organize parallel work instead of stacking everything in one terminal.
+Use Kelpie to organize parallel work instead of stacking everything in one terminal.
 
 ## Core model
 
-Herdr has four levels:
+Kelpie has four levels:
 
 | Level | Meaning |
 | --- | --- |
@@ -23,18 +23,18 @@ Use workspace and tab actions for layout. Use pane actions for commands and outp
 ## Read the current layout
 
 ```bash
-herdr pane list
+kelpie pane list
 ```
 
-Use the pane IDs returned by Herdr for later commands.
+Use the pane IDs returned by Kelpie for later commands.
 
 ## Create a helper pane
 
 Split a pane and run a command:
 
 ```bash
-herdr pane split 1-1 --direction right
-herdr pane run 1-2 "just test"
+kelpie pane split 1-1 --direction right
+kelpie pane run 1-2 "just test"
 ```
 
 Prefer `pane run` over sending raw keys when you want to submit a full command line.
@@ -42,13 +42,13 @@ Prefer `pane run` over sending raw keys when you want to submit a full command l
 ## Read output
 
 ```bash
-herdr pane read 1-2 --source recent --lines 80
+kelpie pane read 1-2 --source recent --lines 80
 ```
 
 Use `recent-unwrapped` when reading logs or matching long lines.
 
 ```bash
-herdr pane read 1-2 --source recent-unwrapped --lines 120
+kelpie pane read 1-2 --source recent-unwrapped --lines 120
 ```
 
 ## Wait for agents
@@ -56,8 +56,8 @@ herdr pane read 1-2 --source recent-unwrapped --lines 120
 Wait for another agent to finish or become blocked:
 
 ```bash
-herdr wait agent-status 1-3 --status done
-herdr wait agent-status 1-3 --status blocked
+kelpie wait agent-status 1-3 --status done
+kelpie wait agent-status 1-3 --status blocked
 ```
 
 Use agent waits for recognized coding agents. Use normal output matching for ordinary commands, servers, and tests.
@@ -75,21 +75,21 @@ When your tool supports aliases, use names like `server`, `tests`, `reviewer`, o
 Run long work in a separate pane:
 
 ```bash
-herdr pane split 1-1 --direction right
-herdr pane run 1-2 "just check"
+kelpie pane split 1-1 --direction right
+kelpie pane run 1-2 "just check"
 ```
 
 Watch a server until it is ready:
 
 ```bash
-herdr pane read 1-2 --source recent-unwrapped --lines 80
+kelpie pane read 1-2 --source recent-unwrapped --lines 80
 ```
 
 Ask a reviewer agent to inspect a change:
 
 ```bash
-herdr pane split 1-1 --direction right
-herdr pane run 1-2 "pi --model <review-model>"
+kelpie pane split 1-1 --direction right
+kelpie pane run 1-2 "pi --model <review-model>"
 ```
 
 ## Avoid these patterns

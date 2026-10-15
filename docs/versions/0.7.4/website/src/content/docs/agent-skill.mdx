@@ -1,17 +1,17 @@
 ---
 title: Agent skill file
-description: Install Herdr instructions for Claude Code or another coding agent.
+description: Install Kelpie instructions for Claude Code or another coding agent.
 ---
 
-Herdr ships a reusable agent skill file at [`SKILL.md`](https://github.com/herdrdev/herdr/blob/master/SKILL.md).
+Kelpie ships a reusable agent skill file at [`SKILL.md`](https://kelpie.example/source/blob/master/SKILL.md).
 
-Install that file into any coding agent that supports reusable skills or custom instructions. The skill teaches the agent how to control Herdr from inside a Herdr pane.
+Install that file into any coding agent that supports reusable skills or custom instructions. The skill teaches the agent how to control Kelpie from inside a Kelpie pane.
 
-Herdr also serves a separate guide at [`herdr.dev/agent-guide.md`](https://herdr.dev/agent-guide.md) for a different job: an agent helping a human learn, set up, or troubleshoot Herdr. The skill is for an agent operating Herdr; the guide is for an agent teaching a human.
+Kelpie also serves a separate guide at [`kelpie.example/agent-guide.md`](https://kelpie.example/agent-guide.md) for a different job: an agent helping a human learn, set up, or troubleshoot Kelpie. The skill is for an agent operating Kelpie; the guide is for an agent teaching a human.
 
 ## What the skill does
 
-The skill tells an agent to use the `herdr` CLI when `HERDR_ENV=1` is set. That means the agent is running inside a Herdr-managed pane and can safely talk to the local Herdr socket.
+The skill tells an agent to use the `kelpie` CLI when `KELPIE_ENV=1` is set. That means the agent is running inside a Kelpie-managed pane and can safely talk to the local Kelpie socket.
 
 With the skill installed, an agent can:
 
@@ -28,7 +28,7 @@ The skill is not a separate app or service. It is a markdown instruction file fo
 Install the skill with `npx skills`:
 
 ```bash
-npx skills add herdrdev/herdr --skill herdr -g
+npx skills add kelpie.example/kelpie --skill kelpie -g
 ```
 
 The `-g` flag installs it globally for supported agents. Omit `-g` to install it into the current project.
@@ -36,25 +36,25 @@ The `-g` flag installs it globally for supported agents. Omit `-g` to install it
 Use the repository copy as the manual fallback and source of truth:
 
 ```text
-https://github.com/herdrdev/herdr/blob/master/SKILL.md
+https://kelpie.example/source/blob/master/SKILL.md
 ```
 
-For agents with a skill system, install that file as a skill named `herdr`. For agents without a skill system, paste the file into the agent's project or user instructions.
+For agents with a skill system, install that file as a skill named `kelpie`. For agents without a skill system, paste the file into the agent's project or user instructions.
 
-After installation, start the agent inside Herdr:
+After installation, start the agent inside Kelpie:
 
 ```bash
-herdr
+kelpie
 claude
 ```
 
-Or use any other coding agent in a Herdr pane. The important part is that the agent process runs inside Herdr, so `HERDR_ENV=1` is available.
+Or use any other coding agent in a Kelpie pane. The important part is that the agent process runs inside Kelpie, so `KELPIE_ENV=1` is available.
 
 ## Safety rule
 
-The skill starts with one guardrail: if `HERDR_ENV=1` is not set, the agent should stop and say it is not running inside a Herdr-managed pane.
+The skill starts with one guardrail: if `KELPIE_ENV=1` is not set, the agent should stop and say it is not running inside a Kelpie-managed pane.
 
-This prevents an agent outside Herdr from trying to control a session it does not own.
+This prevents an agent outside Kelpie from trying to control a session it does not own.
 
 ## Agent-facing reference
 
@@ -62,4 +62,4 @@ The full command guide lives in the skill file itself. It covers pane IDs, `pane
 
 Read the source file here:
 
-[Open `SKILL.md` on GitHub →](https://github.com/herdrdev/herdr/blob/master/SKILL.md)
+[Open `SKILL.md` on GitHub →](https://kelpie.example/source/blob/master/SKILL.md)

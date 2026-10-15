@@ -449,6 +449,6 @@ mod tests {
 
     #[cfg(windows)]
     fn temp_socket_marker_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("herdr-{name}-{}.sock", std::process::id()))
+        std::env::temp_dir().join(format!("kelpie-{name}-{}.sock", std::process::id()))
     }
 }

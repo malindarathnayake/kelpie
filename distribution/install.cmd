@@ -1,13 +1,13 @@
 @echo off
 setlocal
 
-set "INSTALLER_URL=https://herdr.dev/install.ps1"
+set "INSTALLER_URL=https://kelpie.example/install.ps1"
 set "CURL_PROTOCOL=--proto =https --tlsv1.2"
-if defined HERDR_INSTALLER_URL (
-    set "INSTALLER_URL=%HERDR_INSTALLER_URL%"
+if defined KELPIE_INSTALLER_URL (
+    set "INSTALLER_URL=%KELPIE_INSTALLER_URL%"
     set "CURL_PROTOCOL=--proto =http,https"
 )
-set "INSTALLER_PATH=%TEMP%\herdr-install-%RANDOM%-%RANDOM%.ps1"
+set "INSTALLER_PATH=%TEMP%\kelpie-install-%RANDOM%-%RANDOM%.ps1"
 
 curl.exe --fail --silent --show-error --location --connect-timeout 30 --speed-limit 1024 --speed-time 30 %CURL_PROTOCOL% --output "%INSTALLER_PATH%" -- "%INSTALLER_URL%"
 if errorlevel 1 (

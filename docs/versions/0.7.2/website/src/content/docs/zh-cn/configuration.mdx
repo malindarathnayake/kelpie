@@ -1,33 +1,33 @@
 ---
 title: 配置
-description: 配置 Herdr 的按键绑定、主题、侧边栏行为、通知和高级选项。
+description: 配置 Kelpie 的按键绑定、主题、侧边栏行为、通知和高级选项。
 ---
 
-Herdr 无需配置文件即可工作。当你想要自定义按键、主题、侧边栏设置、通知或高级行为时再添加。
+Kelpie 无需配置文件即可工作。当你想要自定义按键、主题、侧边栏设置、通知或高级行为时再添加。
 
 ## 配置文件
 
-Herdr 从这里读取配置:
+Kelpie 从这里读取配置:
 
 ```text
-~/.config/herdr/config.toml
+~/.config/kelpie/config.toml
 ```
 
 打印完整的默认配置:
 
 ```bash
-herdr --default-config
+kelpie --default-config
 ```
 
 想要一个完整的起点,可以把它保存为你的配置:
 
 ```bash
-herdr --default-config > ~/.config/herdr/config.toml
+kelpie --default-config > ~/.config/kelpie/config.toml
 ```
 
-如果某个配置值无效,Herdr 会回退到安全默认值,并在启动时显示警告。
+如果某个配置值无效,Kelpie 会回退到安全默认值,并在启动时显示警告。
 
-当 `onboarding` 缺失或为 true 时,Herdr 会显示首次运行引导。从引导继续会写入 `onboarding = false` 并打开设置的集成标签页。安装完成后想跳过该流程时可以设置它。
+当 `onboarding` 缺失或为 true 时,Kelpie 会显示首次运行引导。从引导继续会写入 `onboarding = false` 并打开设置的集成标签页。安装完成后想跳过该流程时可以设置它。
 
 ```toml
 onboarding = false
@@ -44,36 +44,36 @@ version_check = true
 manifest_check = true
 ```
 
-设置 `channel = "preview"` 让 `herdr update` 安装从当前开发分支手动发布的预览构建。Homebrew、mise 和 Nix 安装忽略预览通道,通过各自的包管理器更新。
+设置 `channel = "preview"` 让 `kelpie update` 安装从当前开发分支手动发布的预览构建。Homebrew、mise 和 Nix 安装忽略预览通道,通过各自的包管理器更新。
 
-设置 `version_check = false` 禁用对新 Herdr 版本的后台检查。手动 `herdr update` 仍使用配置的通道。
+设置 `version_check = false` 禁用对新 Kelpie 版本的后台检查。手动 `kelpie update` 仍使用配置的通道。
 
-设置 `manifest_check = false` 禁用后台的远程智能体检测清单检查。Herdr 仍使用内置清单和本地覆盖。
+设置 `manifest_check = false` 禁用后台的远程智能体检测清单检查。Kelpie 仍使用内置清单和本地覆盖。
 
 ## 重载配置
 
 编辑 `config.toml` 后重载运行中的服务器:
 
 ```bash
-herdr server reload-config
+kelpie server reload-config
 ```
 
-也可以在 Herdr 中打开全局菜单并选择 `reload config`。
+也可以在 Kelpie 中打开全局菜单并选择 `reload config`。
 
 重载会在不重启窗格的情况下应用大多数 UI 设置。仅启动时生效的设置仍需要重启。
 
 ## 终端默认值
 
-设置 Herdr 为新建交互式窗格使用的可执行文件:
+设置 Kelpie 为新建交互式窗格使用的可执行文件:
 
 ```toml
 [terminal]
 default_shell = "nu"
 ```
 
-未设置或为空时,Herdr 使用 `$SHELL`,然后是 `/bin/sh`。这是可执行文件名或路径,不是 shell 命令行。现有窗格在重建之前保持当前 shell。命令窗格仍通过 `/bin/sh -c` 运行;分离式自定义命令按键绑定使用 Herdr 已有的 `/bin/sh -lc` 路径。
+未设置或为空时,Kelpie 使用 `$SHELL`,然后是 `/bin/sh`。这是可执行文件名或路径,不是 shell 命令行。现有窗格在重建之前保持当前 shell。命令窗格仍通过 `/bin/sh -c` 运行;分离式自定义命令按键绑定使用 Kelpie 已有的 `/bin/sh -lc` 路径。
 
-设置 Herdr 如何启动新建交互式窗格的 shell:
+设置 Kelpie 如何启动新建交互式窗格的 shell:
 
 ```toml
 [terminal]
@@ -89,24 +89,24 @@ shell_mode = "auto"
 new_cwd = "follow"
 ```
 
-`new_cwd = "follow"` 保持默认行为,继承来源窗格或工作区。没有来源工作区时,Herdr 从 `$HOME` 启动。用 `"home"` 总是从 `$HOME` 启动,用 `"current"` 使用 Herdr 的进程目录,或者用 `"~/Projects"` 这类固定路径。来自 CLI 或 socket API 的显式 `--cwd` 值仍然优先。
+`new_cwd = "follow"` 保持默认行为,继承来源窗格或工作区。没有来源工作区时,Kelpie 从 `$HOME` 启动。用 `"home"` 总是从 `$HOME` 启动,用 `"current"` 使用 Kelpie 的进程目录,或者用 `"~/Projects"` 这类固定路径。来自 CLI 或 socket API 的显式 `--cwd` 值仍然优先。
 
 ## Worktree
 
-设置从侧边栏创建 Git worktree 检出时 Herdr 使用的根目录:
+设置从侧边栏创建 Git worktree 检出时 Kelpie 使用的根目录:
 
 ```toml
 [worktrees]
-directory = "~/.herdr/worktrees"
+directory = "~/.kelpie/worktrees"
 ```
 
-Herdr 在 `<directory>/<repo>/<branch-slug>` 下创建检出。想要同级目录风格的检出,把它设为 `~/Projects/herdr-worktrees` 这类目录。相对值会在应用配置时解析为绝对路径。
+Kelpie 在 `<directory>/<repo>/<branch-slug>` 下创建检出。想要同级目录风格的检出,把它设为 `~/Projects/kelpie-worktrees` 这类目录。相对值会在应用配置时解析为绝对路径。
 
-worktree 操作在 Git 工作区行上可用。`New worktree` 创建一个检出,输入的分支已存在时检出该本地分支,否则创建分支,作为新 Herdr 工作区打开,并归组到来源工作区之下。`Open worktree...` 列出该仓库已有的 Git worktree 检出;选择已打开的检出会聚焦它,选择已关闭的检出会在同一组中打开它。
+worktree 操作在 Git 工作区行上可用。`New worktree` 创建一个检出,输入的分支已存在时检出该本地分支,否则创建分支,作为新 Kelpie 工作区打开,并归组到来源工作区之下。`Open worktree...` 列出该仓库已有的 Git worktree 检出;选择已打开的检出会聚焦它,选择已关闭的检出会在同一组中打开它。
 
-归组的 worktree 仍然像普通 Herdr 工作区一样: 可以聚焦、重命名、关闭,并拥有自己的标签页和窗格。父行是原始工作区。关闭父行会关闭整个 Herdr 组,但不会删除检出文件夹或分支。
+归组的 worktree 仍然像普通 Kelpie 工作区一样: 可以聚焦、重命名、关闭,并拥有自己的标签页和窗格。父行是原始工作区。关闭父行会关闭整个 Kelpie 组,但不会删除检出文件夹或分支。
 
-删除 worktree 检出是显式操作。在归组的子工作区上使用 `Delete worktree checkout...` 运行 `git worktree remove`。Herdr 先请求 Git 安全删除。如果 Git 因为检出有修改或未跟踪文件而拒绝,Herdr 会在执行强制删除前再次询问。分支不会被删除。
+删除 worktree 检出是显式操作。在归组的子工作区上使用 `Delete worktree checkout...` 运行 `git worktree remove`。Kelpie 先请求 Git 安全删除。如果 Git 因为检出有修改或未跟踪文件而拒绝,Kelpie 会在执行强制删除前再次询问。分支不会被删除。
 
 ## 远程连接
 
@@ -117,13 +117,13 @@ worktree 操作在 Git 工作区行上可用。`New worktree` 创建一个检出
 manage_ssh_config = true
 ```
 
-启用时,`herdr --remote` 写入一个私有的临时 SSH 配置: 先包含你的 `~/.ssh/config` 和 `/etc/ssh/ssh_config`,再添加兜底的 `ServerAliveInterval` 和 `ServerAliveCountMax` 值。你自己的 SSH 保活设置优先。设置 `manage_ssh_config = false` 用普通 `ssh` 运行桥接,不使用 Herdr 生成的配置。
+启用时,`kelpie --remote` 写入一个私有的临时 SSH 配置: 先包含你的 `~/.ssh/config` 和 `/etc/ssh/ssh_config`,再添加兜底的 `ServerAliveInterval` 和 `ServerAliveCountMax` 值。你自己的 SSH 保活设置优先。设置 `manage_ssh_config = false` 用普通 `ssh` 运行桥接,不使用 Kelpie 生成的配置。
 
 ## 按键绑定
 
 前缀键的入门介绍和经过验证的免前缀配置,见[键盘](/zh-cn/docs/keyboard/)。
 
-Herdr 有类似 tmux 的前缀模式。默认前缀是 `ctrl+b`。按键绑定字符串是显式的: `prefix+n` 表示先按配置的前缀再按 `n`;`ctrl+alt+n` 是终端模式的直接快捷键。
+Kelpie 有类似 tmux 的前缀模式。默认前缀是 `ctrl+b`。按键绑定字符串是显式的: `prefix+n` 表示先按配置的前缀再按 `n`;`ctrl+alt+n` 是终端模式的直接快捷键。
 
 一个小型的按键绑定覆盖长这样:
 
@@ -198,11 +198,11 @@ next_tab = ["prefix+n", "ctrl+alt+]"]
 
 `last_pane` 跨工作区和标签页切回上一个聚焦的窗格。它默认未设置,因为 tmux 风格的窗格绑定 `prefix+l` 已被用于向右聚焦窗格。
 
-`remote_image_paste` 只在 `herdr --remote` 中生效。它是本地客户端的快捷键,把本地剪贴板图像发送到远程窗格。设为空字符串可禁用这个原始按键快捷键;外层终端发送的 paste-image 信号仍然有效。
+`remote_image_paste` 只在 `kelpie --remote` 中生效。它是本地客户端的快捷键,把本地剪贴板图像发送到远程窗格。设为空字符串可禁用这个原始按键快捷键;外层终端发送的 paste-image 信号仍然有效。
 
 按键字符串接受普通按键、`ctrl+a`、`shift+n`、`alt+1`、`cmd+k` 这类修饰组合,以及 `enter`、`tab`、`esc`、`left`、`right`、`up`、`down` 这类特殊键。也接受 `minus`、`comma`、`ampersand`、`plus`、`backtick` 这类命名标点。像 `n` 这样的普通可打印键直接绑定是不安全的,因为它会拦截打字;除非有意要直接绑定,否则用 `prefix+n`。`navigate_workspace_*` 和 `navigate_pane_*` 字段仅在导航模式下生效,可以用 `j`、`k` 这类普通键;它们不能使用 `prefix+`、`esc`、`enter`、`tab`、`shift+tab`、`left`、`right` 或无修饰的 `1` 到 `9`。左右方向键是窗格左/右导航的永久别名。这些导航模式快捷键与 `focus_pane_down = "prefix+j"` 这类通用动作绑定相互独立;两者使用同一个键时,导航模式打开期间导航模式的快捷键优先。Alt、Cmd/Super 和带修饰键的标点取决于你的终端和 tmux 设置。
 
-如果你有旧的自定义按键绑定并想要新的默认值,运行 `herdr config reset-keys`。Herdr 会备份 `config.toml`,移除 `[keys]` 和 `[[keys.command]]`,并在重启或 `herdr server reload-config` 后使用内置的 v2 默认值。
+如果你有旧的自定义按键绑定并想要新的默认值,运行 `kelpie config reset-keys`。Kelpie 会备份 `config.toml`,移除 `[keys]` 和 `[[keys.command]]`,并在重启或 `kelpie server reload-config` 后使用内置的 v2 默认值。
 
 ## 索引跳转
 
@@ -245,7 +245,7 @@ description = "apply layout"
 
 可以提供可选的 `description`。指定后,它会显示在按键帮助面板 (`prefix+?` 打开) 中,替代默认的 `'custom command'` 标签。
 
-自定义命令在可用时会收到 `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID` 和 `HERDR_ACTIVE_PANE_CWD`。当 Herdr 能检测到时,shell 命令会从聚焦窗格的工作目录运行。
+自定义命令在可用时会收到 `KELPIE_SOCKET_PATH`、`KELPIE_BIN_PATH`、`KELPIE_ACTIVE_WORKSPACE_ID`、`KELPIE_ACTIVE_TAB_ID`、`KELPIE_ACTIVE_PANE_ID` 和 `KELPIE_ACTIVE_PANE_CWD`。当 Kelpie 能检测到时,shell 命令会从聚焦窗格的工作目录运行。
 
 ## 主题
 
@@ -260,9 +260,9 @@ name = "catppuccin"
 
 `catppuccin`、`catppuccin-latte`、`terminal`、`tokyo-night`、`tokyo-night-day`、`dracula`、`nord`、`gruvbox`、`gruvbox-light`、`one-dark`、`one-light`、`solarized`、`solarized-light`、`kanagawa`、`kanagawa-lotus`、`rose-pine`、`rose-pine-dawn`、`vesper`。
 
-想让 Herdr 的 UI 颜色跟随宿主终端的 ANSI 调色板时用 `terminal`。
+想让 Kelpie 的 UI 颜色跟随宿主终端的 ANSI 调色板时用 `terminal`。
 
-要让 Herdr 在宿主终端报告明暗外观变化时自动切换自己的 UI 主题,启用主题自动切换:
+要让 Kelpie 在宿主终端报告明暗外观变化时自动切换自己的 UI 主题,启用主题自动切换:
 
 ```toml
 [theme]
@@ -272,7 +272,7 @@ light_name = "catppuccin-latte"
 dark_name = "catppuccin"
 ```
 
-`auto_switch` 默认为 `false`,所以现有主题配置保持手动行为。省略 `light_name` 或 `dark_name` 时,如果配置的 `name` 存在对应的内置姊妹主题,Herdr 就使用它,比如 `tokyo-night`/`tokyo-night-day` 或 `gruvbox`/`gruvbox-light`。在设置中手动选择主题会禁用 `auto_switch`。
+`auto_switch` 默认为 `false`,所以现有主题配置保持手动行为。省略 `light_name` 或 `dark_name` 时,如果配置的 `name` 存在对应的内置姊妹主题,Kelpie 就使用它,比如 `tokyo-night`/`tokyo-night-day` 或 `gruvbox`/`gruvbox-light`。在设置中手动选择主题会禁用 `auto_switch`。
 
 你可以覆盖单个颜色:
 
@@ -290,7 +290,7 @@ yellow = "#f9e2af"
 
 ## UI 与侧边栏
 
-侧边栏是 Herdr 的主仪表盘。它显示工作区、标签页、窗格和智能体状态。
+侧边栏是 Kelpie 的主仪表盘。它显示工作区、标签页、窗格和智能体状态。
 
 常用选项:
 
@@ -315,17 +315,17 @@ accent = "cyan"
 
 `sidebar_min_width` 和 `sidebar_max_width` 以列数控制展开侧边栏的调整范围。默认是 18 和 36。
 
-`mobile_width_threshold` 控制 Herdr 使用移动端单列布局的终端宽度阈值。默认 64 列;折叠屏、平板或宽屏手机终端可以调大。
+`mobile_width_threshold` 控制 Kelpie 使用移动端单列布局的终端宽度阈值。默认 64 列;折叠屏、平板或宽屏手机终端可以调大。
 
 智能体面板显示所有空间中的所有智能体。`agent_panel_sort` 可以是 `spaces` 或 `priority`;`workspaces` 作为 `spaces` 的别名被接受。默认是 `spaces`,让智能体按空间顺序分组。`priority` 按关注优先级排序: blocked、done、working、idle,然后是 unknown。同一状态内,最近改变状态的智能体排在前面。
 
 `confirm_close` 控制关闭工作区时是否需要确认。`prompt_new_tab_name` 控制新标签页是否先询问名称。
 
-如果想让终端处理普通点击,比如 command+点击 URL,设置 `mouse_capture = false`。鼠标捕获启用时,如果终端把带修饰键的点击传给 Herdr,Ctrl+点击可以打开窗格链接。macOS 也是如此;Herdr 捕获鼠标输入期间,Cmd+点击不会与普通点击区分上报。终端原生的绕过路径: Linux 上用 Shift+Ctrl+点击,macOS 上用 Shift+Cmd+点击。
+如果想让终端处理普通点击,比如 command+点击 URL,设置 `mouse_capture = false`。鼠标捕获启用时,如果终端把带修饰键的点击传给 Kelpie,Ctrl+点击可以打开窗格链接。macOS 也是如此;Kelpie 捕获鼠标输入期间,Cmd+点击不会与普通点击区分上报。终端原生的绕过路径: Linux 上用 Shift+Ctrl+点击,macOS 上用 Shift+Cmd+点击。
 
-如果想让 Ctrl+右键点击、按住和拖动手势到达启用鼠标上报的窗格应用,而不是打开 Herdr 的窗格菜单,设置 `right_click_passthrough_modifier = "ctrl"`。默认为空,即禁用这种透传。支持的修饰键有 `ctrl`、`alt`、`cmd`、`super`、`meta` 和 `hyper`;`shift` 被拒绝,因为许多终端把 Shift+鼠标保留给它们自己的鼠标绕过。
+如果想让 Ctrl+右键点击、按住和拖动手势到达启用鼠标上报的窗格应用,而不是打开 Kelpie 的窗格菜单,设置 `right_click_passthrough_modifier = "ctrl"`。默认为空,即禁用这种透传。支持的修饰键有 `ctrl`、`alt`、`cmd`、`super`、`meta` 和 `hyper`;`shift` 被拒绝,因为许多终端把 Shift+鼠标保留给它们自己的鼠标绕过。
 
-设置 `redraw_on_focus_gained = false` 可以避免切回 Herdr 时可见的全屏刷新。默认为 `true`,因为完整重绘能从罕见的过期或脏的宿主终端画面中恢复。
+设置 `redraw_on_focus_gained = false` 可以避免切回 Kelpie 时可见的全屏刷新。默认为 `true`,因为完整重绘能从罕见的过期或脏的宿主终端画面中恢复。
 
 设置 `mouse_scroll_lines` 改变鼠标滚轮每格滚动的窗格回滚行数。默认是 3。请求鼠标上报的窗格应用仍然直接接收滚轮事件。备用屏幕应用没有可滚动的回滚内容;参见[回滚缓冲区](#回滚缓冲区)。
 
@@ -335,14 +335,14 @@ accent = "cyan"
 
 ## 通知
 
-Herdr 可以在智能体完成或需要输入时显示弹出通知。
+Kelpie 可以在智能体完成或需要输入时显示弹出通知。
 
 ```toml
 [ui.toast]
 delivery = "off"
 delay_seconds = 1
 
-[ui.toast.herdr]
+[ui.toast.kelpie]
 position = "bottom-right"
 
 [ui.toast.clipboard]
@@ -352,30 +352,30 @@ position = "bottom-center"
 
 `delivery = "off"` 禁用弹出通知。这是默认值。
 
-`delivery = "herdr"` 在 Herdr UI 内显示 toast。点击 toast,或绑定 `keys.open_notification_target`,可以聚焦目标工作区、标签页和窗格。`ui.toast.herdr.position` 可设为 `top-left`、`top-right`、`bottom-left` 或 `bottom-right`;桌面位置相对于完整的 Herdr 画面。
+`delivery = "kelpie"` 在 Kelpie UI 内显示 toast。点击 toast,或绑定 `keys.open_notification_target`,可以聚焦目标工作区、标签页和窗格。`ui.toast.kelpie.position` 可设为 `top-left`、`top-right`、`bottom-left` 或 `bottom-right`;桌面位置相对于完整的 Kelpie 画面。
 
-`delivery = "terminal"` 请求外层终端显示桌面通知。Herdr 为 Ghostty、iTerm2、Kitty 和 WezTerm 发送终端通知转义序列。在 SSH 上很有用,因为通知归本地终端所有。
+`delivery = "terminal"` 请求外层终端显示桌面通知。Kelpie 为 Ghostty、iTerm2、Kitty 和 WezTerm 发送终端通知转义序列。在 SSH 上很有用,因为通知归本地终端所有。
 
-`delivery = "system"` 直接请求本地操作系统。在 macOS 上,Herdr 优先使用 `terminal-notifier`,不可用时回退到 `/usr/bin/osascript`。`terminal-notifier` 可以在你点击通知时激活承载的终端。在 Linux 上,Herdr 使用 `notify-send`,并要求 `DISPLAY` 或 `WAYLAND_DISPLAY`。
+`delivery = "system"` 直接请求本地操作系统。在 macOS 上,Kelpie 优先使用 `terminal-notifier`,不可用时回退到 `/usr/bin/osascript`。`terminal-notifier` 可以在你点击通知时激活承载的终端。在 Linux 上,Kelpie 使用 `notify-send`,并要求 `DISPLAY` 或 `WAYLAND_DISPLAY`。
 
-弹出通知用于后台提醒。Herdr 对活动标签页抑制弹出。
+弹出通知用于后台提醒。Kelpie 对活动标签页抑制弹出。
 
-`delay_seconds` 在发送完成或需要输入的智能体通知前等待。只有在延迟结束时窗格仍处于相同状态,Herdr 才会通知。设为 `0` 立即通知。有效值为 `0` 到 `3600`。
+`delay_seconds` 在发送完成或需要输入的智能体通知前等待。只有在延迟结束时窗格仍处于相同状态,Kelpie 才会通知。设为 `0` 立即通知。有效值为 `0` 到 `3600`。
 
 剪贴板反馈单独配置,因为它确认的是前台复制操作,并且从不通过 terminal 或 system 投递。设置 `ui.toast.clipboard.enabled = false` 隐藏“已复制到剪贴板”弹窗。剪贴板位置有 `top-left`、`top-center`、`top-right`、`bottom-left`、`bottom-center` 和 `bottom-right`。
 
 ## 声音
 
-声音通知默认启用,由本地 Herdr 客户端播放。
+声音通知默认启用,由本地 Kelpie 客户端播放。
 
 ```toml
 [ui.sound]
 enabled = true
 ```
 
-Herdr 在智能体完成时播放完成音,在智能体需要输入时播放提醒音。在共享机器或远程服务器上,除非明确想要声音,否则设置 `enabled = false`。
+Kelpie 在智能体完成时播放完成音,在智能体需要输入时播放提醒音。在共享机器或远程服务器上,除非明确想要声音,否则设置 `enabled = false`。
 
-在 macOS 上,Herdr 使用 `afplay`。在 Linux 上,Herdr 按顺序尝试支持 mp3 的播放器: `paplay`、`pw-play`、`ffplay`、`mpg123`,然后是 `mpv`。没有可用播放器时,声音播放被跳过,Herdr 记录一条警告。
+在 macOS 上,Kelpie 使用 `afplay`。在 Linux 上,Kelpie 按顺序尝试支持 mp3 的播放器: `paplay`、`pw-play`、`ffplay`、`mpg123`,然后是 `mpv`。没有可用播放器时,声音播放被跳过,Kelpie 记录一条警告。
 
 自定义声音必须是 mp3 文件。相对路径从配置文件所在目录解析。
 
@@ -413,7 +413,7 @@ scrollback_limit_bytes = 10485760
 
 默认情况下,完整的会话重启会恢复工作区、标签页、窗格、cwd、布局和焦点,但不保存窗格内容。
 
-窗格屏幕历史默认关闭。窗格输出可能包含密钥、令牌、提示词和命令输出,所以只在你确实想让 Herdr 跨完整服务器重启保存最近窗格内容时才开启:
+窗格屏幕历史默认关闭。窗格输出可能包含密钥、令牌、提示词和命令输出,所以只在你确实想让 Kelpie 跨完整服务器重启保存最近窗格内容时才开启:
 
 ```toml
 [experimental]
@@ -422,13 +422,13 @@ pane_history = true
 
 也可以在 Settings > Experiments > pane screen history 中切换。
 
-开启后,Herdr 把保存的窗格历史存放在 `session.json` 旁边的 `session-history.json` 中。
+开启后,Kelpie 把保存的窗格历史存放在 `session.json` 旁边的 `session-history.json` 中。
 
 窗格屏幕历史与实时持久化、快照恢复、智能体原生会话恢复和实时交接的区别,见[会话状态与恢复](/zh-cn/docs/session-state/)。
 
 ## 嵌套启动
 
-Herdr 通常会阻止你在 Herdr 内启动 Herdr。
+Kelpie 通常会阻止你在 Kelpie 内启动 Kelpie。
 
 ```toml
 [experimental]
@@ -450,16 +450,16 @@ kitty_graphics = false
 
 ## 智能体会话恢复
 
-Herdr 可以在服务器重启后,让受支持的智能体窗格在其原生对话会话中重新启动。
+Kelpie 可以在服务器重启后,让受支持的智能体窗格在其原生对话会话中重新启动。
 
 ```toml
 [session]
 resume_agents_on_restore = true
 ```
 
-这默认开启。Herdr 只恢复通过官方 Herdr 集成上报了原生会话引用的窗格。受支持的恢复目标是 Claude Code、Codex、Cursor Agent CLI、GitHub Copilot CLI、Droid、Kimi Code CLI、Qoder CLI、Pi、Hermes Agent、OpenCode、Kilo Code CLI 和 MastraCode。不受支持、缺失、无效、重复或过期的会话引用,会在保存的窗格目录中作为普通 shell 恢复。
+这默认开启。Kelpie 只恢复通过官方 Kelpie 集成上报了原生会话引用的窗格。受支持的恢复目标是 Claude Code、Codex、Cursor Agent CLI、GitHub Copilot CLI、Droid、Kimi Code CLI、Qoder CLI、Pi、Hermes Agent、OpenCode、Kilo Code CLI 和 MastraCode。不受支持、缺失、无效、重复或过期的会话引用,会在保存的窗格目录中作为普通 shell 恢复。
 
-会话引用存储在本地 Herdr 会话快照中。它们不会出现在普通的窗格、智能体、状态或事件输出中。
+会话引用存储在本地 Kelpie 会话快照中。它们不会出现在普通的窗格、智能体、状态或事件输出中。
 
 智能体原生会话恢复与窗格屏幕历史和实时交接的区别,见[会话状态与恢复](/zh-cn/docs/session-state/)。
 
@@ -497,7 +497,7 @@ cjk_ime_cursor_shape = "steady_block"
 switch_ascii_input_source_in_prefix = false
 ```
 
-启用后,Herdr 只在进入前缀模式后切换输入法,并在退出前缀模式时恢复之前的输入法。该设置仅限 macOS,在其他平台或系统输入法切换失败时不做任何事。
+启用后,Kelpie 只在进入前缀模式后切换输入法,并在退出前缀模式时恢复之前的输入法。该设置仅限 macOS,在其他平台或系统输入法切换失败时不做任何事。
 
 也可以在 Settings > Experiments > switch to ascii input source in prefix (macOS) 中切换。
 
@@ -505,11 +505,11 @@ switch_ascii_input_source_in_prefix = false
 
 | 变量 | 用途 |
 | --- | --- |
-| `HERDR_CONFIG_PATH` | 覆盖配置文件路径。 |
-| `HERDR_SESSION` | 为 CLI 命令选择命名会话。 |
-| `HERDR_SOCKET_PATH` | 底层 socket 路径覆盖。 |
-| `HERDR_LOG` | 设置日志过滤,例如 `HERDR_LOG=herdr=debug`。 |
-| `HERDR_DISABLE_SOUND` | 即使 `[ui.sound] enabled = true` 也禁用声音播放。 |
+| `KELPIE_CONFIG_PATH` | 覆盖配置文件路径。 |
+| `KELPIE_SESSION` | 为 CLI 命令选择命名会话。 |
+| `KELPIE_SOCKET_PATH` | 底层 socket 路径覆盖。 |
+| `KELPIE_LOG` | 设置日志过滤,例如 `KELPIE_LOG=kelpie=debug`。 |
+| `KELPIE_DISABLE_SOUND` | 即使 `[ui.sound] enabled = true` 也禁用声音播放。 |
 
 ## 日志
 
@@ -518,9 +518,9 @@ switch_ascii_input_source_in_prefix = false
 常见日志文件:
 
 ```text
-~/.config/herdr/herdr.log
-~/.config/herdr/herdr-client.log
-~/.config/herdr/herdr-server.log
+~/.config/kelpie/kelpie.log
+~/.config/kelpie/kelpie-client.log
+~/.config/kelpie/kelpie-server.log
 ```
 
 日志自动轮转。报告问题时请附上当前日志和已轮转的同级文件。

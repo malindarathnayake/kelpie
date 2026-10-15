@@ -1,31 +1,31 @@
 ---
 title: Plugins
-description: Author local Herdr plugins with manifest actions, event hooks, and panes.
+description: Author local Kelpie plugins with manifest actions, event hooks, and panes.
 ---
 
-Herdr plugins are shareable, executable workflow packages. A plugin can be a
+Kelpie plugins are shareable, executable workflow packages. A plugin can be a
 Bash script, JavaScript app, Lua script, Rust binary, or any other argv command
-your machine can run. Herdr owns the host surface: installation, manifest
+your machine can run. Kelpie owns the host surface: installation, manifest
 validation, keybindings, terminal panes, events, invocation context, and socket
 access. The plugin owns its implementation language, dependencies, files, and
 durable state.
 
-Plugins exist so Herdr can stay lean. The core stays focused on terminal
+Plugins exist so Kelpie can stay lean. The core stays focused on terminal
 workspaces, panes, agents, and a stable CLI/socket API. Plugins turn that
 existing extension surface into reusable workflows that people can build,
-install, and share without adding every workflow to Herdr itself.
+install, and share without adding every workflow to Kelpie itself.
 
 A plugin is not an SDK integration. It is a directory with a
-`herdr-plugin.toml` manifest and commands Herdr can launch. Herdr validates the
+`kelpie-plugin.toml` manifest and commands Kelpie can launch. Kelpie validates the
 manifest, injects runtime context, starts the declared commands, and records
-logs. The commands call back into Herdr through the CLI or socket when they need
+logs. The commands call back into Kelpie through the CLI or socket when they need
 to do more work.
 
-There is no separate plugin SDK or restricted command set. The entire Herdr CLI
+There is no separate plugin SDK or restricted command set. The entire Kelpie CLI
 is the plugin API: every command in the [CLI reference](/docs/cli-reference/) is
-available to a plugin, and anything you can run as `herdr ...` yourself a plugin
-can run too. Most plugins should call Herdr through `HERDR_BIN_PATH`, which
-points at the running Herdr binary. That keeps plugins portable across Unix
+available to a plugin, and anything you can run as `kelpie ...` yourself a plugin
+can run too. Most plugins should call Kelpie through `KELPIE_BIN_PATH`, which
+points at the running Kelpie binary. That keeps plugins portable across Unix
 sockets and Windows named pipes. Use the [socket API](/docs/socket-api/) when
 you want to send raw JSON requests yourself.
 
@@ -37,32 +37,32 @@ the manifest.
 
 A plugin is ordinary code that runs on your machine. When you install or link
 one, its build and runtime commands run as your user, with your environment, and
-can call the full Herdr CLI — the same as any extension you add to an editor,
+can call the full Kelpie CLI — the same as any extension you add to an editor,
 shell, or coding agent. That openness is the point, and a little judgment keeps
 it safe.
 
 Install plugins from authors and repositories you trust, and skim what a new one
-does first: the `herdr-plugin.toml` manifest and the scripts or binaries it runs.
-`herdr plugin install` shows a preview of the source and the commands it will run
+does first: the `kelpie-plugin.toml` manifest and the scripts or binaries it runs.
+`kelpie plugin install` shows a preview of the source and the commands it will run
 in interactive terminals, so you can review before confirming. Use `--yes` for
 sources you already trust, and pin `--ref` when you want a specific revision.
 
-Herdr validates the manifest and keeps each plugin's config and state in its own
+Kelpie validates the manifest and keeps each plugin's config and state in its own
 directory, but it does not review or sandbox what a plugin does. Third-party
-plugins come from their authors, not from Herdr, so they are yours to vet and run
+plugins come from their authors, not from Kelpie, so they are yours to vet and run
 at your own discretion.
 
 ## Manifest
 
-The manifest is the contract between Herdr and the plugin. It declares package
+The manifest is the contract between Kelpie and the plugin. It declares package
 metadata, supported platforms, optional build commands, and the entrypoints
-Herdr can run.
+Kelpie can run.
 
 ```toml
 id = "example.layout"
 name = "Layout"
 version = "0.1.0"
-min_herdr_version = "0.7.0"
+min_kelpie_version = "0.7.0"
 description = "Apply project layouts"
 platforms = ["linux", "macos", "windows"]
 
@@ -81,13 +81,13 @@ command = ["node", "dist/apply.js"]
 
 [[events]]
 on = "worktree.created"
-command = ["herdr", "workspace", "list"]
+command = ["kelpie", "workspace", "list"]
 
 [[panes]]
 id = "board"
 title = "Project board"
 placement = "overlay"
-command = ["herdr-board"]
+command = ["kelpie-board"]
 
 [[link_handlers]]
 id = "github-issue"
@@ -96,16 +96,16 @@ pattern = "^https://github\\.com/[^/]+/[^/]+/(issues|pull)/[0-9]+$"
 action = "apply"
 ```
 
-Top-level `id`, `name`, `version`, and `min_herdr_version` are required.
-Set `min_herdr_version` to the oldest Herdr version that supports the plugin
-APIs, event names, and manifest fields your plugin uses. Herdr refuses to link
+Top-level `id`, `name`, `version`, and `min_kelpie_version` are required.
+Set `min_kelpie_version` to the oldest Kelpie version that supports the plugin
+APIs, event names, and manifest fields your plugin uses. Kelpie refuses to link
 or install a plugin when its minimum version is newer than the current binary.
 `description` is optional. Plugin ids may use ASCII letters, digits, dot,
 colon, underscore, and hyphen.
 
 Action ids, pane ids, and link handler ids are local ids inside the plugin.
 They may use ASCII letters, digits, colon, underscore, and hyphen, but not
-dots. Each id type must be unique inside a plugin. Herdr qualifies action ids
+dots. Each id type must be unique inside a plugin. Kelpie qualifies action ids
 as `plugin.id.action` when it needs a globally unique name.
 
 Use `platforms = ["linux", "macos", "windows"]` to declare where the plugin
@@ -113,18 +113,18 @@ can run. Build commands, actions, event hooks, panes, and link handlers can
 also declare their own `platforms`; item-level platforms override the top-level
 list. Local plugins without top-level `platforms` link with a warning.
 
-`command` values are argv arrays. Herdr does not run them through a shell, so
+`command` values are argv arrays. Kelpie does not run them through a shell, so
 there is no shell expansion unless your command starts a shell itself. Put
 language-specific behavior in your script or binary.
 
 ## First plugin
 
-Start with a directory that contains `herdr-plugin.toml` and one executable
+Start with a directory that contains `kelpie-plugin.toml` and one executable
 script or program:
 
 ```text
 my-plugin/
-  herdr-plugin.toml
+  kelpie-plugin.toml
   index.js
 ```
 
@@ -132,7 +132,7 @@ my-plugin/
 id = "example.workspace-tools"
 name = "Workspace Tools"
 version = "0.1.0"
-min_herdr_version = "0.7.0"
+min_kelpie_version = "0.7.0"
 description = "Small workspace helpers"
 platforms = ["linux", "macos", "windows"]
 
@@ -143,13 +143,13 @@ contexts = ["workspace"]
 command = ["node", "index.js"]
 ```
 
-Inside the command, call back into Herdr with `HERDR_BIN_PATH`:
+Inside the command, call back into Kelpie with `KELPIE_BIN_PATH`:
 
 ```js
 const { spawnSync } = require("node:child_process");
 
-const herdr = process.env.HERDR_BIN_PATH ?? "herdr";
-const result = spawnSync(herdr, ["workspace", "list"], {
+const kelpie = process.env.KELPIE_BIN_PATH ?? "kelpie";
+const result = spawnSync(kelpie, ["workspace", "list"], {
   encoding: "utf8",
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -168,27 +168,27 @@ available on the user's machine.
 Install an example plugin:
 
 ```bash
-herdr plugin install ogulcancelik/herdr-plugin-examples/agent-telegram-notify
-herdr plugin config-dir examples.agent-telegram-notify
-herdr plugin list
-herdr plugin action list --plugin examples.agent-telegram-notify
+kelpie plugin install ogulcancelik/herdr-plugin-examples/agent-telegram-notify
+kelpie plugin config-dir examples.agent-telegram-notify
+kelpie plugin list
+kelpie plugin action list --plugin examples.agent-telegram-notify
 ```
 
 When you are authoring a local plugin, link the working directory instead:
 
 ```bash
-herdr plugin link /path/to/plugin
-herdr plugin config-dir example.layout
-herdr plugin action list --plugin example.layout
-herdr plugin action invoke example.layout.apply
-herdr plugin pane open --plugin example.layout --entrypoint board
-herdr plugin log list --plugin example.layout
+kelpie plugin link /path/to/plugin
+kelpie plugin config-dir example.layout
+kelpie plugin action list --plugin example.layout
+kelpie plugin action invoke example.layout.apply
+kelpie plugin pane open --plugin example.layout --entrypoint board
+kelpie plugin log list --plugin example.layout
 ```
 
 `plugin install` accepts GitHub shorthand only, such as
 `owner/repo/subdir`. It clones with `git`, shows a preview in interactive
 terminals, runs supported build commands, then stores the checkout under
-Herdr-managed plugin data and registers it. Use `--yes` for noninteractive
+Kelpie-managed plugin data and registers it. Use `--yes` for noninteractive
 installs. Reinstalling a GitHub-managed plugin replaces that managed checkout.
 Installing over a locally linked plugin is refused; unlink or uninstall the
 local plugin first. `plugin install` and `plugin link` create the plugin's
@@ -210,47 +210,47 @@ not maintained official plugins.
 ## Build commands
 
 Build commands run during GitHub `plugin install` after confirmation and before
-Herdr registers the plugin. If a build command fails, install aborts and the
+Kelpie registers the plugin. If a build command fails, install aborts and the
 plugin is not registered. `plugin link` does not run build commands; local
 authors build their working tree themselves. Build commands may generate files,
-but changing `herdr-plugin.toml` after the install preview aborts install. Build
+but changing `kelpie-plugin.toml` after the install preview aborts install. Build
 failures show the plugin id, build index, working directory, command, exit
 status or spawn error, and capped stdout/stderr without interpreting tool output.
 
 Build commands are plain argv commands too, but they do not receive runtime
-plugin context or Herdr socket env. Plugin authors should document required
-system tools such as `cargo`, `npm`, `bun`, or `lua`; Herdr reports build
+plugin context or Kelpie socket env. Plugin authors should document required
+system tools such as `cargo`, `npm`, `bun`, or `lua`; Kelpie reports build
 failures but does not install missing toolchains.
 
 ## Commands and environment
 
-Runtime commands run with the plugin directory as their working directory. Herdr
-injects `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV=1`,
-`HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`,
-`HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_CONTEXT_JSON`, and any available
-`HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID`. Action commands also
-receive `HERDR_PLUGIN_ACTION_ID`; event hooks receive `HERDR_PLUGIN_EVENT` and
-`HERDR_PLUGIN_EVENT_JSON`; pane commands receive `HERDR_PLUGIN_ENTRYPOINT_ID`.
+Runtime commands run with the plugin directory as their working directory. Kelpie
+injects `KELPIE_SOCKET_PATH`, `KELPIE_BIN_PATH`, `KELPIE_ENV=1`,
+`KELPIE_PLUGIN_ID`, `KELPIE_PLUGIN_ROOT`, `KELPIE_PLUGIN_CONFIG_DIR`,
+`KELPIE_PLUGIN_STATE_DIR`, `KELPIE_PLUGIN_CONTEXT_JSON`, and any available
+`KELPIE_WORKSPACE_ID`, `KELPIE_TAB_ID`, and `KELPIE_PANE_ID`. Action commands also
+receive `KELPIE_PLUGIN_ACTION_ID`; event hooks receive `KELPIE_PLUGIN_EVENT` and
+`KELPIE_PLUGIN_EVENT_JSON`; pane commands receive `KELPIE_PLUGIN_ENTRYPOINT_ID`.
 
-`HERDR_PLUGIN_ROOT` is the installed or linked plugin directory. Do not store
+`KELPIE_PLUGIN_ROOT` is the installed or linked plugin directory. Do not store
 user credentials or durable state there, because GitHub-installed plugin roots
 are managed source checkouts. Put user-editable config such as `.env` files
-under `HERDR_PLUGIN_CONFIG_DIR`, and put local runtime state under
-`HERDR_PLUGIN_STATE_DIR`. Herdr creates those directories and seeds
-`HERDR_PLUGIN_CONFIG_DIR` from the legacy plugin config locations when present,
+under `KELPIE_PLUGIN_CONFIG_DIR`, and put local runtime state under
+`KELPIE_PLUGIN_STATE_DIR`. Kelpie creates those directories and seeds
+`KELPIE_PLUGIN_CONFIG_DIR` from the legacy plugin config locations when present,
 but it does not validate, sync, or delete their contents. The plugin owns the
 file format and lifecycle.
 
-`HERDR_PLUGIN_CONTEXT_JSON` can include workspace, tab, focused pane, worktree,
+`KELPIE_PLUGIN_CONTEXT_JSON` can include workspace, tab, focused pane, worktree,
 agent, selected text, clicked URL, and link handler fields when they are
 available for that invocation. Shell plugins can read the individual env vars
 for common ids, or parse the context JSON for the full shape.
 
-Use `HERDR_BIN_PATH` when a plugin needs to call Herdr portably from Node,
+Use `KELPIE_BIN_PATH` when a plugin needs to call Kelpie portably from Node,
 PowerShell, Bash, or another runtime. The raw socket transport behind
-`HERDR_SOCKET_PATH` is OS-specific: Unix clients connect to a Unix socket path,
+`KELPIE_SOCKET_PATH` is OS-specific: Unix clients connect to a Unix socket path,
 while Windows clients connect to a named pipe. CLI calls through
-`HERDR_BIN_PATH` avoid that transport difference. See the
+`KELPIE_BIN_PATH` avoid that transport difference. See the
 [CLI reference](/docs/cli-reference/) for available commands and
 [socket API](/docs/socket-api/) for raw request shapes.
 
@@ -261,14 +261,14 @@ overlay over the active pane and restores the previous focus and zoom when it
 closes. A `plugin.pane.open` request can override the manifest placement with
 `overlay`, `split`, `tab`, or `zoomed`.
 
-Plugin panes are normal Herdr panes after they open. Plugins can call standard
+Plugin panes are normal Kelpie panes after they open. Plugins can call standard
 pane APIs such as `pane.move`, `pane.swap`, `pane.resize`, and `pane.zoom`
-through the socket or CLI; Herdr keeps plugin pane ownership attached to the
+through the socket or CLI; Kelpie keeps plugin pane ownership attached to the
 underlying pane when it moves across tabs or workspaces.
 
 On Windows, build commands, action commands, and event commands resolve common
 `PATHEXT` shims such as `npm.cmd`, `bun.cmd`, and `pnpm.cmd` when the bare
-command is on `PATH`. Pane commands use Herdr's normal Windows pane launcher and
+command is on `PATH`. Pane commands use Kelpie's normal Windows pane launcher and
 must still be valid Windows argv commands.
 
 ## Keybindings
@@ -293,22 +293,22 @@ click. `pattern` is a Rust regular expression matched against the clicked URL,
 and `action` must
 name an action declared by the same plugin. Link handler actions receive
 `invocation_source = "link_click"`, `clicked_url`, and `link_handler_id` in
-`HERDR_PLUGIN_CONTEXT_JSON`; shell plugins can also read
-`HERDR_PLUGIN_CLICKED_URL` and `HERDR_PLUGIN_LINK_HANDLER_ID`. Handlers are
+`KELPIE_PLUGIN_CONTEXT_JSON`; shell plugins can also read
+`KELPIE_PLUGIN_CLICKED_URL` and `KELPIE_PLUGIN_LINK_HANDLER_ID`. Handlers are
 checked in manifest order inside each plugin.
 
 ## Storage
 
-There is no Herdr-managed plugin storage API in v1. Plugins that need durable
+There is no Kelpie-managed plugin storage API in v1. Plugins that need durable
 state should own their files or database.
 
 ## Marketplace
 
 Community plugins are discoverable in the [marketplace](/plugins/), an automatic
-index of public GitHub repositories tagged with the topic `herdr-plugin`.
-Plugins stay ordinary GitHub repositories: publish one with `herdr-plugin.toml`,
-then share `herdr plugin install owner/repo[/subdir]`.
+index of public GitHub repositories tagged with the topic `kelpie-plugin`.
+Plugins stay ordinary GitHub repositories: publish one with `kelpie-plugin.toml`,
+then share `kelpie plugin install owner/repo[/subdir]`.
 
-To get a plugin listed, add the GitHub topic `herdr-plugin` to its public
+To get a plugin listed, add the GitHub topic `kelpie-plugin` to its public
 repository. The index refreshes every 30 minutes. See
 [Marketplace](/docs/marketplace/) for how discovery works.

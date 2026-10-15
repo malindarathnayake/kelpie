@@ -25,7 +25,7 @@ case "$last" in
         PATH="$TEST_ROOT/remote bin:/usr/bin:/bin" exec /bin/sh -c "$last" ;;
     '/bin/sh -s')
         script=$(cat)
-        printf 'login banner\nherdr-remote-output-ready:1\n'
+        printf 'login banner\nkelpie-remote-output-ready:1\n'
         case "$script" in
             *'uname -s'*) uname -s; uname -m ;;
             *) echo "unexpected discovery: $script" >&2; exit 2 ;;
@@ -51,9 +51,9 @@ impl Harness {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let app = if cfg!(debug_assertions) {
-            "herdr-dev"
+            "kelpie-dev"
         } else {
-            "herdr"
+            "kelpie"
         };
         let state = root.join("state").join(app).join("client");
         let session = root.join("config").join(app).join("sessions/fleet");
@@ -62,13 +62,14 @@ impl Harness {
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::write(root.join("bin/ssh"), SSH).unwrap();
         fs::set_permissions(root.join("bin/ssh"), fs::Permissions::from_mode(0o700)).unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_herdr"), root.join("remote herdr")).unwrap();
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_kelpie"), root.join("remote kelpie"))
+            .unwrap();
         fs::create_dir_all(root.join("remote bin")).unwrap();
-        let remote_wrapper = root.join("remote bin/herdr");
+        let remote_wrapper = root.join("remote bin/kelpie");
         fs::write(
             &remote_wrapper,
             r#"#!/bin/sh
-if [ "$TEST_MODE" = old ]; then printf 'herdr-api-bridge-v1\n'; exit 2; fi
+if [ "$TEST_MODE" = old ]; then printf 'kelpie-api-bridge-v1\n'; exit 2; fi
 case "$*" in
     *'--check')
         if IFS= read -r request; then
@@ -76,7 +77,7 @@ case "$*" in
             exit 2
         fi ;;
 esac
-exec "$TEST_REMOTE_HERDR" "$@"
+exec "$TEST_REMOTE_KELPIE" "$@"
 "#,
         )
         .unwrap();
@@ -85,11 +86,11 @@ exec "$TEST_REMOTE_HERDR" "$@"
             "version": 1,
             "ssh": [{"id": PROFILE_ID, "label": "mac", "target": "fake-mac", "session": "fleet", "enabled": true}]
         })).unwrap()).unwrap();
-        let remote = UnixListener::bind(session.join("herdr.sock")).unwrap();
+        let remote = UnixListener::bind(session.join("kelpie.sock")).unwrap();
         remote.set_nonblocking(true).unwrap();
         let local = UnixListener::bind(root.join("local.sock")).unwrap();
         local.set_nonblocking(true).unwrap();
-        let status = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        let status = Command::new(env!("CARGO_BIN_EXE_kelpie"))
             .args(["status", "client", "--json"])
             .output()
             .unwrap();
@@ -104,7 +105,7 @@ exec "$TEST_REMOTE_HERDR" "$@"
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_herdr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kelpie"));
         command
             .args(args)
             .env(
@@ -116,16 +117,16 @@ exec "$TEST_REMOTE_HERDR" "$@"
             .env("XDG_STATE_HOME", self.root.join("state"))
             .env("XDG_RUNTIME_DIR", &self.root)
             .env("TEST_ROOT", &self.root)
-            .env("TEST_REMOTE_HERDR", self.root.join("remote herdr"))
-            .env("HERDR_SOCKET_PATH", self.root.join("local.sock"))
+            .env("TEST_REMOTE_KELPIE", self.root.join("remote kelpie"))
+            .env("KELPIE_SOCKET_PATH", self.root.join("local.sock"))
             .env(
-                "HERDR_CLIENT_SOCKET_PATH",
+                "KELPIE_CLIENT_SOCKET_PATH",
                 self.root.join("never-client.sock"),
             )
-            .env("HERDR_SESSION", "wrong-inherited-session")
-            .env("HERDR_PANE_ID", "wrong-local-pane")
-            .env_remove("HERDR_CONFIG_PATH")
-            .env_remove("HERDR_REMOTE_BINARY");
+            .env("KELPIE_SESSION", "wrong-inherited-session")
+            .env("KELPIE_PANE_ID", "wrong-local-pane")
+            .env_remove("KELPIE_CONFIG_PATH")
+            .env_remove("KELPIE_REMOTE_BINARY");
         command
     }
 
@@ -201,7 +202,7 @@ exec "$TEST_REMOTE_HERDR" "$@"
             .unwrap()
             .file_name()
             .to_string_lossy()
-            .starts_with("herdr-api-")));
+            .starts_with("kelpie-api-")));
     }
 }
 
@@ -291,8 +292,8 @@ fn machine_api_bootstrap_falls_back_from_an_old_path_binary() {
     let harness = Harness::new();
     fs::create_dir_all(harness.root.join(".local/bin")).unwrap();
     std::os::unix::fs::symlink(
-        env!("CARGO_BIN_EXE_herdr"),
-        harness.root.join(".local/bin/herdr"),
+        env!("CARGO_BIN_EXE_kelpie"),
+        harness.root.join(".local/bin/kelpie"),
     )
     .unwrap();
     let server = harness.serve(
@@ -360,11 +361,11 @@ fn machine_api_reuses_discovery_across_commands_without_rewriting_profiles() {
 fn machine_api_recovers_a_stale_path_before_sending_a_mutation() {
     let harness = Harness::new();
     harness.warm_metadata();
-    fs::remove_file(harness.root.join("remote bin/herdr")).unwrap();
+    fs::remove_file(harness.root.join("remote bin/kelpie")).unwrap();
     fs::create_dir_all(harness.root.join(".local/bin")).unwrap();
     std::os::unix::fs::symlink(
-        env!("CARGO_BIN_EXE_herdr"),
-        harness.root.join(".local/bin/herdr"),
+        env!("CARGO_BIN_EXE_kelpie"),
+        harness.root.join(".local/bin/kelpie"),
     )
     .unwrap();
     let before = harness.ssh_calls();
@@ -505,14 +506,14 @@ fn machine_api_remote_paths_and_wait_parameters_reach_the_server() {
                 "worktree",
                 "create",
                 "--cwd",
-                "~/Projects/herdr",
+                "~/Projects/kelpie",
                 "--branch",
                 "review",
                 "--path",
                 "/srv/review",
             ],
             "worktree.create",
-            json!({"cwd":"~/Projects/herdr", "branch":"review", "path":"/srv/review"}),
+            json!({"cwd":"~/Projects/kelpie", "branch":"review", "path":"/srv/review"}),
         ),
         (
             vec![
@@ -605,7 +606,7 @@ fn machine_api_usage_errors_do_not_connect() {
 #[test]
 fn machine_api_rejects_old_bridges_and_disconnected_machines() {
     for (mode, message) in [
-        ("old", "update Herdr"),
+        ("old", "update Kelpie"),
         ("offline", "test remote connection failed"),
     ] {
         let harness = Harness::new();
@@ -630,7 +631,10 @@ fn machine_api_server_stop_is_sent_only_to_the_selected_machine() {
     let server = harness.serve(json!({"result":{"type":"ok"}}), harness.protocol);
     let output = harness
         .command(&["--machine", "mac", "server", "stop"])
-        .env("HERDR_SOCKET_PATH", harness.root.join("missing-local.sock"))
+        .env(
+            "KELPIE_SOCKET_PATH",
+            harness.root.join("missing-local.sock"),
+        )
         .output()
         .unwrap();
     assert!(
@@ -660,6 +664,6 @@ fn machine_api_protocol_mismatch_never_sends_the_mutation() {
     let error = String::from_utf8_lossy(&output.stderr);
     assert!(error.contains("protocol_mismatch"), "{error}");
     assert!(error.contains("machine 'mac'"), "{error}");
-    assert!(!error.contains("HERDR_SOCKET_PATH="), "{error}");
+    assert!(!error.contains("KELPIE_SOCKET_PATH="), "{error}");
     harness.assert_local_untouched();
 }

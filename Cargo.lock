@@ -777,45 +777,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "herdr"
-version = "0.9.3"
-dependencies = [
- "base64",
- "bincode",
- "bytes",
- "clap",
- "clap_complete",
- "crossterm",
- "ctrlc",
- "futures-util",
- "ghostty-vt",
- "interprocess",
- "jsonc-parser",
- "libc",
- "png",
- "portable-pty",
- "ratatui",
- "regex",
- "schemars",
- "serde",
- "serde_ignored",
- "serde_json",
- "sha2",
- "time",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "unicode-segmentation",
- "unicode-width",
- "widestring",
- "windows",
- "windows-sys",
- "wmi",
- "zbus",
-]
-
-[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -923,6 +884,45 @@ dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kelpie"
+version = "0.9.3"
+dependencies = [
+ "base64",
+ "bincode",
+ "bytes",
+ "clap",
+ "clap_complete",
+ "crossterm",
+ "ctrlc",
+ "futures-util",
+ "ghostty-vt",
+ "interprocess",
+ "jsonc-parser",
+ "libc",
+ "png",
+ "portable-pty",
+ "ratatui",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_ignored",
+ "serde_json",
+ "sha2",
+ "time",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-segmentation",
+ "unicode-width",
+ "widestring",
+ "windows",
+ "windows-sys",
+ "wmi",
+ "zbus",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: herdr maintainers <maintainers@herdr.dev>
+From: kelpie maintainers <maintainers@kelpie.example>
 Date: Tue, 1 Sep 2026 00:00:00 +0000
 Subject: [PATCH] reject malformed Windows process environments
 
@@ -8,7 +8,7 @@ or malformed UTF-16. Decode string values into aligned storage, check Win32
 expansion failures, preserve valid drive variables, and omit entries that
 cannot form a valid environment record before calling CreateProcessW.
 
-Herdr issue: https://github.com/herdrdev/herdr/issues/3430
+Kelpie issue: https://kelpie.example/source/issues/3430
 Vendored base: portable-pty 0.9.0
 ---
 diff --git a/vendor/portable-pty/src/cmdbuilder.rs b/vendor/portable-pty/src/cmdbuilder.rs

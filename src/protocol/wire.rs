@@ -1,4 +1,4 @@
-//! Wire protocol for herdr server/client communication.
+//! Wire protocol for kelpie server/client communication.
 //!
 //! Defines the message types, framing, version negotiation, and safety
 //! constraints for the binary protocol over local sockets.
@@ -543,7 +543,7 @@ pub enum ClientMessage {
         takeover: bool,
     },
 
-    /// Result of the one armed Herdr-owned direct Kitty transmission.
+    /// Result of the one armed Kelpie-owned direct Kitty transmission.
     GraphicsTransmissionResult {
         transfer_id: u64,
         image_id: u32,
@@ -701,7 +701,7 @@ pub struct CellData {
     pub fg: u32,
     /// Background color as a packed u32.
     pub bg: u32,
-    /// Bitmask of style modifiers (bold, italic, etc.) plus Herdr extension bits.
+    /// Bitmask of style modifiers (bold, italic, etc.) plus Kelpie extension bits.
     pub modifier: u16,
     /// Whether this cell should be skipped during diff-based rendering.
     pub skip: bool,
@@ -1388,7 +1388,7 @@ pub struct SemanticNotification {
     pub workspace_id: Option<String>,
     pub tab_id: Option<String>,
     pub pane_id: Option<String>,
-    pub position: Option<crate::config::ToastHerdrPosition>,
+    pub position: Option<crate::config::ToastKelpiePosition>,
 }
 
 /// Messages sent from the server to the client over the client protocol socket.
@@ -1441,7 +1441,7 @@ pub enum ServerMessage {
 
     /// Set the foreground client's outer terminal window title.
     WindowTitle {
-        /// Sanitized title to write with OSC 0. `None` restores Herdr's default title.
+        /// Sanitized title to write with OSC 0. `None` restores Kelpie's default title.
         title: Option<String>,
     },
 
@@ -1450,7 +1450,7 @@ pub enum ServerMessage {
 
     /// Whether the client should currently capture host mouse input.
     MouseCapture {
-        /// True when Herdr mouse UI is enabled or the focused pane app requests mouse reporting.
+        /// True when Kelpie mouse UI is enabled or the focused pane app requests mouse reporting.
         enabled: bool,
         /// True only while the focused pane requests DEC SGR pixel mode 1016.
         sgr_pixels: bool,
@@ -1462,7 +1462,7 @@ pub enum ServerMessage {
         count: u16,
     },
 
-    /// One validated Herdr-owned Kitty regular-file RGBA transmission.
+    /// One validated Kelpie-owned Kitty regular-file RGBA transmission.
     GraphicsFile {
         path: String,
         expected_len: u64,
@@ -1772,11 +1772,11 @@ pub fn check_client_version(client_version: u32) -> VersionCheck {
         VersionCheck::Compatible
     } else if client_version < PROTOCOL_VERSION {
         VersionCheck::Incompatible(format!(
-            "client version {client_version} is older than server version {PROTOCOL_VERSION}; please upgrade your herdr client"
+            "client version {client_version} is older than server version {PROTOCOL_VERSION}; please upgrade your kelpie client"
         ))
     } else {
         VersionCheck::Incompatible(format!(
-            "client version {client_version} is newer than server version {PROTOCOL_VERSION}; please upgrade the herdr server"
+            "client version {client_version} is newer than server version {PROTOCOL_VERSION}; please upgrade the kelpie server"
         ))
     }
 }
@@ -2223,7 +2223,7 @@ mod tests {
     #[tokio::test]
     async fn client_shell_remote_altgr_dead_key_emits_only_composed_text() {
         // Spanish ISO AltGr+4, then Space, captured in #3948:
-        // https://github.com/herdrdev/herdr/issues/3948#issuecomment-5633222390
+        // https://kelpie.example/source/issues/3948#issuecomment-5633222390
         let records = [
             ('4', ClientKeyKind::Press, 52, 5, 0, 9),
             ('4', ClientKeyKind::Release, 52, 5, 0, 9),
@@ -2812,11 +2812,11 @@ mod tests {
                 preview: false,
             }),
             update_available: Some("0.8.3".into()),
-            update_install_command: "herdr update".into(),
+            update_install_command: "kelpie update".into(),
             server_keybindings_toml: Some("[keys]\nprefix = \"ctrl+a\"\n".into()),
             latest_release_notes_available: true,
             integration_updates_available: true,
-            worktree_directory: "/tmp/herdr-worktrees".into(),
+            worktree_directory: "/tmp/kelpie-worktrees".into(),
             release_notes: Some(ClientShellReleaseNotes {
                 version: "0.8.3".into(),
                 body: "### New\n- Update ready".into(),
@@ -2907,7 +2907,7 @@ mod tests {
             workspace_id: Some("w1".into()),
             tab_id: Some("w1:t1".into()),
             pane_id: Some("w1:p1".into()),
-            position: Some(crate::config::ToastHerdrPosition::TopRight),
+            position: Some(crate::config::ToastKelpiePosition::TopRight),
         });
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
         let (decoded, _): (ServerMessage, _) =
@@ -2947,7 +2947,7 @@ mod tests {
 
     #[test]
     fn server_window_title_roundtrip() {
-        for title in [Some("herdr api".to_owned()), None] {
+        for title in [Some("kelpie api".to_owned()), None] {
             let msg = ServerMessage::WindowTitle { title };
             let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
             let (decoded, _): (ServerMessage, _) =
@@ -3041,7 +3041,7 @@ mod tests {
         assert_eq!(client, decoded);
 
         let server = ServerMessage::GraphicsFile {
-            path: "/run/user/1000/herdr/source/frame".into(),
+            path: "/run/user/1000/kelpie/source/frame".into(),
             expected_len: 4,
             image_id: 42,
             transfer_id: 7,

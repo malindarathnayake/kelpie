@@ -128,7 +128,7 @@ impl ClientShellConfig {
             sound_enabled: config.ui.sound.enabled,
             toast_delivery: config.ui.toast.delivery,
             toast_delay_seconds: config.ui.toast.delay_seconds,
-            toast_position: config.ui.toast.herdr.position,
+            toast_position: config.ui.toast.kelpie.position,
             copy_on_select: config.ui.copy_on_select,
             clipboard_toast_enabled: config.ui.toast.clipboard.enabled,
             clipboard_toast_position: config.ui.toast.clipboard.position,
@@ -357,7 +357,7 @@ impl ClientShellConfig {
                 self.sound_enabled = ui.sound.enabled;
                 self.toast_delivery = ui.toast.delivery;
                 self.toast_delay_seconds = ui.toast.delay_seconds;
-                self.toast_position = ui.toast.herdr.position;
+                self.toast_position = ui.toast.kelpie.position;
                 self.copy_on_select = ui.copy_on_select;
                 self.clipboard_toast_enabled = ui.toast.clipboard.enabled;
                 self.clipboard_toast_position = ui.toast.clipboard.position;
@@ -473,7 +473,7 @@ impl ClientShellConfig {
     }
 }
 
-/// Fork (Q1): `HERDR_ANIMATIONS` overrides `[ui] animations` for this client.
+/// Fork (Q1): `KELPIE_ANIMATIONS` overrides `[ui] animations` for this client.
 fn resolved_animations(
     configured: crate::config::AnimationsConfig,
 ) -> crate::config::AnimationsConfig {
@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn initial_surface_size_uses_persisted_endpoint_chrome() {
         let path = std::env::temp_dir().join(format!(
-            "herdr-initial-shell-preferences-{}.json",
+            "kelpie-initial-shell-preferences-{}.json",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&path);

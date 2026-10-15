@@ -31,9 +31,9 @@ impl SessionConfig {
 
     fn session_dir(&self, name: &str) -> PathBuf {
         let app_dir = if cfg!(debug_assertions) {
-            "herdr-dev"
+            "kelpie-dev"
         } else {
-            "herdr"
+            "kelpie"
         };
         self.root.join(app_dir).join("sessions").join(name)
     }
@@ -46,12 +46,12 @@ impl SessionConfig {
     }
 
     fn delete(&self, name: &str) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_herdr"))
+        Command::new(env!("CARGO_BIN_EXE_kelpie"))
             .args(["session", "delete", name, "--json"])
             .env("XDG_CONFIG_HOME", &self.root)
-            .env_remove("HERDR_SESSION")
-            .env_remove("HERDR_SOCKET_PATH")
-            .env_remove("HERDR_CLIENT_SOCKET_PATH")
+            .env_remove("KELPIE_SESSION")
+            .env_remove("KELPIE_SOCKET_PATH")
+            .env_remove("KELPIE_CLIENT_SOCKET_PATH")
             .output()
             .unwrap()
     }
@@ -149,7 +149,7 @@ fn delete_session_distinguishes_case_sensitive_siblings() {
 fn delete_session_preserves_running_session() {
     let config = SessionConfig::new();
     let dir = config.create_session("Foo");
-    let _listener = std::os::unix::net::UnixListener::bind(dir.join("herdr.sock")).unwrap();
+    let _listener = std::os::unix::net::UnixListener::bind(dir.join("kelpie.sock")).unwrap();
 
     let output = config.delete("Foo");
 

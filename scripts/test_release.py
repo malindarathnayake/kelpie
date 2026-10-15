@@ -11,7 +11,7 @@ from scripts import release
 
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="herdr-release-", dir="/var/tmp" if os.name != "nt" else None)
+        self.temp = tempfile.TemporaryDirectory(prefix="kelpie-release-", dir="/var/tmp" if os.name != "nt" else None)
         self.addCleanup(self.temp.cleanup)
         self.previous_cwd = Path.cwd()
         os.chdir(self.temp.name)
@@ -19,11 +19,11 @@ class ReleaseTests(unittest.TestCase):
         self.git("init", "-q", "-b", "master")
         self.git("config", "user.name", "Release Test")
         self.git("config", "user.email", "release@example.invalid")
-        self.put("Cargo.toml", '[package]\nname = "herdr"\nversion = "1.0.0"\n[dependencies]\nserde = "1"\n')
-        self.put("Cargo.lock", 'version = 4\n[[package]]\nname = "herdr"\nversion = "1.0.0"\n[[package]]\nname = "serde"\nversion = "1.0.0"\n')
+        self.put("Cargo.toml", '[package]\nname = "kelpie"\nversion = "1.0.0"\n[dependencies]\nserde = "1"\n')
+        self.put("Cargo.lock", 'version = 4\n[[package]]\nname = "kelpie"\nversion = "1.0.0"\n[[package]]\nname = "serde"\nversion = "1.0.0"\n')
         self.put("src/main.rs", "fn main() {}\n")
         self.put("docs/next/CHANGELOG.md", "# Changelog\n")
-        self.put("skills/herdr/SKILL.md", "Stable skill\n")
+        self.put("skills/kelpie/SKILL.md", "Stable skill\n")
         self.put("docs/next/website/src/content/docs/obsolete.mdx", "Old page\n")
         self.put("distribution/latest.json", json.dumps({"version": "1.0.0"}))
         self.put("scripts/release.py", "# promotion tooling\n")
@@ -73,9 +73,9 @@ class ReleaseTests(unittest.TestCase):
     def test_code_dependencies_schema_and_build_changes_are_rejected(self):
         cases = {
             "src/main.rs": "fn main() { panic!(); }\n",
-            "Cargo.toml": '[package]\nname = "herdr"\nversion = "1.0.1"\n[dependencies]\nserde = "2"\n',
+            "Cargo.toml": '[package]\nname = "kelpie"\nversion = "1.0.1"\n[dependencies]\nserde = "2"\n',
             "Cargo.lock": Path("Cargo.lock").read_text().replace('name = "serde"\nversion = "1.0.0"', 'name = "serde"\nversion = "2.0.0"'),
-            "docs/next/api/herdr-api.schema.json": "{}\n",
+            "docs/next/api/kelpie-api.schema.json": "{}\n",
             ".github/workflows/release.yml": "changed\n",
         }
         for path, content in cases.items():
@@ -98,7 +98,7 @@ class ReleaseTests(unittest.TestCase):
                 release.validate_diff(self.preview, self.commit("symlink"))
 
     def test_required_release_files_cannot_be_deleted_but_website_pages_can(self):
-        for path in ("docs/next/CHANGELOG.md", "skills/herdr/SKILL.md"):
+        for path in ("docs/next/CHANGELOG.md", "skills/kelpie/SKILL.md"):
             with self.subTest(path=path):
                 self.git("reset", "--hard", self.preview)
                 self.git("rm", path)

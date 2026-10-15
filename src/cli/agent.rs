@@ -101,9 +101,9 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
                 index += 1;
             }
             "help" | "--help" | "-h" => {
-                eprintln!("usage: herdr agent explain <target> [--json|--verbose]");
+                eprintln!("usage: kelpie agent explain <target> [--json|--verbose]");
                 eprintln!(
-                    "usage: herdr agent explain --file PATH --agent LABEL [--json|--verbose]"
+                    "usage: kelpie agent explain --file PATH --agent LABEL [--json|--verbose]"
                 );
                 return Ok(0);
             }
@@ -113,7 +113,7 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
             }
             value => {
                 if target.is_some() {
-                    eprintln!("usage: herdr agent explain <target> [--json]");
+                    eprintln!("usage: kelpie agent explain <target> [--json]");
                     return Ok(2);
                 }
                 target = Some(value.to_string());
@@ -124,11 +124,11 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
 
     let explain = if let Some(path) = file {
         if target.is_some() {
-            eprintln!("usage: herdr agent explain --file PATH --agent LABEL [--json]");
+            eprintln!("usage: kelpie agent explain --file PATH --agent LABEL [--json]");
             return Ok(2);
         }
         let Some(agent_label) = agent else {
-            eprintln!("herdr agent explain --file requires --agent LABEL");
+            eprintln!("kelpie agent explain --file requires --agent LABEL");
             return Ok(2);
         };
         let content = match std::fs::read_to_string(&path) {
@@ -152,8 +152,8 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
         ))
     } else {
         let Some(target) = target else {
-            eprintln!("usage: herdr agent explain <target> [--json]");
-            eprintln!("usage: herdr agent explain --file PATH --agent LABEL [--json]");
+            eprintln!("usage: kelpie agent explain <target> [--json]");
+            eprintln!("usage: kelpie agent explain --file PATH --agent LABEL [--json]");
             return Ok(2);
         };
         if agent.is_some() {
@@ -301,7 +301,7 @@ fn matched_rule_region_preview<'a>(
 
 fn agent_start(args: &[String]) -> std::io::Result<i32> {
     let Some(name) = args.first() else {
-        eprintln!("usage: herdr agent start <name> --kind KIND --pane ID [--timeout MS] [-- <agent-args...>]");
+        eprintln!("usage: kelpie agent start <name> --kind KIND --pane ID [--timeout MS] [-- <agent-args...>]");
         return Ok(2);
     };
     let separator = args
@@ -450,7 +450,7 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr agent list");
+        eprintln!("usage: kelpie agent list");
         return Ok(2);
     }
 
@@ -461,7 +461,7 @@ fn agent_list(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn parse_agent_digest_args(args: &[String]) -> Result<AgentsDigestParams, String> {
-    const USAGE: &str = "usage: herdr agent digest [--page-cursor C] [--trace-id T]";
+    const USAGE: &str = "usage: kelpie agent digest [--page-cursor C] [--trace-id T]";
     let mut page_cursor: Option<String> = None;
     let mut trace_id: Option<String> = None;
     let mut index = 0;
@@ -502,19 +502,19 @@ fn agent_digest(args: &[String]) -> std::io::Result<i32> {
 }
 
 const WATCH_USAGE: &str =
-    "herdr agent watch [--pane ID] [--interval-ms N] [--max-changes N] [--timeout-ms N]";
+    "kelpie agent watch [--pane ID] [--interval-ms N] [--max-changes N] [--timeout-ms N]";
 const SUBMIT_USAGE: &str =
-    "herdr agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID <TEXT>";
-const ANSWER_USAGE: &str = "herdr agent answer --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --question-id Q --submit-id ID <TEXT>";
+    "kelpie agent submit --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID <TEXT>";
+const ANSWER_USAGE: &str = "kelpie agent answer --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --question-id Q --submit-id ID <TEXT>";
 const INTERRUPT_USAGE: &str =
-    "herdr agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
+    "kelpie agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
 const RESET_USAGE: &str =
-    "herdr agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
+    "kelpie agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
 const CLEAR_DRAFT_USAGE: &str =
-    "herdr agent clear-draft --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
+    "kelpie agent clear-draft --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
 const RESUME_USAGE: &str =
-    "herdr agent resume --pane ID --session-id ID --submit-id ID [--agent LABEL]";
-const SUBMIT_STATUS_USAGE: &str = "herdr agent submit-status <SUBMIT_ID>";
+    "kelpie agent resume --pane ID --session-id ID --submit-id ID [--agent LABEL]";
+const SUBMIT_STATUS_USAGE: &str = "kelpie agent submit-status <SUBMIT_ID>";
 const WATCH_DEFAULT_INTERVAL_MS: u64 = 500;
 const WATCH_MIN_INTERVAL_MS: u64 = 100;
 /// Bound on digest pages fetched per poll; a larger herd than this is truncated.
@@ -697,7 +697,7 @@ fn emit_watch_line(line: &serde_json::Value) -> bool {
     writeln!(out, "{line}").and_then(|()| out.flush()).is_ok()
 }
 
-/// `herdr agent watch`: read-only. Polls `agents.digest` and prints one JSON
+/// `kelpie agent watch`: read-only. Polls `agents.digest` and prints one JSON
 /// line per agent whose bounded field set changed, `stale`/`recovered` lines
 /// around request failures, and a final `timeout` line when `--timeout-ms`
 /// elapses. Sends no writes of any kind.
@@ -982,7 +982,7 @@ fn send_supervised(id: &str, parsed: Result<Method, String>) -> std::io::Result<
     })?)
 }
 
-/// `herdr agent submit`: one submission to the exact, caller-supplied target.
+/// `kelpie agent submit`: one submission to the exact, caller-supplied target.
 /// The CLI never reads or refreshes the epoch or generation itself.
 fn agent_submit(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
@@ -991,7 +991,7 @@ fn agent_submit(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-/// `herdr agent answer`: answers the newest open prose question still on screen.
+/// `kelpie agent answer`: answers the newest open prose question still on screen.
 fn agent_answer(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
         "cli:agent:answer",
@@ -999,7 +999,7 @@ fn agent_answer(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-/// `herdr agent interrupt`: one fenced Esc to a working agent.
+/// `kelpie agent interrupt`: one fenced Esc to a working agent.
 fn agent_interrupt(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
         "cli:agent:interrupt",
@@ -1007,7 +1007,7 @@ fn agent_interrupt(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-/// `herdr agent reset`: submits `/clear` through the submit path.
+/// `kelpie agent reset`: submits `/clear` through the submit path.
 fn agent_reset(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
         "cli:agent:reset",
@@ -1015,7 +1015,7 @@ fn agent_reset(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-/// `herdr agent clear-draft`: clears the supervisor's own interrupted draft.
+/// `kelpie agent clear-draft`: clears the supervisor's own interrupted draft.
 fn agent_clear_draft(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
         "cli:agent:clear-draft",
@@ -1023,7 +1023,7 @@ fn agent_clear_draft(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-/// `herdr agent resume`: launches the agent's resume command for `<session-id>` (default
+/// `kelpie agent resume`: launches the agent's resume command for `<session-id>` (default
 /// agent `claude`) in a pane hosting no agent.
 fn agent_resume(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
@@ -1051,11 +1051,11 @@ fn agent_submit_status(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_get(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent get <target>");
+        eprintln!("usage: kelpie agent get <target>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr agent get <target>");
+        eprintln!("usage: kelpie agent get <target>");
         return Ok(2);
     }
 
@@ -1069,11 +1069,11 @@ fn agent_get(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent focus <target>");
+        eprintln!("usage: kelpie agent focus <target>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr agent focus <target>");
+        eprintln!("usage: kelpie agent focus <target>");
         return Ok(2);
     }
 
@@ -1086,11 +1086,13 @@ fn agent_focus(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_attach(args: &[String]) -> std::io::Result<i32> {
-    let (target, takeover) =
-        match super::parse_attach_target(args, "usage: herdr agent attach <target> [--takeover]") {
-            Ok(parsed) => parsed,
-            Err(code) => return Ok(code),
-        };
+    let (target, takeover) = match super::parse_attach_target(
+        args,
+        "usage: kelpie agent attach <target> [--takeover]",
+    ) {
+        Ok(parsed) => parsed,
+        Err(code) => return Ok(code),
+    };
 
     let response = resolve_agent_target(&target, "cli:agent:attach:resolve")?;
     if response.get("error").is_some() {
@@ -1107,7 +1109,7 @@ fn agent_attach(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_wait(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent wait <target> [--until STATUS]... [--timeout MS]");
+        eprintln!("usage: kelpie agent wait <target> [--until STATUS]... [--timeout MS]");
         return Ok(2);
     };
     let mut until = Vec::new();
@@ -1142,7 +1144,7 @@ fn agent_wait(args: &[String]) -> std::io::Result<i32> {
                 index += 2;
             }
             "help" | "--help" | "-h" => {
-                eprintln!("usage: herdr agent wait <target> [--until STATUS]... [--timeout MS]");
+                eprintln!("usage: kelpie agent wait <target> [--until STATUS]... [--timeout MS]");
                 return Ok(0);
             }
             other => {
@@ -1358,7 +1360,7 @@ fn agent_get_request(target: &str, request_id: &str) -> Request {
 
 fn agent_rename(args: &[String]) -> std::io::Result<i32> {
     let [target, value] = args else {
-        eprintln!("usage: herdr agent rename <target> <name>|--clear");
+        eprintln!("usage: kelpie agent rename <target> <name>|--clear");
         return Ok(2);
     };
     let name = if value == "--clear" {
@@ -1378,7 +1380,7 @@ fn agent_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_read(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: kelpie agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
         return Ok(2);
     };
 
@@ -1441,9 +1443,9 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_agent_help() {
-    eprintln!("herdr agent commands:");
-    eprintln!("  herdr agent list");
-    eprintln!("  herdr agent digest [--page-cursor C] [--trace-id T]");
+    eprintln!("kelpie agent commands:");
+    eprintln!("  kelpie agent list");
+    eprintln!("  kelpie agent digest [--page-cursor C] [--trace-id T]");
     eprintln!("  {WATCH_USAGE}");
     eprintln!("  {SUBMIT_USAGE}");
     eprintln!("  {ANSWER_USAGE}");
@@ -1452,18 +1454,18 @@ fn print_agent_help() {
     eprintln!("  {CLEAR_DRAFT_USAGE}");
     eprintln!("  {RESUME_USAGE}");
     eprintln!("  {SUBMIT_STATUS_USAGE}");
-    eprintln!("  herdr agent get <target>");
-    eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!("  herdr agent rename <target> <name>|--clear");
-    eprintln!("  herdr agent focus <target>");
-    eprintln!("  herdr agent wait <target> [--until STATUS]... [--timeout MS]");
-    eprintln!("  herdr agent attach <target> [--takeover]");
+    eprintln!("  kelpie agent get <target>");
+    eprintln!("  kelpie agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("  kelpie agent rename <target> <name>|--clear");
+    eprintln!("  kelpie agent focus <target>");
+    eprintln!("  kelpie agent wait <target> [--until STATUS]... [--timeout MS]");
+    eprintln!("  kelpie agent attach <target> [--takeover]");
     eprintln!(
-        "  herdr agent start <name> --kind KIND --pane ID [--timeout MS] [-- <agent-args...>]"
+        "  kelpie agent start <name> --kind KIND --pane ID [--timeout MS] [-- <agent-args...>]"
     );
-    eprintln!("  herdr agent explain <target> [--json|--format text|json] [--verbose]");
+    eprintln!("  kelpie agent explain <target> [--json|--format text|json] [--verbose]");
     eprintln!(
-        "  herdr agent explain --file PATH --agent LABEL [--json|--format text|json] [--verbose]"
+        "  kelpie agent explain --file PATH --agent LABEL [--json|--format text|json] [--verbose]"
     );
     eprintln!("  targets accept unique agent names and pane ids that currently host agents");
     eprintln!("  kinds: {}", super::spec::agent_kind_values().join("|"));
@@ -1485,7 +1487,7 @@ mod tests {
     };
     use std::time::Duration;
 
-    const USAGE: &str = "usage: herdr agent digest [--page-cursor C] [--trace-id T]";
+    const USAGE: &str = "usage: kelpie agent digest [--page-cursor C] [--trace-id T]";
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()

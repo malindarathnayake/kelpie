@@ -1,4 +1,4 @@
-# herdr task runner
+# kelpie task runner
 set windows-shell := ["cmd.exe", "/d", "/s", "/c"]
 
 python := if os() == "windows" { "python" } else { "python3" }
@@ -90,33 +90,33 @@ build:
 
 # Non-gating full-render scaling profile for background workspaces and active panes
 bench-render-scale:
-    cargo test --release --locked --bin herdr render_scale_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin kelpie render_scale_profile -- --ignored --nocapture --test-threads=1
 
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:
-    cargo test --release --locked --bin herdr terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin kelpie terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
 
 # Profile Windows foreground inspection of isolated idle shells, without a server.
 [windows]
 bench-process-inspection:
-    cargo test --release --locked --bin herdr windows_process_inspection_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin kelpie windows_process_inspection_profile -- --ignored --nocapture --test-threads=1
 
 # Profile BSP split collection and construction with balanced and skewed trees.
 bench-bsp-layout:
-    cargo test --release --locked --bin herdr bsp_layout_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin kelpie bsp_layout_profile -- --ignored --nocapture --test-threads=1
 
 # Profile full and retained text, static-image, and unchanged-image updates.
 bench-retained-graphics:
-    cargo test --release --locked --bin herdr render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin kelpie render_scale_profile_retained_graphics -- --ignored --nocapture --test-threads=1
 
 # Profile first-batch latency and aggregate drain cost for external API bursts.
 bench-api-fairness:
-    cargo test --release --locked --bin herdr external_api_burst_profile -- --ignored --nocapture --test-threads=1
+    cargo test --release --locked --bin kelpie external_api_burst_profile -- --ignored --nocapture --test-threads=1
 
-# ~3-5 minute CPU comparison; downloads stable unless HERDR_PERF_BASELINE_BIN is set
+# ~3-5 minute CPU comparison; downloads stable unless KELPIE_PERF_BASELINE_BIN is set
 bench-release-smoke:
     cargo build --release --locked
-    scripts/release_perf_smoke.sh "${CARGO_TARGET_DIR:-target}/release/herdr"
+    scripts/release_perf_smoke.sh "${CARGO_TARGET_DIR:-target}/release/kelpie"
 
 # Test public documentation snapshot and release lifecycle tooling
 docs-contract-test:
@@ -124,9 +124,9 @@ docs-contract-test:
 
 # Test bundled agent integration assets
 integration-assets-test:
-    bun test src/integration/assets/herdr-agent-state.test.ts
-    bun test src/integration/assets/opencode/herdr-agent-state.test.ts
-    bun test src/integration/assets/opencode/herdr-tui-session.test.ts
+    bun test src/integration/assets/kelpie-agent-state.test.ts
+    bun test src/integration/assets/opencode/kelpie-agent-state.test.ts
+    bun test src/integration/assets/opencode/kelpie-tui-session.test.ts
 
 # Regenerate the C API bindings with bindgen-cli 0.72.1
 libghostty-bindings *clang_args:
@@ -180,8 +180,8 @@ pre-release-check:
     just bench-render-scale
     just bench-release-smoke
     @echo "release review required: investigate material render-scaling regressions before publishing."
-    @echo "release review required: update skills/herdr/SKILL.md for this stable release so it matches the current CLI, IDs, agent lifecycle semantics, and safety guidance."
-    @echo "release policy: do not update skills/herdr/SKILL.md between stable releases; preview builds keep the latest stable skill."
+    @echo "release review required: update skills/kelpie/SKILL.md for this stable release so it matches the current CLI, IDs, agent lifecycle semantics, and safety guidance."
+    @echo "release policy: do not update skills/kelpie/SKILL.md between stable releases; preview builds keep the latest stable skill."
 
 # Publish a preview by pushing an admin-owned tag at the selected source commit.
 preview $ref='HEAD':
@@ -200,10 +200,10 @@ release-prepare $version $preview:
         echo "error: version must look like 0.6.6 without a v prefix"; \
         exit 1; \
     }
-    @if ! git diff --quiet -- . ':(exclude)skills/herdr/SKILL.md' || \
-        ! git diff --cached --quiet -- . ':(exclude)skills/herdr/SKILL.md' || \
+    @if ! git diff --quiet -- . ':(exclude)skills/kelpie/SKILL.md' || \
+        ! git diff --cached --quiet -- . ':(exclude)skills/kelpie/SKILL.md' || \
         [ -n "$(git ls-files --others --exclude-standard)" ]; then \
-        echo "error: commit all changes except skills/herdr/SKILL.md first"; \
+        echo "error: commit all changes except skills/kelpie/SKILL.md first"; \
         exit 1; \
     fi
     @git fetch origin master --tags
@@ -216,9 +216,9 @@ release-prepare $version $preview:
     python3 scripts/changelog.py prepare --version "$version"
     cp CHANGELOG.md docs/next/CHANGELOG.md
     sed -i.bak "s/^version = \".*\"/version = \"$version\"/" Cargo.toml && rm -f Cargo.toml.bak
-    cargo update -p herdr --offline
+    cargo update -p kelpie --offline
     just check
-    git add CHANGELOG.md docs/next/CHANGELOG.md Cargo.toml Cargo.lock skills/herdr/SKILL.md
+    git add CHANGELOG.md docs/next/CHANGELOG.md Cargo.toml Cargo.lock skills/kelpie/SKILL.md
     git diff --cached --quiet || git commit -m "release: v$version"
     python3 scripts/release.py check-source --preview "$preview"
     @echo "v$version release commit prepared. Review it, then run: just release-publish $version $preview"
@@ -244,8 +244,8 @@ release-publish $version $preview:
         exit 1; \
     fi
     just release-docs-check
-    python3 scripts/changelog.py extract --version "$version" --output /tmp/herdr-release-notes-check.md
-    rm -f /tmp/herdr-release-notes-check.md
+    python3 scripts/changelog.py extract --version "$version" --output /tmp/kelpie-release-notes-check.md
+    rm -f /tmp/kelpie-release-notes-check.md
     @previous="$(git show origin/master:distribution/latest.json | python3 -c 'import json,sys; print("v" + json.load(sys.stdin)["version"])')"; \
     python3 scripts/release.py check --preview "$preview" --version "$version" --previous "$previous" && \
     git tag -a "v$version" -m "v$version" -m "Preview: $preview" -m "Previous-Stable: $previous"

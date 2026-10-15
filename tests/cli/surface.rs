@@ -4,7 +4,7 @@ use super::harness::*;
 fn pane_run_sends_one_send_input_request_with_enter_key() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kelpie.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -71,7 +71,7 @@ fn pane_run_sends_one_send_input_request_with_enter_key() {
 fn workspace_report_metadata_sends_token_patch() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kelpie.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -123,7 +123,7 @@ fn workspace_report_metadata_sends_token_patch() {
 fn pane_report_metadata_sends_presentation_request() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kelpie.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -258,13 +258,13 @@ fn help_commands_exit_successfully() {
     ];
 
     for args in help_cases {
-        let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
             .args(*args)
             .output()
             .unwrap();
         assert!(
             output.status.success(),
-            "herdr {} failed: status={:?} stdout={} stderr={}",
+            "kelpie {} failed: status={:?} stdout={} stderr={}",
             args.join(" "),
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
@@ -276,24 +276,24 @@ fn help_commands_exit_successfully() {
 #[test]
 fn root_and_command_group_help_point_agents_to_plain_text_docs() {
     for args in [&["--help"][..], &["agent", "--help"][..]] {
-        let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
             .args(args)
-            .env_remove("HERDR_SOCKET_PATH")
-            .env_remove("HERDR_CLIENT_SOCKET_PATH")
-            .env_remove("HERDR_ENV")
+            .env_remove("KELPIE_SOCKET_PATH")
+            .env_remove("KELPIE_CLIENT_SOCKET_PATH")
+            .env_remove("KELPIE_ENV")
             .output()
             .unwrap();
-        assert!(output.status.success(), "herdr {} failed", args.join(" "));
+        assert!(output.status.success(), "kelpie {} failed", args.join(" "));
         let stdout = String::from_utf8_lossy(&output.stdout);
         for expected in [
             "Are you an AI? Use these resources ONLY IF your task specifically asks you to:",
-            "https://herdr.dev/agent-guide.md",
-            "https://herdr.dev/llms.txt",
-            "herdr --skill",
+            "https://kelpie.example/agent-guide.md",
+            "https://kelpie.example/llms.txt",
+            "kelpie --skill",
         ] {
             assert!(
                 stdout.contains(expected),
-                "herdr {} help did not contain {expected:?}: {stdout}",
+                "kelpie {} help did not contain {expected:?}: {stdout}",
                 args.join(" ")
             );
         }
@@ -324,16 +324,16 @@ fn subcommand_help_explains_automation_semantics_without_a_server() {
     ];
 
     for (args, expected) in cases {
-        let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
             .args(*args)
-            .env_remove("HERDR_SOCKET_PATH")
-            .env_remove("HERDR_CLIENT_SOCKET_PATH")
-            .env_remove("HERDR_ENV")
+            .env_remove("KELPIE_SOCKET_PATH")
+            .env_remove("KELPIE_CLIENT_SOCKET_PATH")
+            .env_remove("KELPIE_ENV")
             .output()
             .unwrap();
         assert!(
             output.status.success(),
-            "herdr {} failed: status={:?} stdout={} stderr={}",
+            "kelpie {} failed: status={:?} stdout={} stderr={}",
             args.join(" "),
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
@@ -342,7 +342,7 @@ fn subcommand_help_explains_automation_semantics_without_a_server() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains(expected),
-            "herdr {} help did not contain {expected:?}: {stdout}",
+            "kelpie {} help did not contain {expected:?}: {stdout}",
             args.join(" ")
         );
     }
@@ -350,27 +350,27 @@ fn subcommand_help_explains_automation_semantics_without_a_server() {
 
 #[test]
 fn removed_wait_and_agent_send_commands_are_rejected() {
-    let wait = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let wait = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .args(["wait", "output", "w1:p1", "--match", "ready"])
         .output()
         .unwrap();
     assert_eq!(wait.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&wait.stderr).contains("unknown command: wait"));
-    let help = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let help = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .arg("--help")
         .output()
         .unwrap();
-    assert!(!String::from_utf8_lossy(&help.stdout).contains("herdr wait <subcommand>"));
+    assert!(!String::from_utf8_lossy(&help.stdout).contains("kelpie wait <subcommand>"));
 
-    let send = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let send = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .args(["agent", "send", "reviewer", "hello"])
         .output()
         .unwrap();
     assert_eq!(send.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&send.stderr);
-    assert!(stderr.contains("herdr agent submit"));
-    assert!(!stderr.contains("herdr agent send-keys"));
-    assert!(!stderr.contains("herdr agent send <"));
+    assert!(stderr.contains("kelpie agent submit"));
+    assert!(!stderr.contains("kelpie agent send-keys"));
+    assert!(!stderr.contains("kelpie agent send <"));
 }
 
 #[test]
@@ -404,15 +404,15 @@ fn agent_cli_rejects_invalid_wait_and_rename_grammar_locally() {
         &["agent", "rename", "reviewer"][..],
         &["agent", "rename", "reviewer", "worker", "--clear"][..],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+        let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
             .args(args)
-            .env("HERDR_SOCKET_PATH", "/nonexistent/herdr.sock")
+            .env("KELPIE_SOCKET_PATH", "/nonexistent/kelpie.sock")
             .output()
             .unwrap();
         assert_eq!(
             output.status.code(),
             Some(2),
-            "herdr {}: stdout={} stderr={}",
+            "kelpie {}: stdout={} stderr={}",
             args.join(" "),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
@@ -422,11 +422,11 @@ fn agent_cli_rejects_invalid_wait_and_rename_grammar_locally() {
 
 #[test]
 fn completion_command_prints_zsh_script_without_session_startup() {
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .args(["completion", "zsh"])
-        .env_remove("HERDR_SOCKET_PATH")
-        .env_remove("HERDR_CLIENT_SOCKET_PATH")
-        .env_remove("HERDR_ENV")
+        .env_remove("KELPIE_SOCKET_PATH")
+        .env_remove("KELPIE_CLIENT_SOCKET_PATH")
+        .env_remove("KELPIE_ENV")
         .output()
         .unwrap();
 
@@ -437,7 +437,7 @@ fn completion_command_prints_zsh_script_without_session_startup() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("#compdef herdr"), "stdout: {stdout}");
+    assert!(stdout.contains("#compdef kelpie"), "stdout: {stdout}");
     assert!(
         !stdout.contains("--cwd=[]"),
         "zsh completions should not suggest equals-style values unsupported by most manual parsers: {stdout}"
@@ -454,7 +454,7 @@ fn completion_command_prints_zsh_script_without_session_startup() {
 
 #[test]
 fn root_help_hides_explicit_client_command() {
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .arg("--help")
         .output()
         .unwrap();
@@ -462,14 +462,14 @@ fn root_help_hides_explicit_client_command() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !stdout.contains("herdr client"),
+        !stdout.contains("kelpie client"),
         "root help should not advertise the internal client command: {stdout}"
     );
 }
 
 #[test]
 fn root_help_advertises_api_schema_command_group() {
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .arg("--help")
         .output()
         .unwrap();
@@ -477,23 +477,23 @@ fn root_help_advertises_api_schema_command_group() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("herdr api <subcommand>"),
+        stdout.contains("kelpie api <subcommand>"),
         "root help should advertise the api command group: {stdout}"
     );
 }
 
 #[test]
 fn api_schema_default_output_is_a_short_summary() {
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .args(["api", "schema"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Herdr API schema"), "stdout: {stdout}");
+    assert!(stdout.contains("Kelpie API schema"), "stdout: {stdout}");
     assert!(
-        stdout.contains("Use `herdr api schema --json`"),
+        stdout.contains("Use `kelpie api schema --json`"),
         "stdout: {stdout}"
     );
     assert!(
@@ -504,7 +504,7 @@ fn api_schema_default_output_is_a_short_summary() {
 
 #[test]
 fn api_schema_json_prints_bundled_schema() {
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .args(["api", "schema", "--json"])
         .output()
         .unwrap();
@@ -528,7 +528,7 @@ fn api_schema_json_prints_bundled_schema() {
 fn api_snapshot_prints_live_session_snapshot() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kelpie.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn({
@@ -563,9 +563,9 @@ fn api_snapshot_prints_live_session_snapshot() {
 fn api_schema_output_writes_bundled_schema_to_file() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let schema_path = base.join("herdr-api.schema.json");
+    let schema_path = base.join("kelpie-api.schema.json");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .args(["api", "schema", "--output"])
         .arg(&schema_path)
         .output()
@@ -592,11 +592,11 @@ fn explicit_client_command_respects_nested_guard() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .arg("client")
-        .env("HERDR_ENV", "1")
+        .env("KELPIE_ENV", "1")
         .env("XDG_CONFIG_HOME", &base)
-        .env_remove("HERDR_CONFIG_PATH")
+        .env_remove("KELPIE_CONFIG_PATH")
         .output()
         .unwrap();
 
@@ -605,16 +605,16 @@ fn explicit_client_command_respects_nested_guard() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("nested herdr is disabled by default"),
+        stderr.contains("nested kelpie is disabled by default"),
         "client should fail at the nested guard before connecting: {stderr}"
     );
 }
 
 #[test]
 fn removed_show_changelog_flag_fails_before_nested_guard() {
-    let output = Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_kelpie"))
         .arg("--show-changelog")
-        .env("HERDR_ENV", "1")
+        .env("KELPIE_ENV", "1")
         .output()
         .unwrap();
 
@@ -625,7 +625,7 @@ fn removed_show_changelog_flag_fails_before_nested_guard() {
         "stderr: {stderr}"
     );
     assert!(
-        !stderr.contains("nested herdr"),
+        !stderr.contains("nested kelpie"),
         "unknown flag should be rejected before nested guard: {stderr}"
     );
 }

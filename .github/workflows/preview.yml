@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   preflight:
-    if: github.repository == 'herdrdev/herdr' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-')
+    if: github.repository == 'kelpie.example/kelpie' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -134,7 +134,7 @@ jobs:
 
   build:
     needs: preflight
-    if: github.repository == 'herdrdev/herdr' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-') && needs.preflight.outputs.should_publish == 'true'
+    if: github.repository == 'kelpie.example/kelpie' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-') && needs.preflight.outputs.should_publish == 'true'
     permissions:
       contents: read
     strategy:
@@ -143,26 +143,26 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: herdr-linux-x86_64
+            name: kelpie-linux-x86_64
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            name: herdr-linux-aarch64
+            name: kelpie-linux-aarch64
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: herdr-macos-x86_64
+            name: kelpie-macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: herdr-macos-aarch64
+            name: kelpie-macos-aarch64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: herdr-windows-x86_64.zip
+            name: kelpie-windows-x86_64.zip
     runs-on: ${{ matrix.os }}
     env:
       LIBGHOSTTY_VT_OPTIMIZE: ReleaseFast
       LIBGHOSTTY_VT_SIMD: 'true'
-      HERDR_BUILD_CHANNEL: preview
-      HERDR_BUILD_ID: ${{ needs.preflight.outputs.build_id }}
-      HERDR_BUILD_COMMIT: ${{ needs.preflight.outputs.commit }}
+      KELPIE_BUILD_CHANNEL: preview
+      KELPIE_BUILD_ID: ${{ needs.preflight.outputs.build_id }}
+      KELPIE_BUILD_COMMIT: ${{ needs.preflight.outputs.commit }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -228,7 +228,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
+          cp target/${{ matrix.target }}/release/kelpie ${{ matrix.name }}
           if [ "${{ runner.os }}" = "Linux" ]; then
             file ${{ matrix.name }} > BUILD_INFO.txt
             ldd ${{ matrix.name }} > LDD_INFO.txt 2>&1 || true
@@ -259,9 +259,9 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $package = Join-Path $env:RUNNER_TEMP "Microsoft.Windows.Console.ConPTY.nupkg"
-          $stage = Join-Path $env:RUNNER_TEMP "herdr-windows-x86_64"
+          $stage = Join-Path $env:RUNNER_TEMP "kelpie-windows-x86_64"
           .\scripts\package_windows_conpty.ps1 `
-            -HerdrExe target\${{ matrix.target }}\release\herdr.exe `
+            -KelpieExe target\${{ matrix.target }}\release\kelpie.exe `
             -PackagePath $package `
             -StageDir $stage `
             -OutputPath ${{ matrix.name }}
@@ -283,7 +283,7 @@ jobs:
 
   publish:
     needs: [preflight, build]
-    if: github.repository == 'herdrdev/herdr' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-') && needs.preflight.outputs.should_publish == 'true'
+    if: github.repository == 'kelpie.example/kelpie' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-') && needs.preflight.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish-master
@@ -331,9 +331,9 @@ jobs:
           python3 - <<'PY'
           import json, pathlib
           result = {}
-          for path in pathlib.Path('artifacts').glob('herdr-*/*.sha256'):
+          for path in pathlib.Path('artifacts').glob('kelpie-*/*.sha256'):
               digest, name = path.read_text().split()[:2]
-              target = name.removeprefix('herdr-').removesuffix('.exe').removesuffix('.zip')
+              target = name.removeprefix('kelpie-').removesuffix('.exe').removesuffix('.zip')
               result[target] = digest
           pathlib.Path('preview-sha256.json').write_text(json.dumps(result, indent=2) + '\n')
           PY
@@ -365,11 +365,11 @@ jobs:
             exit 1
           fi
           expected_assets="$(jq -S '{
-            "herdr-linux-x86_64": .["linux-x86_64"],
-            "herdr-linux-aarch64": .["linux-aarch64"],
-            "herdr-macos-x86_64": .["macos-x86_64"],
-            "herdr-macos-aarch64": .["macos-aarch64"],
-            "herdr-windows-x86_64.zip": .["windows-x86_64"]
+            "kelpie-linux-x86_64": .["linux-x86_64"],
+            "kelpie-linux-aarch64": .["linux-aarch64"],
+            "kelpie-macos-x86_64": .["macos-x86_64"],
+            "kelpie-macos-aarch64": .["macos-aarch64"],
+            "kelpie-windows-x86_64.zip": .["windows-x86_64"]
           }' preview-sha256.json)"
           actual_assets="$(jq -S '[
             .assets[] | select(.digest | type == "string") |
@@ -395,11 +395,11 @@ jobs:
           overwrite_files: true
           target_commitish: ${{ needs.preflight.outputs.commit }}
           files: |
-            artifacts/herdr-linux-x86_64/herdr-linux-x86_64
-            artifacts/herdr-linux-aarch64/herdr-linux-aarch64
-            artifacts/herdr-macos-x86_64/herdr-macos-x86_64
-            artifacts/herdr-macos-aarch64/herdr-macos-aarch64
-            artifacts/herdr-windows-x86_64.zip/herdr-windows-x86_64.zip
+            artifacts/kelpie-linux-x86_64/kelpie-linux-x86_64
+            artifacts/kelpie-linux-aarch64/kelpie-linux-aarch64
+            artifacts/kelpie-macos-x86_64/kelpie-macos-x86_64
+            artifacts/kelpie-macos-aarch64/kelpie-macos-aarch64
+            artifacts/kelpie-windows-x86_64.zip/kelpie-windows-x86_64.zip
 
       - name: Publish preview prerelease
         if: steps.existing-preview.outputs.already_published != 'true'
@@ -489,8 +489,8 @@ jobs:
           fi
 
           PREVIEW_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${PREVIEW_TAG}"
-          PREVIEW_COMMENT_MARKER="<!-- herdr:preview-released:${PREVIEW_TAG} -->"
-          PREVIEW_COMMENT="${PREVIEW_COMMENT_MARKER}"$'\n'"Released on the preview channel in [${PREVIEW_BUILD_ID}](${PREVIEW_URL}). This is available to preview users, but is not in a stable Herdr release yet."
+          PREVIEW_COMMENT_MARKER="<!-- kelpie:preview-released:${PREVIEW_TAG} -->"
+          PREVIEW_COMMENT="${PREVIEW_COMMENT_MARKER}"$'\n'"Released on the preview channel in [${PREVIEW_BUILD_ID}](${PREVIEW_URL}). This is available to preview users, but is not in a stable Kelpie release yet."
 
           issue_has_comment_marker() {
             local issue="$1"

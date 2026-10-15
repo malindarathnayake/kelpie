@@ -1,16 +1,16 @@
 ---
-title: Install Herdr
-description: Install, update, and verify Herdr on Linux and macOS.
+title: Install Kelpie
+description: Install, update, and verify Kelpie on Linux and macOS.
 ---
 
-Herdr ships as a single binary for Linux and macOS.
+Kelpie ships as a single binary for Linux and macOS.
 
 ## Install
 
 Run the installer:
 
 ```bash
-curl -fsSL https://herdr.dev/install.sh | sh
+curl -fsSL https://kelpie.example/install.sh | sh
 ```
 
 The installer downloads the right release binary for your platform and places it on your PATH.
@@ -20,47 +20,47 @@ The installer downloads the right release binary for your platform and places it
 If you already use Homebrew:
 
 ```bash
-brew install herdr
+brew install kelpie
 ```
 
 ## Verify
 
-Start Herdr:
+Start Kelpie:
 
 ```bash
-herdr
+kelpie
 ```
 
-If your shell cannot find `herdr`, restart the terminal or check that the install directory is on your PATH.
+If your shell cannot find `kelpie`, restart the terminal or check that the install directory is on your PATH.
 
 ## Update
 
-Herdr checks for new releases and notifies you in the app. You can update manually:
+Kelpie checks for new releases and notifies you in the app. You can update manually:
 
 ```bash
-herdr update
+kelpie update
 ```
 
-`herdr update` is for installs managed by Herdr's own installer. Homebrew and Nix installs are updated through those package managers instead.
+`kelpie update` is for installs managed by Kelpie's own installer. Homebrew and Nix installs are updated through those package managers instead.
 
-By default, `herdr update` installs the new binary and leaves compatible running sessions alone. If an update changes Herdr's client/server protocol, Herdr asks whether to stop the old server after installing. Stop the old server to use the new version. Stopping exits pane processes. For the default session, run `herdr server stop`, then run `herdr` again. For a named session, run `herdr session stop <name>`, then run `herdr session attach <name>` again.
+By default, `kelpie update` installs the new binary and leaves compatible running sessions alone. If an update changes Kelpie's client/server protocol, Kelpie asks whether to stop the old server after installing. Stop the old server to use the new version. Stopping exits pane processes. For the default session, run `kelpie server stop`, then run `kelpie` again. For a named session, run `kelpie session stop <name>`, then run `kelpie session attach <name>` again.
 
 To opt into experimental live server handoff for supported running sessions, run:
 
 ```bash
-herdr update --handoff
+kelpie update --handoff
 ```
 
-Live handoff does not apply to Homebrew or Nix package-manager updates. For those installs, update with the package manager, then restart that Herdr session when you are ready to use the new server. If a running session still uses the old server, stop it with `herdr server stop` or `herdr session stop <name>`, then run Herdr again.
+Live handoff does not apply to Homebrew or Nix package-manager updates. For those installs, update with the package manager, then restart that Kelpie session when you are ready to use the new server. If a running session still uses the old server, stop it with `kelpie server stop` or `kelpie session stop <name>`, then run Kelpie again.
 
 ## Install with Nix
 
-If you already use Nix, Herdr provides a flake that builds Herdr from source:
+If you already use Nix, Kelpie provides a flake that builds Kelpie from source:
 
 ```bash
-nix run github:herdrdev/herdr/v0.x.y
-nix build github:herdrdev/herdr/v0.x.y
-nix profile install github:herdrdev/herdr/v0.x.y
+nix run github:kelpie.example/kelpie/v0.x.y
+nix build github:kelpie.example/kelpie/v0.x.y
+nix profile install github:kelpie.example/kelpie/v0.x.y
 ```
 
 Replace `v0.x.y` with the latest release tag. You can omit the tag to track `master`, but release tags are recommended for normal installs.
@@ -68,42 +68,42 @@ Replace `v0.x.y` with the latest release tag. You can omit the tag to track `mas
 The flake also exposes a development shell:
 
 ```bash
-nix develop github:herdrdev/herdr
+nix develop github:kelpie.example/kelpie
 ```
 
-Update through the same Nix workflow you used to install Herdr. For a profile install, list your profile entries and upgrade the Herdr entry:
+Update through the same Nix workflow you used to install Kelpie. For a profile install, list your profile entries and upgrade the Kelpie entry:
 
 ```bash
 nix profile list
 nix profile upgrade <index-or-name>
 ```
 
-If Herdr is an input in your own flake, update that input and rebuild your system, Home Manager, or development environment:
+If Kelpie is an input in your own flake, update that input and rebuild your system, Home Manager, or development environment:
 
 ```bash
-nix flake update herdr
+nix flake update kelpie
 ```
 
 ## Download manually
 
-You can also download a binary from [GitHub releases](https://github.com/herdrdev/herdr/releases).
+You can also download a binary from [GitHub releases](https://kelpie.example/source/releases).
 
 Choose the asset that matches your system:
 
 | System | Asset |
 | --- | --- |
-| Linux x86_64 | `herdr-linux-x86_64` |
-| Linux aarch64 | `herdr-linux-aarch64` |
-| macOS Intel | `herdr-macos-x86_64` |
-| macOS Apple silicon | `herdr-macos-aarch64` |
+| Linux x86_64 | `kelpie-linux-x86_64` |
+| Linux aarch64 | `kelpie-linux-aarch64` |
+| macOS Intel | `kelpie-macos-x86_64` |
+| macOS Apple silicon | `kelpie-macos-aarch64` |
 
 Make it executable and move it somewhere on your PATH.
 
 ```bash
-chmod +x herdr-linux-x86_64
-mv herdr-linux-x86_64 ~/.local/bin/herdr
+chmod +x kelpie-linux-x86_64
+mv kelpie-linux-x86_64 ~/.local/bin/kelpie
 ```
 
 ## Requirements
 
-Herdr supports Linux and macOS. Native Windows support is not available yet; use Herdr inside WSL for now.
+Kelpie supports Linux and macOS. Native Windows support is not available yet; use Kelpie inside WSL for now.

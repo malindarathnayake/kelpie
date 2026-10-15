@@ -179,7 +179,7 @@ fn new_collector(probes: &FakeProbes) -> Collector {
     Collector::new(
         probes,
         60,
-        PathBuf::from(r"C:\Users\alice\AppData\Local\herdr"),
+        PathBuf::from(r"C:\Users\alice\AppData\Local\kelpie"),
     )
 }
 

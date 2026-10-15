@@ -18,7 +18,7 @@ use super::config_edit::{
 const SESSION_START_MATCHER: &str = "^(startup|resume|clear|compact|fork)$";
 const CANONICAL_HOOK_TIMEOUT: u64 = 10;
 
-/// One hook group herdr owns in Claude settings.
+/// One hook group kelpie owns in Claude settings.
 struct CanonicalHook {
     event: &'static str,
     matcher: Option<&'static str>,
@@ -34,7 +34,7 @@ const CANONICAL_HOOKS: &[CanonicalHook] = &[
         action: "session",
         background: false,
     },
-    // Fork (B1): reports only a hash of each submitted prompt, so herdr can confirm an
+    // Fork (B1): reports only a hash of each submitted prompt, so kelpie can confirm an
     // agent.submit receipt. Background so it never delays the owner's prompt.
     CanonicalHook {
         event: "UserPromptSubmit",
@@ -714,7 +714,7 @@ mod tests {
     fn paths() -> (&'static Path, &'static Path) {
         (
             Path::new("/home/test/.claude/settings.json"),
-            Path::new("/home/test/.claude/hooks/herdr-agent-state.sh"),
+            Path::new("/home/test/.claude/hooks/kelpie-agent-state.sh"),
         )
     }
 

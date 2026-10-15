@@ -225,7 +225,7 @@ fn summary_rows(facts: &HostFacts) -> Vec<(&'static str, PanelLine)> {
     }
     os_line.push_str(&format!(" ({}", os.arch));
     if os.process_arch != os.arch {
-        os_line.push_str(&format!(", herdr {}", os.process_arch));
+        os_line.push_str(&format!(", kelpie {}", os.process_arch));
     }
     os_line.push(')');
 

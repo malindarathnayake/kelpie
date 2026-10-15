@@ -19,7 +19,7 @@ use serde_json::{json, Map, Value};
 fn windows_powershell_encoded_hook_command_preserves_script_invocation() {
     use base64::Engine;
 
-    let hook_path = Path::new(r"C:\Users\O'Neil λ\App Data\hooks\herdr-agent-state.ps1");
+    let hook_path = Path::new(r"C:\Users\O'Neil λ\App Data\hooks\kelpie-agent-state.ps1");
     let command = powershell_encoded_hook_command(hook_path, "session");
     let encoded = command
         .strip_prefix("powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ")
@@ -35,14 +35,14 @@ fn windows_powershell_encoded_hook_command_preserves_script_invocation() {
     assert!(chunks.remainder().is_empty(), "UTF-16LE payload");
     assert_eq!(
         String::from_utf16(&utf16).expect("PowerShell script"),
-        r"& 'C:\Users\O''Neil λ\App Data\hooks\herdr-agent-state.ps1' session"
+        r"& 'C:\Users\O''Neil λ\App Data\hooks\kelpie-agent-state.ps1' session"
     );
 }
 
 #[cfg(windows)]
 #[test]
 fn windows_antigravity_cli_hook_command_uses_encoded_powershell() {
-    let hook_path = Path::new(r"C:\Users\reporter\.gemini\config\hooks\herdr-agent-state.ps1");
+    let hook_path = Path::new(r"C:\Users\reporter\.gemini\config\hooks\kelpie-agent-state.ps1");
     assert_eq!(
         antigravity_cli_hook_command(hook_path, "session"),
         powershell_encoded_hook_command(hook_path, "session")
@@ -87,7 +87,7 @@ fn agent_version_requirement_only_set_for_kimi() {
 fn enforce_agent_version_warns_when_binary_missing() {
     let requirement = AgentVersionRequirement {
         label: "kimi code",
-        binary: "herdr-test-binary-that-does-not-exist",
+        binary: "kelpie-test-binary-that-does-not-exist",
         args: &["--version"],
         min_version: "0.14.0",
     };
@@ -183,7 +183,7 @@ fn assert_kimi_hook(
 fn unique_base() -> PathBuf {
     clear_integration_path_env();
     std::env::temp_dir().join(format!(
-        "herdr-integration-install-test-{}-{}",
+        "kelpie-integration-install-test-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -514,7 +514,7 @@ fn integration_recommendation_installs_available_or_outdated_targets() {
         label: "claude",
         command: "claude",
         available: false,
-        path: PathBuf::from("/tmp/herdr-agent-state.sh"),
+        path: PathBuf::from("/tmp/kelpie-agent-state.sh"),
         state: IntegrationStatusKind::NotInstalled,
     };
     assert!(!recommendation.needs_install());
@@ -655,7 +655,7 @@ fn install_omp_removes_legacy_pi_integration_from_omp_extensions_dir() {
 }
 
 #[test]
-fn install_omp_preserves_non_herdr_file_with_pi_install_name() {
+fn install_omp_preserves_non_kelpie_file_with_pi_install_name() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let home = base.join("home");
@@ -824,7 +824,7 @@ fn outdated_integrations_treat_missing_version_marker_as_legacy() {
     let ext_dir = home.join(".pi/agent/extensions");
     fs::create_dir_all(&ext_dir).unwrap();
     let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
-    fs::write(&extension_path, "// installed by herdr\n").unwrap();
+    fs::write(&extension_path, "// installed by kelpie\n").unwrap();
     std::env::set_var("HOME", &home);
 
     let outdated = outdated_installed_integrations();
@@ -852,7 +852,7 @@ fn outdated_integrations_detect_previous_pi_version() {
     let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
     fs::write(
         &extension_path,
-        "// HERDR_INTEGRATION_ID=pi\n// HERDR_INTEGRATION_VERSION=4\n",
+        "// KELPIE_INTEGRATION_ID=pi\n// KELPIE_INTEGRATION_VERSION=4\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -882,7 +882,7 @@ fn outdated_integrations_detect_previous_omp_version() {
     let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
     fs::write(
         &extension_path,
-        "// HERDR_INTEGRATION_ID=omp\n// HERDR_INTEGRATION_VERSION=4\n",
+        "// KELPIE_INTEGRATION_ID=omp\n// KELPIE_INTEGRATION_VERSION=4\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -934,7 +934,7 @@ fn install_pi_errors_when_extension_dir_missing() {
     let _ = fs::remove_dir_all(base);
 }
 
-/// Fork (B1): exactly one herdr UserPromptSubmit group, running `prompt` in the background.
+/// Fork (B1): exactly one kelpie UserPromptSubmit group, running `prompt` in the background.
 fn assert_claude_prompt_hook(settings: &Value) {
     let groups = settings["hooks"]["UserPromptSubmit"]
         .as_array()
@@ -1130,7 +1130,7 @@ fn claude_v11_integration_status_is_outdated_until_reinstalled() {
     let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=11\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=claude\n# KELPIE_INTEGRATION_VERSION=11\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1169,7 +1169,7 @@ fn claude_v2_integration_status_is_outdated() {
     let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=2\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=claude\n# KELPIE_INTEGRATION_VERSION=2\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1190,7 +1190,7 @@ fn claude_v2_integration_status_is_outdated() {
 }
 
 #[test]
-fn uninstall_claude_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_claude_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let home = base.join("home");
@@ -1302,7 +1302,7 @@ fn codex_v2_integration_status_is_outdated() {
     let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=codex\n# HERDR_INTEGRATION_VERSION=2\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=codex\n# KELPIE_INTEGRATION_VERSION=2\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1495,7 +1495,7 @@ fn install_codex_only_migrates_top_level_feature_flags() {
 }
 
 #[test]
-fn uninstall_codex_removes_herdr_hooks_and_leaves_config_alone() {
+fn uninstall_codex_removes_kelpie_hooks_and_leaves_config_alone() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let home = base.join("home");
@@ -1769,7 +1769,7 @@ fn install_copilot_writes_hook_and_updates_settings() {
         if let Some(entries) = settings["hooks"].get(event) {
             assert!(
                 !entries.to_string().contains(COPILOT_HOOK_INSTALL_NAME),
-                "expected herdr hooks.{event} entries to be removed"
+                "expected kelpie hooks.{event} entries to be removed"
             );
         }
     }
@@ -1789,7 +1789,7 @@ fn copilot_v1_integration_status_is_outdated() {
     let hook_path = copilot_hooks_dir.join(COPILOT_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=copilot\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=copilot\n# KELPIE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1845,7 +1845,7 @@ fn install_copilot_uses_copilot_home_env_and_is_idempotent() {
 }
 
 #[test]
-fn uninstall_copilot_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_copilot_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let home = base.join("home");
@@ -2067,7 +2067,7 @@ fn install_devin_removes_legacy_lifecycle_hook_entries() {
 }
 
 #[test]
-fn uninstall_devin_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_devin_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let xdg_config = base.join("xdg");
@@ -2248,7 +2248,7 @@ fn droid_v1_integration_status_is_outdated() {
     let hook_path = droid_hooks_dir.join(DROID_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=droid\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=droid\n# KELPIE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2269,7 +2269,7 @@ fn droid_v1_integration_status_is_outdated() {
 }
 
 #[test]
-fn uninstall_droid_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_droid_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let home = base.join("home");
@@ -2404,7 +2404,7 @@ fn opencode_reuses_json_registration_in_symlinked_config_directory() {
     std::os::unix::fs::symlink(&dotfiles, &dir).unwrap();
     std::env::set_var("HOME", &home);
     let json_path = dir.join("tui.json");
-    let original = "{\n  // User preferences\n  \"theme\":\"system\",\n  \"plugin\":[\"other\",[\"./herdr-tui-session.js\",{\"enabled\":true}]]\n}\n";
+    let original = "{\n  // User preferences\n  \"theme\":\"system\",\n  \"plugin\":[\"other\",[\"./kelpie-tui-session.js\",{\"enabled\":true}]]\n}\n";
     fs::write(&json_path, original).unwrap();
 
     for _ in 0..2 {
@@ -2428,7 +2428,7 @@ fn opencode_reuses_json_registration_in_symlinked_config_directory() {
     let jsonc_path = dir.join("tui.jsonc");
     fs::write(
         &jsonc_path,
-        r#"{"plugin":["./herdr-tui-session.js","another"]}"#,
+        r#"{"plugin":["./kelpie-tui-session.js","another"]}"#,
     )
     .unwrap();
     assert_eq!(install_opencode().unwrap().tui_config_path, jsonc_path);
@@ -2439,7 +2439,7 @@ fn opencode_reuses_json_registration_in_symlinked_config_directory() {
     );
     let json = fs::read_to_string(&json_path).unwrap();
     assert!(json.contains("// User preferences"));
-    assert!(!json.contains("herdr-tui-session.js"));
+    assert!(!json.contains("kelpie-tui-session.js"));
     assert!(json.contains("\"other\""));
     assert!(json.contains("\"system\""));
     assert_eq!(
@@ -2534,7 +2534,7 @@ fn opencode_hard_link_rejection_precedes_install_and_uninstall_asset_changes() {
     let plugin = dir.join("plugins").join(OPENCODE_PLUGIN_INSTALL_NAME);
     fs::write(&plugin, "previous integration").unwrap();
     let config = dir.join("cli.json");
-    let original = r#"{"plugins":["./herdr-opencode"],"theme":"system"}"#;
+    let original = r#"{"plugins":["./kelpie-opencode"],"theme":"system"}"#;
     fs::write(&config, original).unwrap();
     let alias = base.join("linked-config");
     fs::hard_link(&config, &alias).unwrap();
@@ -2572,7 +2572,7 @@ fn opencode_json_config_validation_precedes_asset_changes() {
         .to_string()
         .contains("plugin list"));
     assert_eq!(fs::read_to_string(&plugin).unwrap(), "previous integration");
-    let original = r#"{"plugin":["./herdr-tui-session.js"]}"#;
+    let original = r#"{"plugin":["./kelpie-tui-session.js"]}"#;
     fs::write(&config, original).unwrap();
     let alias = base.join("linked-config");
     fs::hard_link(&config, &alias).unwrap();
@@ -2603,8 +2603,8 @@ fn opencode_recovery_copy_blocks_retry_before_parsing_or_asset_changes() {
     let plugin = dir.join("plugins").join(OPENCODE_PLUGIN_INSTALL_NAME);
     fs::write(&plugin, "previous integration").unwrap();
     let config = dir.join("cli.json");
-    let backup = dir.join("cli.json.herdr-backup");
-    let original = r#"{"plugins":["./herdr-opencode"],"theme":"system"}"#;
+    let backup = dir.join("cli.json.kelpie-backup");
+    let original = r#"{"plugins":["./kelpie-opencode"],"theme":"system"}"#;
     fs::write(&backup, original).unwrap();
     let target = crate::api::schema::IntegrationTarget::Opencode;
     for contents in [Some("{"), Some(original), None] {
@@ -2618,7 +2618,7 @@ fn opencode_recovery_copy_blocks_retry_before_parsing_or_asset_changes() {
             uninstall_target(target).unwrap_err(),
         ] {
             assert!(error.to_string().contains("recovery copy"), "{error}");
-            assert!(error.to_string().contains("cli.json.herdr-backup"));
+            assert!(error.to_string().contains("cli.json.kelpie-backup"));
         }
         assert_eq!(fs::read_to_string(&backup).unwrap(), original);
         if contents.is_none() {
@@ -2628,12 +2628,12 @@ fn opencode_recovery_copy_blocks_retry_before_parsing_or_asset_changes() {
     // A symlink invocation must discover the referent's recovery copy too.
     let referent = base.join("preferences.json");
     fs::write(&referent, "{").unwrap();
-    let linked_backup = base.join("preferences.json.herdr-backup");
+    let linked_backup = base.join("preferences.json.kelpie-backup");
     fs::rename(&backup, &linked_backup).unwrap();
     if symlink_file(&referent, &config) {
         let link_before = fs::read_link(&config).unwrap();
         let error = install_target(target).unwrap_err();
-        assert!(error.to_string().contains("preferences.json.herdr-backup"));
+        assert!(error.to_string().contains("preferences.json.kelpie-backup"));
         assert_eq!(fs::read_link(&config).unwrap(), link_before);
     }
     assert_eq!(fs::read_to_string(&plugin).unwrap(), "previous integration");
@@ -2759,7 +2759,7 @@ fn uninstall_opencode_removes_plugins_when_tui_config_is_invalid() {
     let json_path = opencode_dir.join("tui.json");
     fs::write(
         &json_path,
-        r#"{"plugin":["./herdr-tui-session.js","other"]}"#,
+        r#"{"plugin":["./kelpie-tui-session.js","other"]}"#,
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2882,7 +2882,7 @@ fn install_hermes_writes_plugin_and_enables_it() {
     );
     assert_eq!(manifest, HERMES_PLUGIN_MANIFEST_ASSET);
     assert_eq!(init, HERMES_PLUGIN_INIT_ASSET);
-    assert!(config.contains("plugins:\n  enabled:\n    - herdr-agent-state"));
+    assert!(config.contains("plugins:\n  enabled:\n    - kelpie-agent-state"));
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2897,7 +2897,7 @@ fn install_hermes_is_idempotent_for_enabled_entry() {
     fs::create_dir_all(&hermes_dir).unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  enabled:\n    - herdr-agent-state\n",
+        "plugins:\n  enabled:\n    - kelpie-agent-state\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2906,7 +2906,7 @@ fn install_hermes_is_idempotent_for_enabled_entry() {
     install_hermes().unwrap();
 
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
-    assert_eq!(config.matches("herdr-agent-state").count(), 1);
+    assert_eq!(config.matches("kelpie-agent-state").count(), 1);
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2931,7 +2931,7 @@ fn install_hermes_preserves_flat_plugin_list() {
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
     assert_eq!(
         config,
-        "plugins:\n  - herdr-agent-state\n  - platforms/discord\n"
+        "plugins:\n  - kelpie-agent-state\n  - platforms/discord\n"
     );
 
     std::env::remove_var("HOME");
@@ -2957,7 +2957,7 @@ fn install_hermes_converts_flow_plugin_list_to_block_list() {
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
     assert_eq!(
         config,
-        "plugins:\n  - herdr-agent-state\n  - platforms/discord\n"
+        "plugins:\n  - kelpie-agent-state\n  - platforms/discord\n"
     );
 
     std::env::remove_var("HOME");
@@ -2969,7 +2969,7 @@ fn install_hermes_converts_inline_enabled_list_to_block_list() {
     let config = update_hermes_enabled_plugin("plugins:\n  enabled: [example-plugin]\n", true);
     assert_eq!(
         config,
-        "plugins:\n  enabled:\n    - herdr-agent-state\n    - example-plugin\n"
+        "plugins:\n  enabled:\n    - kelpie-agent-state\n    - example-plugin\n"
     );
 }
 
@@ -2979,7 +2979,7 @@ fn install_hermes_preserves_indentless_enabled_list() {
     let actual = update_hermes_enabled_plugin(input, true);
     assert_eq!(
         actual,
-        "plugins:\n  enabled:\n  - herdr-agent-state\n  - example-plugin\n  disabled:\n  - other-plugin\n",
+        "plugins:\n  enabled:\n  - kelpie-agent-state\n  - example-plugin\n  disabled:\n  - other-plugin\n",
         "new plugin must share the existing sequence indentation"
     );
 }
@@ -2992,10 +2992,10 @@ fn hermes_block_sequences_preserve_indentation_comments_and_siblings() {
             let item_padding = " ".repeat(item_indent);
             let header = format!("plugins:\n{key_padding}enabled: # selected plugins\n");
             let tail = format!(
-                "{item_padding}# existing plugin\n{item_padding}- 'example-plugin' # keep\n\n{key_padding}disabled:\n{key_padding}- herdr-agent-state\nmodel: example"
+                "{item_padding}# existing plugin\n{item_padding}- 'example-plugin' # keep\n\n{key_padding}disabled:\n{key_padding}- kelpie-agent-state\nmodel: example"
             );
             let input = format!("{header}{tail}");
-            let expected = format!("{header}{item_padding}- herdr-agent-state\n{tail}");
+            let expected = format!("{header}{item_padding}- kelpie-agent-state\n{tail}");
             let installed = update_hermes_enabled_plugin(&input, true);
             assert_eq!(installed, expected);
             assert_eq!(update_hermes_enabled_plugin(&installed, true), installed);
@@ -3009,7 +3009,7 @@ fn hermes_block_sequences_preserve_indentation_comments_and_siblings() {
             "plugins: # selected\n# keep comment\n{padding}- other-plugin\nmodel: example\n"
         );
         let installed = update_hermes_enabled_plugin(&input, true);
-        assert_eq!(installed, format!("plugins: # selected\n{padding}- herdr-agent-state\n# keep comment\n{padding}- other-plugin\nmodel: example\n"));
+        assert_eq!(installed, format!("plugins: # selected\n{padding}- kelpie-agent-state\n# keep comment\n{padding}- other-plugin\nmodel: example\n"));
         assert_eq!(update_hermes_enabled_plugin(&installed, true), installed);
         assert_eq!(update_hermes_enabled_plugin(&installed, false), input);
     }
@@ -3018,15 +3018,15 @@ fn hermes_block_sequences_preserve_indentation_comments_and_siblings() {
 #[test]
 fn hermes_sequence_membership_is_scoped_to_direct_enabled_items() {
     for input in [
-        "plugins:\n  disabled:\n  - herdr-agent-state\n  enabled:\n  - other\n",
-        "plugins:\n  enabled:\n    - options:\n        - herdr-agent-state\n",
+        "plugins:\n  disabled:\n  - kelpie-agent-state\n  enabled:\n  - other\n",
+        "plugins:\n  enabled:\n    - options:\n        - kelpie-agent-state\n",
     ] {
         let expected = input.replacen(
             "  enabled:\n",
             if input.contains("options:") {
-                "  enabled:\n    - herdr-agent-state\n"
+                "  enabled:\n    - kelpie-agent-state\n"
             } else {
-                "  enabled:\n  - herdr-agent-state\n"
+                "  enabled:\n  - kelpie-agent-state\n"
             },
             1,
         );
@@ -3039,14 +3039,14 @@ fn hermes_sequence_membership_is_scoped_to_direct_enabled_items() {
 
 #[test]
 fn install_hermes_does_not_treat_disabled_as_a_flat_plugin_list() {
-    let input = "plugins:\n    disabled:\n    - herdr-agent-state\nmodel: example\n";
+    let input = "plugins:\n    disabled:\n    - kelpie-agent-state\nmodel: example\n";
     let installed = update_hermes_enabled_plugin(input, true);
-    assert_eq!(installed, "plugins:\n    enabled:\n      - herdr-agent-state\n    disabled:\n    - herdr-agent-state\nmodel: example\n");
+    assert_eq!(installed, "plugins:\n    enabled:\n      - kelpie-agent-state\n    disabled:\n    - kelpie-agent-state\nmodel: example\n");
     assert_eq!(update_hermes_enabled_plugin(&installed, true), installed);
     let uninstalled = update_hermes_enabled_plugin(&installed, false);
     assert_eq!(
         uninstalled,
-        "plugins:\n    enabled: []\n    disabled:\n    - herdr-agent-state\nmodel: example\n"
+        "plugins:\n    enabled: []\n    disabled:\n    - kelpie-agent-state\nmodel: example\n"
     );
     assert_eq!(
         update_hermes_enabled_plugin(&uninstalled, false),
@@ -3057,9 +3057,9 @@ fn install_hermes_does_not_treat_disabled_as_a_flat_plugin_list() {
 #[test]
 fn uninstall_hermes_keeps_empty_sequences_and_removes_duplicate_direct_items() {
     for (input, expected) in [
-        ("plugins:\n  enabled: # keep\n  - 'herdr-agent-state'\n  - herdr-agent-state # duplicate\n  disabled: []\n", "plugins:\n  enabled: [] # keep\n  disabled: []\n"),
-        ("plugins: # keep\n- herdr-agent-state\n", "plugins: [] # keep\n"),
-        ("plugins:\n    enabled: [herdr-agent-state, herdr-agent-state] # keep\n", "plugins:\n    enabled: [] # keep\n"),
+        ("plugins:\n  enabled: # keep\n  - 'kelpie-agent-state'\n  - kelpie-agent-state # duplicate\n  disabled: []\n", "plugins:\n  enabled: [] # keep\n  disabled: []\n"),
+        ("plugins: # keep\n- kelpie-agent-state\n", "plugins: [] # keep\n"),
+        ("plugins:\n    enabled: [kelpie-agent-state, kelpie-agent-state] # keep\n", "plugins:\n    enabled: [] # keep\n"),
     ] {
         let uninstalled = update_hermes_enabled_plugin(input, false);
         assert_eq!(uninstalled, expected);
@@ -3078,7 +3078,7 @@ fn uninstall_hermes_preserves_bare_sequence_items() {
         for indicator in ["-", "-   ", "- # keep"] {
             let remaining = format!("{indent}{indicator}\n{indent}  other-plugin\n");
             for plugin_first in [true, false] {
-                let plugin = format!("{indent}- herdr-agent-state\n");
+                let plugin = format!("{indent}- kelpie-agent-state\n");
                 let input = if plugin_first {
                     format!("{header}{plugin}{remaining}model: example\n")
                 } else {
@@ -3133,7 +3133,7 @@ fn uninstall_hermes_preserves_empty_sequence_node_properties() {
             ("plugins:\n  enabled:", "    ", "  disabled: *selected\n"),
         ] {
             let input =
-                format!("{header} {properties} # keep\n{indent}- herdr-agent-state\n{alias}");
+                format!("{header} {properties} # keep\n{indent}- kelpie-agent-state\n{alias}");
             let expected = format!("{header} {properties} [] # keep\n{alias}");
             let uninstalled = update_hermes_enabled_plugin(&input, false);
             assert_eq!(uninstalled, expected);
@@ -3141,7 +3141,7 @@ fn uninstall_hermes_preserves_empty_sequence_node_properties() {
             assert_eq!(update_hermes_enabled_plugin(&uninstalled, true), input);
 
             let flow =
-                format!("{header} {properties} [herdr-agent-state, other-plugin] # keep\n{alias}");
+                format!("{header} {properties} [kelpie-agent-state, other-plugin] # keep\n{alias}");
             assert_eq!(
                 update_hermes_enabled_plugin(&flow, false),
                 format!("{header} {properties} # keep\n{indent}- other-plugin\n{alias}")
@@ -3160,9 +3160,9 @@ fn hermes_bare_plugin_items_use_the_continued_scalar() {
     ] {
         for indicator in ["-", "-   ", "- # plugin"] {
             for value in [
-                "herdr-agent-state",
-                "'herdr-agent-state'",
-                "\"herdr-agent-state\" # installed",
+                "kelpie-agent-state",
+                "'kelpie-agent-state'",
+                "\"kelpie-agent-state\" # installed",
             ] {
                 let plugin = format!("{indent}{indicator}\n{indent}  {value}\n");
                 let other = format!("{indent}-\n{indent}  other-plugin\n");
@@ -3181,7 +3181,7 @@ fn hermes_bare_plugin_items_use_the_continued_scalar() {
             }
         }
     }
-    let input = "plugins:\n  enabled:\n  - # plugin\n    # keep comment\n\n    herdr-agent-state\n  - herdr-agent-state # duplicate\n  # keep trailing comment\n  disabled: []\n";
+    let input = "plugins:\n  enabled:\n  - # plugin\n    # keep comment\n\n    kelpie-agent-state\n  - kelpie-agent-state # duplicate\n  # keep trailing comment\n  disabled: []\n";
     assert_eq!(
         update_hermes_enabled_plugin(input, false),
         "plugins:\n  enabled: []\n    # keep comment\n\n  # keep trailing comment\n  disabled: []\n"
@@ -3191,16 +3191,16 @@ fn hermes_bare_plugin_items_use_the_continued_scalar() {
 #[test]
 fn hermes_does_not_match_scalar_prefixes_or_nested_continuations() {
     for item in [
-        "  - herdr-agent-state\n    other\n",
-        "  -\n    herdr-agent-state\n    other\n",
-        "  -\n    - herdr-agent-state\n",
+        "  - kelpie-agent-state\n    other\n",
+        "  -\n    kelpie-agent-state\n    other\n",
+        "  -\n    - kelpie-agent-state\n",
     ] {
         let input = format!("plugins:\n  enabled:\n{item}  disabled: []\n");
         assert_eq!(update_hermes_enabled_plugin(&input, false), input);
         let installed = update_hermes_enabled_plugin(&input, true);
         assert_eq!(
             installed,
-            format!("plugins:\n  enabled:\n  - herdr-agent-state\n{item}  disabled: []\n")
+            format!("plugins:\n  enabled:\n  - kelpie-agent-state\n{item}  disabled: []\n")
         );
         assert_eq!(update_hermes_enabled_plugin(&installed, false), input);
     }
@@ -3209,8 +3209,8 @@ fn hermes_does_not_match_scalar_prefixes_or_nested_continuations() {
 #[test]
 fn hermes_flow_sequence_edits_keep_following_comments() {
     for (input, expected) in [
-        ("plugins: [other] # selected\n# keep following comment\nmodel: example\n", "plugins: # selected\n  - herdr-agent-state\n  - other\n# keep following comment\nmodel: example\n"),
-        ("plugins:\n    enabled: [other] # selected\n    # keep following comment\n    disabled: []\n", "plugins:\n    enabled: # selected\n      - herdr-agent-state\n      - other\n    # keep following comment\n    disabled: []\n"),
+        ("plugins: [other] # selected\n# keep following comment\nmodel: example\n", "plugins: # selected\n  - kelpie-agent-state\n  - other\n# keep following comment\nmodel: example\n"),
+        ("plugins:\n    enabled: [other] # selected\n    # keep following comment\n    disabled: []\n", "plugins:\n    enabled: # selected\n      - kelpie-agent-state\n      - other\n    # keep following comment\n    disabled: []\n"),
     ] {
         assert_eq!(update_hermes_enabled_plugin(input, true), expected);
         assert_eq!(update_hermes_enabled_plugin(expected, true), expected);
@@ -3229,7 +3229,7 @@ fn hermes_install_and_uninstall_are_idempotent_with_indentless_config() {
 
     let installed = install_hermes().unwrap();
     let first = fs::read_to_string(&config_path).unwrap();
-    assert_eq!(first, "plugins:\n  enabled:\n  - herdr-agent-state\n  - example-plugin\n  disabled:\n  - other-plugin\n");
+    assert_eq!(first, "plugins:\n  enabled:\n  - kelpie-agent-state\n  - example-plugin\n  disabled:\n  - other-plugin\n");
     assert!(installed
         .plugin_dir
         .join(HERMES_PLUGIN_INIT_INSTALL_NAME)
@@ -3256,7 +3256,7 @@ fn install_hermes_preserves_quoted_inline_enabled_items() {
         update_hermes_enabled_plugin("plugins:\n  enabled: [\"null\", 'foo: bar']\n", true);
     assert_eq!(
         config,
-        "plugins:\n  enabled:\n    - herdr-agent-state\n    - \"null\"\n    - 'foo: bar'\n"
+        "plugins:\n  enabled:\n    - kelpie-agent-state\n    - \"null\"\n    - 'foo: bar'\n"
     );
 }
 
@@ -3268,7 +3268,7 @@ fn install_hermes_preserves_inline_enabled_comment() {
     );
     assert_eq!(
         config,
-        "plugins:\n  enabled: # managed locally\n    - herdr-agent-state\n    - example-plugin\n"
+        "plugins:\n  enabled: # managed locally\n    - kelpie-agent-state\n    - example-plugin\n"
     );
 }
 
@@ -3278,19 +3278,19 @@ fn install_hermes_preserves_inline_plugins_comment() {
         update_hermes_enabled_plugin("plugins: [platforms/discord] # managed locally\n", true);
     assert_eq!(
         config,
-        "plugins: # managed locally\n  - herdr-agent-state\n  - platforms/discord\n"
+        "plugins: # managed locally\n  - kelpie-agent-state\n  - platforms/discord\n"
     );
 }
 
 #[test]
 fn install_hermes_is_idempotent_for_inline_enabled_list_entry() {
     let config = update_hermes_enabled_plugin(
-        "plugins:\n  enabled: [herdr-agent-state, example-plugin]\n",
+        "plugins:\n  enabled: [kelpie-agent-state, example-plugin]\n",
         true,
     );
     assert_eq!(
         config,
-        "plugins:\n  enabled: [herdr-agent-state, example-plugin]\n"
+        "plugins:\n  enabled: [kelpie-agent-state, example-plugin]\n"
     );
 }
 
@@ -3303,7 +3303,7 @@ fn install_hermes_is_idempotent_for_quoted_flat_plugin_entry() {
     fs::create_dir_all(&hermes_dir).unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  - \"herdr-agent-state\" # installed by herdr\n",
+        "plugins:\n  - \"kelpie-agent-state\" # installed by kelpie\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -3313,7 +3313,7 @@ fn install_hermes_is_idempotent_for_quoted_flat_plugin_entry() {
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
     assert_eq!(
         config,
-        "plugins:\n  - \"herdr-agent-state\" # installed by herdr\n"
+        "plugins:\n  - \"kelpie-agent-state\" # installed by kelpie\n"
     );
 
     std::env::remove_var("HOME");
@@ -3335,7 +3335,7 @@ fn uninstall_hermes_removes_plugin_and_enabled_entry() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  enabled:\n    - other-plugin\n    - herdr-agent-state\n",
+        "plugins:\n  enabled:\n    - other-plugin\n    - kelpie-agent-state\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -3347,7 +3347,7 @@ fn uninstall_hermes_removes_plugin_and_enabled_entry() {
     assert!(result.updated_config);
     assert!(!plugin_dir.exists());
     assert!(config.contains("    - other-plugin"));
-    assert!(!config.contains("herdr-agent-state"));
+    assert!(!config.contains("kelpie-agent-state"));
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -3368,7 +3368,7 @@ fn uninstall_hermes_preserves_flat_plugin_list() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  - other-plugin\n  - herdr-agent-state\n",
+        "plugins:\n  - other-plugin\n  - kelpie-agent-state\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -3399,7 +3399,7 @@ fn uninstall_hermes_removes_flow_plugin_list_entry() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins: [other-plugin, herdr-agent-state]\n",
+        "plugins: [other-plugin, kelpie-agent-state]\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -3418,7 +3418,7 @@ fn uninstall_hermes_removes_flow_plugin_list_entry() {
 #[test]
 fn uninstall_hermes_removes_inline_enabled_list_entry() {
     let config = update_hermes_enabled_plugin(
-        "plugins:\n  enabled: [example-plugin, herdr-agent-state]\n",
+        "plugins:\n  enabled: [example-plugin, kelpie-agent-state]\n",
         false,
     );
     assert_eq!(config, "plugins:\n  enabled:\n    - example-plugin\n");
@@ -3427,7 +3427,7 @@ fn uninstall_hermes_removes_inline_enabled_list_entry() {
 #[test]
 fn uninstall_hermes_preserves_quoted_inline_enabled_items() {
     let config = update_hermes_enabled_plugin(
-        "plugins:\n  enabled: ['foo: bar', herdr-agent-state]\n",
+        "plugins:\n  enabled: ['foo: bar', kelpie-agent-state]\n",
         false,
     );
     assert_eq!(config, "plugins:\n  enabled:\n    - 'foo: bar'\n");
@@ -3435,7 +3435,7 @@ fn uninstall_hermes_preserves_quoted_inline_enabled_items() {
 
 #[test]
 fn uninstall_hermes_converts_single_inline_enabled_entry_to_empty_list() {
-    let config = update_hermes_enabled_plugin("plugins:\n  enabled: [herdr-agent-state]\n", false);
+    let config = update_hermes_enabled_plugin("plugins:\n  enabled: [kelpie-agent-state]\n", false);
     assert_eq!(config, "plugins:\n  enabled: []\n");
 }
 
@@ -3454,7 +3454,7 @@ fn uninstall_hermes_removes_commented_flat_plugin_entry() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  - other-plugin\n  - herdr-agent-state # installed by herdr\n",
+        "plugins:\n  - other-plugin\n  - kelpie-agent-state # installed by kelpie\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -3494,12 +3494,12 @@ fn bundled_integration_asset_versions_match_expected_versions() {
         ("claude", CLAUDE_HOOK_ASSET, CLAUDE_INTEGRATION_VERSION),
         (
             "codex shell",
-            include_str!("assets/codex/herdr-agent-state.sh"),
+            include_str!("assets/codex/kelpie-agent-state.sh"),
             CODEX_INTEGRATION_VERSION,
         ),
         (
             "codex powershell",
-            include_str!("assets/codex/herdr-agent-state.ps1"),
+            include_str!("assets/codex/kelpie-agent-state.ps1"),
             CODEX_INTEGRATION_VERSION,
         ),
         ("kimi", KIMI_HOOK_ASSET, KIMI_INTEGRATION_VERSION),
@@ -3524,12 +3524,12 @@ fn bundled_integration_asset_versions_match_expected_versions() {
         ),
         (
             "cursor shell",
-            include_str!("assets/cursor/herdr-agent-state.sh"),
+            include_str!("assets/cursor/kelpie-agent-state.sh"),
             CURSOR_INTEGRATION_VERSION,
         ),
         (
             "cursor powershell",
-            include_str!("assets/cursor/herdr-agent-state.ps1"),
+            include_str!("assets/cursor/kelpie-agent-state.ps1"),
             CURSOR_INTEGRATION_VERSION,
         ),
         (
@@ -3814,7 +3814,7 @@ fn install_qodercli_is_idempotent_for_hook_entries() {
 }
 
 #[test]
-fn uninstall_qodercli_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_qodercli_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let qoder_dir = base.join(".qoder");
@@ -3906,9 +3906,9 @@ fn install_qwen_writes_session_hook_and_preserves_settings() {
     assert!(command.ends_with("session"));
     assert!(settings.get("permissions").is_some());
     let hook_asset = fs::read_to_string(&installed.hook_path).unwrap();
-    assert!(hook_asset.contains("HERDR_INTEGRATION_ID=qwen"));
-    assert!(hook_asset.contains("HERDR_INTEGRATION_VERSION=1"));
-    assert!(hook_asset.contains("herdr:qwen"));
+    assert!(hook_asset.contains("KELPIE_INTEGRATION_ID=qwen"));
+    assert!(hook_asset.contains("KELPIE_INTEGRATION_VERSION=1"));
+    assert!(hook_asset.contains("kelpie:qwen"));
 
     install_qwen().unwrap();
     let settings: Value =
@@ -3923,7 +3923,7 @@ fn install_qwen_writes_session_hook_and_preserves_settings() {
 }
 
 #[test]
-fn uninstall_qwen_removes_only_herdr_hook() {
+fn uninstall_qwen_removes_only_kelpie_hook() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let qwen_dir = base.join(".qwen");
@@ -4048,26 +4048,26 @@ fn letta_session_hook_is_silent_and_encodes_default_conversation() {
     let installed = install_letta().unwrap();
 
     let capture = base.join("args.txt");
-    let fake_herdr = base.join("herdr");
+    let fake_kelpie = base.join("kelpie");
     fs::write(
-        &fake_herdr,
+        &fake_kelpie,
         format!(
             "#!/bin/sh\nprintf '%s\\n' \"$*\" > '{}'\n",
             capture.display()
         ),
     )
     .unwrap();
-    let mut permissions = fs::metadata(&fake_herdr).unwrap().permissions();
+    let mut permissions = fs::metadata(&fake_kelpie).unwrap().permissions();
     permissions.set_mode(0o755);
-    fs::set_permissions(&fake_herdr, permissions).unwrap();
+    fs::set_permissions(&fake_kelpie, permissions).unwrap();
 
     let mut child = Command::new("sh")
         .arg(&installed.hook_path)
         .arg("session")
-        .env("HERDR_ENV", "1")
-        .env("HERDR_PANE_ID", "w1:p2")
-        .env("HERDR_SOCKET_PATH", "/tmp/herdr.sock")
-        .env("HERDR_BIN_PATH", &fake_herdr)
+        .env("KELPIE_ENV", "1")
+        .env("KELPIE_PANE_ID", "w1:p2")
+        .env("KELPIE_SOCKET_PATH", "/tmp/kelpie.sock")
+        .env("KELPIE_BIN_PATH", &fake_kelpie)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -4087,7 +4087,7 @@ fn letta_session_hook_is_silent_and_encodes_default_conversation() {
     assert!(output.stderr.is_empty());
     let args = fs::read_to_string(capture).unwrap();
     assert!(args.contains("report-agent-session w1:p2"));
-    assert!(args.contains("--source herdr:letta --agent letta"));
+    assert!(args.contains("--source kelpie:letta --agent letta"));
     assert!(args.contains("--agent-session-id default:agent-123"));
     assert!(args.contains("--session-start-source resume"));
 
@@ -4267,7 +4267,7 @@ fn install_cursor_is_idempotent_for_hook_entries() {
 }
 
 #[test]
-fn uninstall_cursor_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_cursor_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let cursor_dir = base.join(".cursor");
@@ -4333,7 +4333,7 @@ fn cursor_v1_integration_status_is_outdated() {
     let hook_path = cursor_dir.join(CURSOR_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=cursor\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=cursor\n# KELPIE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
@@ -4402,7 +4402,7 @@ fn install_mastracode_writes_hook_and_updates_hooks_json() {
     let hooks = hooks_file.as_object().unwrap();
     for (event, action) in MASTRACODE_HOOK_EVENTS {
         let entries = hooks.get(event).and_then(Value::as_array).unwrap();
-        assert_eq!(entries.len(), 1, "{event} should have one Herdr hook");
+        assert_eq!(entries.len(), 1, "{event} should have one Kelpie hook");
         let command = entries[0].get("command").and_then(Value::as_str).unwrap();
         assert_eq!(
             command,
@@ -4471,7 +4471,7 @@ fn install_grok_writes_hook_and_config() {
     #[cfg(not(windows))]
     {
         assert!(command.starts_with("sh "));
-        assert!(command.contains("herdr-agent-state.sh"));
+        assert!(command.contains("kelpie-agent-state.sh"));
         assert!(command.ends_with(" session"));
     }
 
@@ -4578,7 +4578,7 @@ fn install_grok_is_idempotent() {
 }
 
 #[test]
-fn uninstall_mastracode_removes_herdr_hooks_and_preserves_others() {
+fn uninstall_mastracode_removes_kelpie_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let original_home = std::env::var_os("HOME");
@@ -4778,7 +4778,7 @@ fn install_antigravity_cli_writes_hook_and_updates_hooks_json() {
         serde_json::from_str(&fs::read_to_string(agy_dir.join("hooks.json")).unwrap()).unwrap();
     let hooks = hooks_file.as_object().unwrap();
 
-    // Herdr entries live under a named hook block; Antigravity CLI rejects a
+    // Kelpie entries live under a named hook block; Antigravity CLI rejects a
     // file whose top level maps event names straight to arrays.
     let block = hooks
         .get(ANTIGRAVITY_CLI_HOOK_BLOCK_NAME)
@@ -4787,7 +4787,7 @@ fn install_antigravity_cli_writes_hook_and_updates_hooks_json() {
 
     for (event, action) in ANTIGRAVITY_CLI_HOOK_EVENTS {
         let entries = block.get(event).and_then(Value::as_array).unwrap();
-        assert_eq!(entries.len(), 1, "{event} should hold one Herdr entry");
+        assert_eq!(entries.len(), 1, "{event} should hold one Kelpie entry");
         let handler = &entries[0];
 
         // Handlers must be a flat list; the matcher/hooks wrapper is only
@@ -4811,7 +4811,7 @@ fn install_antigravity_cli_writes_hook_and_updates_hooks_json() {
 
     // The integration is session-only. Antigravity CLI cannot express blocked
     // state, skips PostInvocation on interruption, and fires Stop at end of
-    // turn rather than process exit, so Herdr never claims lifecycle authority
+    // turn rather than process exit, so Kelpie never claims lifecycle authority
     // here and screen detection owns agent state.
     for event in ["PreToolUse", "PostToolUse", "PostInvocation", "Stop"] {
         assert!(
@@ -4845,8 +4845,10 @@ fn antigravity_cli_v2_install_is_outdated_until_reinstalled() {
     fs::create_dir_all(&hook_dir).unwrap();
     fs::write(
         hook_dir.join(ANTIGRAVITY_CLI_HOOK_INSTALL_NAME),
-        ANTIGRAVITY_CLI_HOOK_ASSET
-            .replace("HERDR_INTEGRATION_VERSION=3", "HERDR_INTEGRATION_VERSION=2"),
+        ANTIGRAVITY_CLI_HOOK_ASSET.replace(
+            "KELPIE_INTEGRATION_VERSION=3",
+            "KELPIE_INTEGRATION_VERSION=2",
+        ),
     )
     .unwrap();
     std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
@@ -4870,16 +4872,16 @@ fn antigravity_cli_v2_install_is_outdated_until_reinstalled() {
 }
 
 #[test]
-fn install_antigravity_cli_rewrites_stale_herdr_block() {
+fn install_antigravity_cli_rewrites_stale_kelpie_block() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let agy_dir = base.join(".gemini").join("config");
     fs::create_dir_all(&agy_dir).unwrap();
-    // An older Herdr install claimed lifecycle authority, wrapped events in
+    // An older Kelpie install claimed lifecycle authority, wrapped events in
     // matcher/hooks, and left entries Antigravity CLI now rejects.
     fs::write(
         agy_dir.join("hooks.json"),
-        r#"{"herdr":{"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"stale"}]}],"PostInvocation":[{"type":"command","command":"stale idle"}],"Legacy":[]}}"#,
+        r#"{"kelpie":{"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"stale"}]}],"PostInvocation":[{"type":"command","command":"stale idle"}],"Legacy":[]}}"#,
     )
     .unwrap();
     std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
@@ -4893,7 +4895,7 @@ fn install_antigravity_cli_rewrites_stale_herdr_block() {
         .and_then(Value::as_object)
         .unwrap();
 
-    // The block is Herdr-owned and rewritten wholesale, so a stale lifecycle
+    // The block is Kelpie-owned and rewritten wholesale, so a stale lifecycle
     // install is migrated to session-only rather than merged with.
     assert_eq!(
         block.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -4941,7 +4943,7 @@ fn grok_v1_integration_status_is_outdated() {
     let hook_path = hooks_dir.join(GROK_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=grok\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KELPIE_INTEGRATION_ID=grok\n# KELPIE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     fs::write(
@@ -4969,7 +4971,7 @@ fn grok_v2_integration_status_is_current() {
     let grok_dir = base.join(".grok");
     fs::create_dir_all(&grok_dir).unwrap();
     std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
-    // A real install writes both the hook script and hooks/herdr.json.
+    // A real install writes both the hook script and hooks/kelpie.json.
     install_grok().unwrap();
 
     let statuses = installed_integration_statuses();
@@ -5023,7 +5025,7 @@ fn grok_status_reports_outdated_when_hook_config_missing_or_broken() {
     // nonfunctional, so neither may report current.
     fs::write(
         &config_path,
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo herdr-agent-state.sh"}]}]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo kelpie-agent-state.sh"}]}]}}"#,
     )
     .unwrap();
     assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
@@ -5100,7 +5102,7 @@ fn uninstall_antigravity_cli_removes_hooks_json_entries_and_hook_file() {
         serde_json::from_str(&fs::read_to_string(agy_dir.join("hooks.json")).unwrap()).unwrap();
     let hooks = hooks_file.as_object().unwrap();
 
-    // The Herdr block is gone and unrelated named hooks survive.
+    // The Kelpie block is gone and unrelated named hooks survive.
     assert!(hooks.get(ANTIGRAVITY_CLI_HOOK_BLOCK_NAME).is_none());
     assert!(hooks.contains_key("lint-checker"));
 
@@ -5125,7 +5127,7 @@ fn grok_dir_honors_grok_home_after_config_dir_seam() {
         home_dir.join("hooks").join(GROK_HOOK_INSTALL_NAME)
     );
 
-    // The herdr-level test seam still wins over GROK_HOME when set.
+    // The kelpie-level test seam still wins over GROK_HOME when set.
     let seam_dir = base.join("seam");
     fs::create_dir_all(&seam_dir).unwrap();
     std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &seam_dir);

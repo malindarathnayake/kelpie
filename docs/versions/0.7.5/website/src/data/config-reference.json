@@ -181,7 +181,7 @@
           "key": "update.channel",
           "type": "enum",
           "default": "\"stable\" (\"preview\" on Windows)",
-          "description": "Update channel used by background version checks and herdr update. Homebrew, mise, and Nix installs ignore the preview channel.",
+          "description": "Update channel used by background version checks and kelpie update. Homebrew, mise, and Nix installs ignore the preview channel.",
           "values": [
             "stable",
             "preview"
@@ -191,13 +191,13 @@
           "key": "update.version_check",
           "type": "boolean",
           "default": "true",
-          "description": "Check herdr.dev for new Herdr versions in the background."
+          "description": "Check kelpie.example for new Kelpie versions in the background."
         },
         {
           "key": "update.manifest_check",
           "type": "boolean",
           "default": "true",
-          "description": "Check herdr.dev for remote agent-detection manifest updates in the background. Bundled manifests and local overrides still apply."
+          "description": "Check kelpie.example for remote agent-detection manifest updates in the background. Bundled manifests and local overrides still apply."
         }
       ]
     },
@@ -359,7 +359,7 @@
           "key": "keys.remote_image_paste",
           "type": "string",
           "default": "\"ctrl+v\"",
-          "description": "Local-client shortcut that sends a clipboard image to a remote Herdr session."
+          "description": "Local-client shortcut that sends a clipboard image to a remote Kelpie session."
         },
         {
           "key": "keys.new_tab",
@@ -569,7 +569,7 @@
           "key": "ui.sidebar_start_collapsed",
           "type": "boolean",
           "default": "false",
-          "description": "Start Herdr with the sidebar collapsed. Changes take effect on the next launch."
+          "description": "Start Kelpie with the sidebar collapsed. Changes take effect on the next launch."
         },
         {
           "key": "ui.sidebar_collapsed_mode",
@@ -585,13 +585,13 @@
           "key": "ui.mobile_width_threshold",
           "type": "integer",
           "default": "64",
-          "description": "Terminal width at or below which Herdr uses the mobile single-column layout."
+          "description": "Terminal width at or below which Kelpie uses the mobile single-column layout."
         },
         {
           "key": "ui.mouse_capture",
           "type": "boolean",
           "default": "true",
-          "description": "Capture mouse input for Herdr's mouse UI."
+          "description": "Capture mouse input for Kelpie's mouse UI."
         },
         {
           "key": "ui.copy_on_select",
@@ -726,10 +726,10 @@
           "key": "ui.toast.delivery",
           "type": "enum",
           "default": "\"off\"",
-          "description": "Popup notification delivery. off disables popups, herdr shows in-app toasts, terminal asks the outer terminal for a desktop notification, system asks the OS notification service directly.",
+          "description": "Popup notification delivery. off disables popups, kelpie shows in-app toasts, terminal asks the outer terminal for a desktop notification, system asks the OS notification service directly.",
           "values": [
             "off",
-            "herdr",
+            "kelpie",
             "terminal",
             "system"
           ]
@@ -738,13 +738,13 @@
           "key": "ui.toast.delay_seconds",
           "type": "integer",
           "default": "1",
-          "description": "Seconds to wait before sending finished or needs-input agent notifications. Herdr notifies only if the pane is still in the same state when the delay expires. 0 is instant; valid values are 0 through 3600."
+          "description": "Seconds to wait before sending finished or needs-input agent notifications. Kelpie notifies only if the pane is still in the same state when the delay expires. 0 is instant; valid values are 0 through 3600."
         },
         {
-          "key": "ui.toast.herdr.position",
+          "key": "ui.toast.kelpie.position",
           "type": "enum",
           "default": "\"bottom-right\"",
-          "description": "In-app toast position, relative to the full Herdr frame.",
+          "description": "In-app toast position, relative to the full Kelpie frame.",
           "values": [
             "top-left",
             "top-right",
@@ -1021,7 +1021,7 @@
           "key": "session.resume_agents_on_restore",
           "type": "boolean",
           "default": "true",
-          "description": "Resume supported AI-agent panes into their native conversation sessions when restoring a Herdr session."
+          "description": "Resume supported AI-agent panes into their native conversation sessions when restoring a Kelpie session."
         }
       ]
     },
@@ -1032,8 +1032,8 @@
         {
           "key": "worktrees.directory",
           "type": "string",
-          "default": "\"~/.herdr/worktrees\"",
-          "description": "Root directory under which Herdr creates <repo>/<branch-slug> checkouts."
+          "default": "\"~/.kelpie/worktrees\"",
+          "description": "Root directory under which Kelpie creates <repo>/<branch-slug> checkouts."
         }
       ]
     },
@@ -1045,7 +1045,7 @@
           "key": "remote.manage_ssh_config",
           "type": "boolean",
           "default": "true",
-          "description": "Add keepalive fallbacks and private connection reuse for `herdr --remote`. Set false to run plain ssh unchanged."
+          "description": "Add keepalive fallbacks and private connection reuse for `kelpie --remote`. Set false to run plain ssh unchanged."
         }
       ]
     },
@@ -1069,7 +1069,7 @@
           "key": "experimental.allow_nested",
           "type": "boolean",
           "default": "false",
-          "description": "Allow launching herdr inside an existing herdr pane."
+          "description": "Allow launching kelpie inside an existing kelpie pane."
         },
         {
           "key": "experimental.kitty_graphics",

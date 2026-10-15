@@ -1,9 +1,9 @@
 ---
 title: Socket API
-description: Control a running Herdr server from scripts, tools, and coding agents.
+description: Control a running Kelpie server from scripts, tools, and coding agents.
 ---
 
-Herdr exposes a local socket API for scripts and agents that need to inspect or control a running session.
+Kelpie exposes a local socket API for scripts and agents that need to inspect or control a running session.
 
 Most automation should start with the CLI wrappers. Use the raw socket API only when you need direct request/response control or long-lived event subscriptions.
 
@@ -11,7 +11,7 @@ Most automation should start with the CLI wrappers. Use the raw socket API only 
 
 | Layer | Use it for |
 | --- | --- |
-| Agent skill | Teaching a coding agent how to use Herdr from inside a pane. |
+| Agent skill | Teaching a coding agent how to use Kelpie from inside a pane. |
 | CLI wrappers | Shell scripts, simple orchestration, and human debugging. |
 | Raw socket API | Custom tools, protocol clients, and event subscribers. |
 
@@ -35,32 +35,32 @@ The socket API can:
 Create a workspace:
 
 ```bash
-herdr workspace create --cwd ~/project --label api
+kelpie workspace create --cwd ~/project --label api
 ```
 
 Create a tab:
 
 ```bash
-herdr tab create --label logs
+kelpie tab create --label logs
 ```
 
 Split a pane and run a command:
 
 ```bash
-herdr pane split 1-1 --direction right
-herdr pane run 1-2 "npm test"
+kelpie pane split 1-1 --direction right
+kelpie pane run 1-2 "npm test"
 ```
 
 Wait for an agent:
 
 ```bash
-herdr wait agent-status 1-1 --status done
+kelpie wait agent-status 1-1 --status done
 ```
 
 Read pane output:
 
 ```bash
-herdr pane read 1-2 --source recent --lines 50
+kelpie pane read 1-2 --source recent --lines 50
 ```
 
 ## Raw methods
@@ -78,9 +78,9 @@ Raw socket method names use dot notation:
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
 
-Some CLI commands are conveniences around these methods. For example, `herdr agent wait` resolves an agent target and then subscribes to pane agent state events.
+Some CLI commands are conveniences around these methods. For example, `kelpie agent wait` resolves an agent target and then subscribes to pane agent state events.
 
-Worktree methods manage Git checkouts as Herdr workspaces. `worktree.create` creates a checkout and returns the new `workspace`, `tab`, `root_pane`, and `worktree` records. `worktree.open` opens an existing checkout or returns the already-open workspace. `worktree.remove` runs `git worktree remove` against a linked child workspace and never deletes the branch.
+Worktree methods manage Git checkouts as Kelpie workspaces. `worktree.create` creates a checkout and returns the new `workspace`, `tab`, `root_pane`, and `worktree` records. `worktree.open` opens an existing checkout or returns the already-open workspace. `worktree.remove` runs `git worktree remove` against a linked child workspace and never deletes the branch.
 
 Create a worktree from a source workspace:
 
@@ -100,11 +100,11 @@ Remove a linked checkout:
 {"id":"req_3","method":"worktree.remove","params":{"workspace_id":"2","force":false}}
 ```
 
-Use at most one of `workspace_id` or `cwd` for `worktree.list`, `worktree.create`, and `worktree.open`; omit both to use the active workspace. Use exactly one of `path` or `branch` for `worktree.open`. Raw socket `cwd` and `path` values must be absolute; the CLI expands relative `--cwd` and `--path` values before sending requests. Workspace responses include optional `worktree` provenance when a workspace belongs to a Herdr worktree group. Worktree commands can emit `workspace.updated` when an existing workspace gains or changes worktree provenance.
+Use at most one of `workspace_id` or `cwd` for `worktree.list`, `worktree.create`, and `worktree.open`; omit both to use the active workspace. Use exactly one of `path` or `branch` for `worktree.open`. Raw socket `cwd` and `path` values must be absolute; the CLI expands relative `--cwd` and `--path` values before sending requests. Workspace responses include optional `worktree` provenance when a workspace belongs to a Kelpie worktree group. Worktree commands can emit `workspace.updated` when an existing workspace gains or changes worktree provenance.
 
 ## Socket transport
 
-Herdr uses newline-delimited JSON over a Unix domain socket.
+Kelpie uses newline-delimited JSON over a Unix domain socket.
 
 Send one request per line:
 
@@ -122,23 +122,23 @@ Event subscriptions keep the connection open after the initial response.
 
 ## Socket paths
 
-The default socket lives under your Herdr config directory.
+The default socket lives under your Kelpie config directory.
 
 Named sessions have separate sockets:
 
 ```text
-~/.config/herdr/herdr.sock
-~/.config/herdr/sessions/<name>/herdr.sock
+~/.config/kelpie/kelpie.sock
+~/.config/kelpie/sessions/<name>/kelpie.sock
 ```
 
 Resolution order:
 
 1. explicit CLI `--session <name>`
-2. `HERDR_SOCKET_PATH`
-3. `HERDR_SESSION=<name>`
+2. `KELPIE_SOCKET_PATH`
+3. `KELPIE_SESSION=<name>`
 4. default session socket
 
-Use `HERDR_SOCKET_PATH` only for low-level overrides.
+Use `KELPIE_SOCKET_PATH` only for low-level overrides.
 
 ## Agent state reporting
 
@@ -163,12 +163,12 @@ Integrations report agent state with `pane.report_agent`.
 
 `custom_status` is visual. It can show a short label like `indexing` without changing semantic behavior.
 
-Official integrations can also report a native session reference. `pane.get`, `pane.list`, `agent.get`, and `agent.list` expose a read-only `agent_session` object when Herdr has a stored native session reference:
+Official integrations can also report a native session reference. `pane.get`, `pane.list`, `agent.get`, and `agent.list` expose a read-only `agent_session` object when Kelpie has a stored native session reference:
 
 ```json
 {
   "agent_session": {
-    "source": "herdr:codex",
+    "source": "kelpie:codex",
     "agent": "codex",
     "kind": "id",
     "value": "..."
@@ -178,9 +178,9 @@ Official integrations can also report a native session reference. `pane.get`, `p
 
 If no native session reference is stored, the field is omitted.
 
-`pane.get`, `pane.list`, `agent.get`, and `agent.list` also expose `foreground_cwd` when Herdr can resolve the cwd of the process currently controlling the pane PTY. The existing `cwd` field remains the pane/workspace cwd used for labels, follow-cwd behavior, and restored session state.
+`pane.get`, `pane.list`, `agent.get`, and `agent.list` also expose `foreground_cwd` when Kelpie can resolve the cwd of the process currently controlling the pane PTY. The existing `cwd` field remains the pane/workspace cwd used for labels, follow-cwd behavior, and restored session state.
 
-Use `pane.report_metadata` when a user hook wants to customize presentation without taking over lifecycle state from a Herdr integration.
+Use `pane.report_metadata` when a user hook wants to customize presentation without taking over lifecycle state from a Kelpie integration.
 
 ```json
 {
@@ -190,7 +190,7 @@ Use `pane.report_metadata` when a user hook wants to customize presentation with
     "pane_id": "1-1",
     "source": "user:claude-title",
     "agent": "claude",
-    "applies_to_source": "herdr:claude",
+    "applies_to_source": "kelpie:claude",
     "title": "Refactor auth middleware",
     "display_agent": "Claude: auth",
     "custom_status": "refactor auth",
@@ -233,9 +233,9 @@ Use `events.wait` when you want one matching event and then a response.
 Use `pane.read` through the CLI unless you are writing a protocol client.
 
 ```bash
-herdr pane read 1-1 --source visible --lines 80
-herdr pane read 1-1 --source recent --lines 120
-herdr pane read 1-1 --source recent-unwrapped --lines 120
+kelpie pane read 1-1 --source visible --lines 80
+kelpie pane read 1-1 --source recent --lines 120
+kelpie pane read 1-1 --source recent-unwrapped --lines 120
 ```
 
 `recent-unwrapped` is useful for logs because it ignores soft wrapping.
@@ -245,8 +245,8 @@ herdr pane read 1-1 --source recent-unwrapped --lines 120
 Use waits to coordinate agents and scripts.
 
 ```bash
-herdr wait agent-status 1-1 --status done
-herdr wait agent-status 1-1 --status blocked
+kelpie wait agent-status 1-1 --status done
+kelpie wait agent-status 1-1 --status blocked
 ```
 
 Agent waits observe semantic state, not arbitrary command completion.
@@ -287,6 +287,6 @@ Errors look like this:
 
 ## Protocol stability
 
-Herdr has a protocol version for client/server compatibility. Protocol changes are reviewed with release compatibility in mind.
+Kelpie has a protocol version for client/server compatibility. Protocol changes are reviewed with release compatibility in mind.
 
-Check the server protocol with `ping` or `herdr status` before depending on new behavior. Handle unknown fields gracefully.
+Check the server protocol with `ping` or `kelpie status` before depending on new behavior. Handle unknown fields gracefully.

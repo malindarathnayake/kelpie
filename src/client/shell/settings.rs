@@ -24,7 +24,7 @@ fn indicator_index(style: crate::config::StatusIndicatorStyle) -> usize {
 fn toast_index(delivery: crate::config::ToastDelivery) -> usize {
     match delivery {
         crate::config::ToastDelivery::Off => 0,
-        crate::config::ToastDelivery::Herdr => 1,
+        crate::config::ToastDelivery::Kelpie => 1,
         crate::config::ToastDelivery::Terminal => 2,
         crate::config::ToastDelivery::System => 3,
     }
@@ -250,7 +250,7 @@ impl ClientShellState {
             ClientSettingsSection::Toast => {
                 let delivery = match selected {
                     0 => crate::config::ToastDelivery::Off,
-                    1 => crate::config::ToastDelivery::Herdr,
+                    1 => crate::config::ToastDelivery::Kelpie,
                     2 => crate::config::ToastDelivery::Terminal,
                     _ => crate::config::ToastDelivery::System,
                 };

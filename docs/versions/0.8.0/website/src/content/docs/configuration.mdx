@@ -1,38 +1,38 @@
 ---
 title: Configuration
-description: Configure Herdr keybindings, themes, sidebar behavior, notifications, and advanced options.
+description: Configure Kelpie keybindings, themes, sidebar behavior, notifications, and advanced options.
 ---
 
-Herdr works without a config file. Add one when you want custom keys, themes, sidebar layouts, notifications, or advanced behavior.
+Kelpie works without a config file. Add one when you want custom keys, themes, sidebar layouts, notifications, or advanced behavior.
 
 Looking for any setting or keybinding? Search the [Config reference](/docs/config-reference/) for every key, type, default, and allowed value. This page focuses on setup, common recipes, and configuration structures that need more explanation than a reference row.
 
 ## Config file
 
-Herdr reads config from:
+Kelpie reads config from:
 
 ```text
-Linux and macOS: ~/.config/herdr/config.toml
-Windows:          %APPDATA%\herdr\config.toml
+Linux and macOS: ~/.config/kelpie/config.toml
+Windows:          %APPDATA%\kelpie\config.toml
 ```
 
-Run `herdr --help` to see the resolved config path for your system.
+Run `kelpie --help` to see the resolved config path for your system.
 
 Print the full default config:
 
 ```bash
-herdr --default-config
+kelpie --default-config
 ```
 
 Save it as your config if you want a complete starting point:
 
 ```bash
-herdr --default-config > ~/.config/herdr/config.toml
+kelpie --default-config > ~/.config/kelpie/config.toml
 ```
 
-If a config value is invalid, Herdr falls back to a safe default and shows a startup warning.
+If a config value is invalid, Kelpie falls back to a safe default and shows a startup warning.
 
-Herdr shows first-run setup when `onboarding` is missing or true. Continuing from onboarding writes `onboarding = false` and opens settings on the integrations tab. Set it when you want to skip that flow after setup.
+Kelpie shows first-run setup when `onboarding` is missing or true. Continuing from onboarding writes `onboarding = false` and opens settings on the integrations tab. Set it when you want to skip that flow after setup.
 
 ```toml
 onboarding = false
@@ -43,25 +43,25 @@ onboarding = false
 Reload a running server after editing `config.toml`:
 
 ```bash
-herdr server reload-config
+kelpie server reload-config
 ```
 
-You can also open the global menu in Herdr and choose `reload config`.
+You can also open the global menu in Kelpie and choose `reload config`.
 
 Reload applies most UI settings without restarting panes. Startup-only settings still need a restart.
 
 ## Terminal defaults
 
-Set the executable Herdr uses for newly created interactive panes:
+Set the executable Kelpie uses for newly created interactive panes:
 
 ```toml
 [terminal]
 default_shell = "nu"
 ```
 
-When unset or empty, Herdr uses `$SHELL`, then `/bin/sh` on Unix and PowerShell on Windows. This is an executable name or path, not a shell command line. Existing panes keep their current shell until they are recreated. Custom command keybinding strings run through `/bin/sh -c` for pane commands and `/bin/sh -lc` for detached commands on Unix; on Windows they run through `cmd.exe /d /c`.
+When unset or empty, Kelpie uses `$SHELL`, then `/bin/sh` on Unix and PowerShell on Windows. This is an executable name or path, not a shell command line. Existing panes keep their current shell until they are recreated. Custom command keybinding strings run through `/bin/sh -c` for pane commands and `/bin/sh -lc` for detached commands on Unix; on Windows they run through `cmd.exe /d /c`.
 
-Set how Herdr starts newly created interactive pane shells:
+Set how Kelpie starts newly created interactive pane shells:
 
 ```toml
 [terminal]
@@ -77,24 +77,24 @@ Set the working directory policy for new panes, tabs, and workspaces:
 new_cwd = "follow"
 ```
 
-`new_cwd = "follow"` keeps the default behavior and inherits the source pane or workspace. When there is no source workspace, Herdr starts in `$HOME`. Use `"home"` to always start in `$HOME`, `"current"` to use Herdr's process directory, or a fixed path such as `"~/Projects"`. Explicit `--cwd` values from the CLI or socket API still take precedence.
+`new_cwd = "follow"` keeps the default behavior and inherits the source pane or workspace. When there is no source workspace, Kelpie starts in `$HOME`. Use `"home"` to always start in `$HOME`, `"current"` to use Kelpie's process directory, or a fixed path such as `"~/Projects"`. Explicit `--cwd` values from the CLI or socket API still take precedence.
 
 ## Worktrees
 
-Set the root directory Herdr uses for Git worktree checkouts created from the sidebar:
+Set the root directory Kelpie uses for Git worktree checkouts created from the sidebar:
 
 ```toml
 [worktrees]
-directory = "~/.herdr/worktrees"
+directory = "~/.kelpie/worktrees"
 ```
 
-Herdr creates checkouts under `<directory>/<repo>/<branch-slug>`. For sibling-style checkouts, set this to a directory such as `~/Projects/herdr-worktrees`. Relative values are resolved to an absolute path when the app applies the config.
+Kelpie creates checkouts under `<directory>/<repo>/<branch-slug>`. For sibling-style checkouts, set this to a directory such as `~/Projects/kelpie-worktrees`. Relative values are resolved to an absolute path when the app applies the config.
 
-Worktree actions are available from Git workspace rows. `New worktree` creates a checkout, checks out an existing local branch when the entered branch already exists, otherwise creates the branch, opens it as a new Herdr workspace, and groups it under the source workspace. `Open worktree...` lists existing Git worktree checkouts for that repo; choosing an already-open checkout focuses it, and choosing a closed checkout opens it in the same group.
+Worktree actions are available from Git workspace rows. `New worktree` creates a checkout, checks out an existing local branch when the entered branch already exists, otherwise creates the branch, opens it as a new Kelpie workspace, and groups it under the source workspace. `Open worktree...` lists existing Git worktree checkouts for that repo; choosing an already-open checkout focuses it, and choosing a closed checkout opens it in the same group.
 
-Grouped worktrees still behave like normal Herdr workspaces: they can be focused, renamed, closed, and contain their own tabs and panes. The parent row is the original workspace. Closing the parent row closes the whole Herdr group, but it does not delete checkout folders or branches.
+Grouped worktrees still behave like normal Kelpie workspaces: they can be focused, renamed, closed, and contain their own tabs and panes. The parent row is the original workspace. Closing the parent row closes the whole Kelpie group, but it does not delete checkout folders or branches.
 
-Deleting a worktree checkout is explicit. Use `Delete worktree checkout...` on a grouped child workspace to run `git worktree remove`. Herdr first asks Git to remove safely. If Git refuses because the checkout has modified or untracked files, Herdr asks again before running the forced remove. Branches are not deleted.
+Deleting a worktree checkout is explicit. Use `Delete worktree checkout...` on a grouped child workspace to run `git worktree remove`. Kelpie first asks Git to remove safely. If Git refuses because the checkout has modified or untracked files, Kelpie asks again before running the forced remove. Branches are not deleted.
 
 ## Remote attach
 
@@ -105,13 +105,13 @@ Remote attach manages its SSH connection with a temporary keepalive and connecti
 manage_ssh_config = true
 ```
 
-When enabled, `herdr --remote` writes a private temporary SSH config that includes your `~/.ssh/config` and `/etc/ssh/ssh_config` first, then adds fallback `ServerAliveInterval` and `ServerAliveCountMax` values. Your own keepalive settings win. Herdr also uses a private per-attach OpenSSH control socket to reuse the first authenticated connection. Set `manage_ssh_config = false` to run remote attach through plain `ssh` without Herdr's generated config or control socket.
+When enabled, `kelpie --remote` writes a private temporary SSH config that includes your `~/.ssh/config` and `/etc/ssh/ssh_config` first, then adds fallback `ServerAliveInterval` and `ServerAliveCountMax` values. Your own keepalive settings win. Kelpie also uses a private per-attach OpenSSH control socket to reuse the first authenticated connection. Set `manage_ssh_config = false` to run remote attach through plain `ssh` without Kelpie's generated config or control socket.
 
 ## Keybindings
 
 For a guided introduction to the prefix and a vetted prefix-free setup, see [Keyboard](/docs/keyboard/).
 
-Herdr has a prefix mode similar to tmux. The default prefix is `ctrl+b`. Keybinding strings are explicit: `prefix+n` means press the configured prefix and then `n`; `ctrl+alt+n` is a direct terminal-mode shortcut.
+Kelpie has a prefix mode similar to tmux. The default prefix is `ctrl+b`. Keybinding strings are explicit: `prefix+n` means press the configured prefix and then `n`; `ctrl+alt+n` is a direct terminal-mode shortcut.
 
 A small keybinding override looks like this:
 
@@ -128,7 +128,7 @@ navigate_pane_down = "ctrl+j"
 split_horizontal = "prefix+minus"
 ```
 
-The default keymap is prefix-first so Herdr does not steal input from shells, editors, tmux, or terminal apps. Search `keys.` in the [Config reference](/docs/config-reference/) to see every action and default binding. The in-app help panel at `prefix+?` shows the active bindings.
+The default keymap is prefix-first so Kelpie does not steal input from shells, editors, tmux, or terminal apps. Search `keys.` in the [Config reference](/docs/config-reference/) to see every action and default binding. The in-app help panel at `prefix+?` shows the active bindings.
 
 A binding may also be an array when one action needs multiple shortcuts:
 
@@ -141,7 +141,7 @@ Optional actions are unset by default. Bind them with `prefix+` for prefix-mode 
 
 Key strings accept plain keys, modifier combinations such as `ctrl+a`, `shift+n`, `alt+1`, `cmd+k`, and special keys such as `enter`, `tab`, `esc`, `left`, `right`, `up`, and `down`. Named punctuation such as `minus`, `comma`, `ampersand`, `plus`, and `backtick` is also accepted. Plain direct printable keys such as `n` are unsafe because they intercept typing; use `prefix+n` unless you intentionally want a direct binding. The `navigate_workspace_*` and `navigate_pane_*` fields are navigate-mode-only and may use plain keys such as `j` or `k`; they must not use `prefix+`, `esc`, `enter`, `tab`, `shift+tab`, `left`, `right`, or unmodified `1` through `9`. Left and right arrows are permanent aliases for pane-left and pane-right navigation. These navigate-mode shortcuts are independent from general action bindings such as `focus_pane_down = "prefix+j"`; when both use the same key, the navigate-mode shortcut wins while navigate mode is open. Alt, Cmd/Super, and punctuation with modifiers depend on your terminal and tmux settings.
 
-If you have old custom keybindings and want the new defaults, run `herdr config reset-keys`. Herdr backs up `config.toml`, removes `[keys]` and `[[keys.command]]`, and uses built-in v2 defaults after restart or `herdr server reload-config`.
+If you have old custom keybindings and want the new defaults, run `kelpie config reset-keys`. Kelpie backs up `config.toml`, removes `[keys]` and `[[keys.command]]`, and uses built-in v2 defaults after restart or `kelpie server reload-config`.
 
 ## Indexed jumps
 
@@ -176,7 +176,7 @@ exits. `width` and `height` are optional; omit them for the default half-size
 popup, use numbers for terminal cells, or use strings like `"80%"` for a
 percentage of the terminal area. Dimensions include the popup border, and
 values smaller than the popup minimum are clamped. Popup commands do not receive
-`HERDR_PANE_ID`; use `HERDR_ACTIVE_PANE_ID` for the underlying tiled pane.
+`KELPIE_PANE_ID`; use `KELPIE_ACTIVE_PANE_ID` for the underlying tiled pane.
 
 On Unix and macOS, a popup command can also provide an ad-hoc terminal without
 adding a split or tab:
@@ -211,9 +211,9 @@ description = "apply layout"
 
 An optional `description` can be provided. When specified, this description is displayed in the keybind help panel (opened with `prefix+?`) in place of the default `'custom command'` label.
 
-Custom commands receive `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ACTIVE_WORKSPACE_ID`, `HERDR_ACTIVE_TAB_ID`, `HERDR_ACTIVE_PANE_ID`, and `HERDR_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Herdr can detect it.
+Custom commands receive `KELPIE_SOCKET_PATH`, `KELPIE_BIN_PATH`, `KELPIE_ACTIVE_WORKSPACE_ID`, `KELPIE_ACTIVE_TAB_ID`, `KELPIE_ACTIVE_PANE_ID`, and `KELPIE_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Kelpie can detect it.
 
-On Windows, custom command strings use `cmd.exe /d /c`, so environment variables use `%HERDR_BIN_PATH%` syntax. To run PowerShell syntax, invoke it explicitly, for example `powershell.exe -NoProfile -Command "..."`.
+On Windows, custom command strings use `cmd.exe /d /c`, so environment variables use `%KELPIE_BIN_PATH%` syntax. To run PowerShell syntax, invoke it explicitly, for example `powershell.exe -NoProfile -Command "..."`.
 
 ## Theme
 
@@ -224,9 +224,9 @@ Choose a built-in theme:
 name = "catppuccin"
 ```
 
-Search `theme.name` in the [Config reference](/docs/config-reference/) for every built-in theme. Use `terminal` when you want Herdr UI colors to follow your host terminal's ANSI palette.
+Search `theme.name` in the [Config reference](/docs/config-reference/) for every built-in theme. Use `terminal` when you want Kelpie UI colors to follow your host terminal's ANSI palette.
 
-To let Herdr switch its own UI theme when the host terminal reports a light/dark appearance change, enable theme auto-switching:
+To let Kelpie switch its own UI theme when the host terminal reports a light/dark appearance change, enable theme auto-switching:
 
 ```toml
 [theme]
@@ -236,7 +236,7 @@ light_name = "catppuccin-latte"
 dark_name = "catppuccin"
 ```
 
-`auto_switch` defaults to `false`, so existing theme configs keep manual behavior. If `light_name` or `dark_name` is omitted, Herdr uses the matching built-in sibling for the configured `name` when one exists, such as `tokyo-night`/`tokyo-night-day` or `gruvbox`/`gruvbox-light`. Manual theme selection in Settings disables `auto_switch`.
+`auto_switch` defaults to `false`, so existing theme configs keep manual behavior. If `light_name` or `dark_name` is omitted, Kelpie uses the matching built-in sibling for the configured `name` when one exists, such as `tokyo-night`/`tokyo-night-day` or `gruvbox`/`gruvbox-light`. Manual theme selection in Settings disables `auto_switch`.
 
 You can override individual colors:
 
@@ -254,7 +254,7 @@ Color values accept hex, named colors, `rgb(r,g,b)`, or reset aliases like `rese
 
 ## UI and sidebar
 
-The sidebar is the main Herdr dashboard. Search `ui.` in the [Config reference](/docs/config-reference/) for sizing, collapsed mode, Agent panel ordering, mouse behavior, pane borders, and other presentation settings.
+The sidebar is the main Kelpie dashboard. Search `ui.` in the [Config reference](/docs/config-reference/) for sizing, collapsed mode, Agent panel ordering, mouse behavior, pane borders, and other presentation settings.
 
 Set `tab_bar_position = "bottom"` under `[ui]` to place the desktop tab row below the terminal panes. Prefix, Navigate, Copy, and Resize mode bars temporarily replace the bottom tab row while active. The default is `"top"`.
 
@@ -299,7 +299,7 @@ Space rows accept these built-in tokens:
 - `git_status` — Git ahead and behind counts when nonzero.
 - `$name` — custom workspace metadata named `name`.
 
-Tokens render in their configured order. Herdr normally separates adjacent values with ` · ` and uses a single space after `state_icon`. Missing values and their separators disappear; a row disappears when none of its tokens have a value. Each layout may contain at most 16 rows, with at most 16 tokens in each row.
+Tokens render in their configured order. Kelpie normally separates adjacent values with ` · ` and uses a single space after `state_icon`. Missing values and their separators disappear; a row disappears when none of its tokens have a value. Each layout may contain at most 16 rows, with at most 16 tokens in each row.
 
 A token entry can also be an inline style table:
 
@@ -346,13 +346,13 @@ rows = [
 ```
 
 ```bash
-herdr pane report-metadata <pane_id> \
+kelpie pane report-metadata <pane_id> \
   --source my-agent-hook \
   --token model=opus \
   --token summary="reviewing authentication"
 ```
 
-Use `herdr workspace report-metadata` in the same way for custom Space tokens. Unreported custom tokens simply disappear.
+Use `kelpie workspace report-metadata` in the same way for custom Space tokens. Unreported custom tokens simply disappear.
 
 Metadata reporters provide values only; styling stays in the local sidebar configuration. See [CLI reference: report metadata](/docs/cli-reference/#panes) for limits, clearing, sequencing, and expiry.
 
@@ -360,24 +360,24 @@ Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mob
 
 ## Notifications
 
-Herdr can notify you when a background agent finishes or needs input:
+Kelpie can notify you when a background agent finishes or needs input:
 
 ```toml
 [ui.toast]
-delivery = "herdr"
+delivery = "kelpie"
 delay_seconds = 1
 
-[ui.toast.herdr]
+[ui.toast.kelpie]
 position = "bottom-right"
 ```
 
-Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification that works well over SSH, `system` for the local OS notification service, or `off` to disable popups. Herdr suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
+Choose `kelpie` for an in-app toast, `terminal` for an outer-terminal notification that works well over SSH, `system` for the local OS notification service, or `off` to disable popups. Kelpie suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
 
 On macOS, `system` tries `terminal-notifier` first and falls back to `/usr/bin/osascript` when it is unavailable or fails. The fallback appears as Script Editor in Notification Center and cannot activate the hosting terminal. Install `terminal-notifier` with `brew install terminal-notifier`. For a supported, detected terminal, it can activate the terminal app when you click the notification. Alternatively, choose `terminal` to let a supported outer terminal own the notification.
 
 ## Sound
 
-Sound notifications play through the local Herdr client. Custom sounds must be mp3 files; relative paths are resolved from the config file's directory.
+Sound notifications play through the local Kelpie client. Custom sounds must be mp3 files; relative paths are resolved from the config file's directory.
 
 ```toml
 [ui.sound]
@@ -413,7 +413,7 @@ Enable it only when testing terminal image behavior.
 
 ## Agent session restore
 
-Herdr resumes supported Agent conversations after a server restart by default:
+Kelpie resumes supported Agent conversations after a server restart by default:
 
 ```toml
 [session]
@@ -436,14 +436,14 @@ Restricting `cjk_ime_agents` avoids showing an extra hardware cursor in unrelate
 
 ## Prefix input source switching
 
-On macOS and Windows, Herdr can temporarily switch to an ASCII-capable input source while prefix commands and prefix-launched modes are active:
+On macOS and Windows, Kelpie can temporarily switch to an ASCII-capable input source while prefix commands and prefix-launched modes are active:
 
 ```toml
 [experimental]
 switch_ascii_input_source_in_prefix = true
 ```
 
-On macOS this switches to the current ASCII-capable keyboard layout; on Windows it switches the IME to English (ASCII) input. Herdr restores the previous input source when returning to terminal input or entering a text field. This setting has no effect on other platforms.
+On macOS this switches to the current ASCII-capable keyboard layout; on Windows it switches the IME to English (ASCII) input. Kelpie restores the previous input source when returning to terminal input or entering a text field. This setting has no effect on other platforms.
 
 :::caution[Windows support is Korean IME only]
 On Windows, support is currently limited to the Korean IME. With an IME for any other language, this setting leaves the input source unchanged.
@@ -453,12 +453,12 @@ On Windows, support is currently limited to the Korean IME. With an IME for any 
 
 | Variable | Purpose |
 | --- | --- |
-| `HERDR_CONFIG_PATH` | Override the config file path. |
-| `HERDR_SESSION` | Select a named session for CLI commands. |
-| `HERDR_SOCKET_PATH` | Low-level socket path override. |
-| `HERDR_PROCESS_DETECTION` | Linux process detection strategy: `native` (default) or opt-in `child-groups`. |
-| `HERDR_LOG` | Set log filtering, for example `HERDR_LOG=herdr=debug`. |
-| `HERDR_DISABLE_SOUND` | Disable sound playback even when `[ui.sound] enabled = true`. |
+| `KELPIE_CONFIG_PATH` | Override the config file path. |
+| `KELPIE_SESSION` | Select a named session for CLI commands. |
+| `KELPIE_SOCKET_PATH` | Low-level socket path override. |
+| `KELPIE_PROCESS_DETECTION` | Linux process detection strategy: `native` (default) or opt-in `child-groups`. |
+| `KELPIE_LOG` | Set log filtering, for example `KELPIE_LOG=kelpie=debug`. |
+| `KELPIE_DISABLE_SOUND` | Disable sound playback even when `[ui.sound] enabled = true`. |
 
 ## Logs
 
@@ -467,9 +467,9 @@ Logs are useful when diagnosing startup warnings, integration state, or socket A
 Common log files:
 
 ```text
-~/.config/herdr/herdr.log
-~/.config/herdr/herdr-client.log
-~/.config/herdr/herdr-server.log
+~/.config/kelpie/kelpie.log
+~/.config/kelpie/kelpie-client.log
+~/.config/kelpie/kelpie-server.log
 ```
 
 Logs rotate automatically. Include the current log and rotated siblings when reporting issues.

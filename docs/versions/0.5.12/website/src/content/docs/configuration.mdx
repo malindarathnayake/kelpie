@@ -1,33 +1,33 @@
 ---
 title: Configuration
-description: Configure Herdr keybindings, themes, sidebar behavior, notifications, and advanced options.
+description: Configure Kelpie keybindings, themes, sidebar behavior, notifications, and advanced options.
 ---
 
-Herdr works without a config file. Add one when you want custom keys, themes, sidebar settings, notifications, or advanced behavior.
+Kelpie works without a config file. Add one when you want custom keys, themes, sidebar settings, notifications, or advanced behavior.
 
 ## Config file
 
-Herdr reads config from:
+Kelpie reads config from:
 
 ```text
-~/.config/herdr/config.toml
+~/.config/kelpie/config.toml
 ```
 
 Print the full default config:
 
 ```bash
-herdr --default-config
+kelpie --default-config
 ```
 
 Save it as your config if you want a complete starting point:
 
 ```bash
-herdr --default-config > ~/.config/herdr/config.toml
+kelpie --default-config > ~/.config/kelpie/config.toml
 ```
 
-If a config value is invalid, Herdr falls back to a safe default and shows a startup warning.
+If a config value is invalid, Kelpie falls back to a safe default and shows a startup warning.
 
-Herdr shows first-run notification setup when `onboarding` is missing or true. Set it when you want to skip that flow after choosing your notification settings.
+Kelpie shows first-run notification setup when `onboarding` is missing or true. Set it when you want to skip that flow after choosing your notification settings.
 
 ```toml
 onboarding = false
@@ -38,16 +38,16 @@ onboarding = false
 Reload a running server after editing `config.toml`:
 
 ```bash
-herdr server reload-config
+kelpie server reload-config
 ```
 
-You can also open the global menu in Herdr and choose `reload config`.
+You can also open the global menu in Kelpie and choose `reload config`.
 
 Reload applies most UI settings without restarting panes. Startup-only settings still need a restart.
 
 ## Keybindings
 
-Herdr has a prefix mode similar to tmux. The default prefix is `ctrl+b`.
+Kelpie has a prefix mode similar to tmux. The default prefix is `ctrl+b`.
 
 A small keybinding override looks like this:
 
@@ -108,7 +108,7 @@ These expand over number keys 1 through 9. For example, `tabs = "ctrl"` makes `c
 
 ## Custom command keybindings
 
-Custom prefix-mode commands can run shell helpers from inside Herdr.
+Custom prefix-mode commands can run shell helpers from inside Kelpie.
 
 ```toml
 [[keys.command]]
@@ -121,7 +121,7 @@ command = "lazygit"
 
 `type = "shell"` runs detached in the background.
 
-Custom commands receive `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ACTIVE_WORKSPACE_ID`, `HERDR_ACTIVE_TAB_ID`, `HERDR_ACTIVE_PANE_ID`, and `HERDR_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Herdr can detect it.
+Custom commands receive `KELPIE_SOCKET_PATH`, `KELPIE_BIN_PATH`, `KELPIE_ACTIVE_WORKSPACE_ID`, `KELPIE_ACTIVE_TAB_ID`, `KELPIE_ACTIVE_PANE_ID`, and `KELPIE_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Kelpie can detect it.
 
 ## Theme
 
@@ -136,7 +136,7 @@ Built-in themes:
 
 `catppuccin`, `catppuccin-latte`, `terminal`, `tokyo-night`, `tokyo-night-day`, `dracula`, `nord`, `gruvbox`, `gruvbox-light`, `one-dark`, `one-light`, `solarized`, `solarized-light`, `kanagawa`, `kanagawa-lotus`, `rose-pine`, `rose-pine-dawn`, `vesper`.
 
-Use `terminal` when you want Herdr UI colors to follow your host terminal's ANSI palette.
+Use `terminal` when you want Kelpie UI colors to follow your host terminal's ANSI palette.
 
 You can override individual colors:
 
@@ -154,7 +154,7 @@ Color values accept hex, named colors, `rgb(r,g,b)`, or reset aliases like `rese
 
 ## UI and sidebar
 
-The sidebar is the main Herdr dashboard. It shows workspaces, tabs, panes, and agent state.
+The sidebar is the main Kelpie dashboard. It shows workspaces, tabs, panes, and agent state.
 
 Common options:
 
@@ -183,7 +183,7 @@ Set `show_agent_labels_on_pane_borders = true` if you want detected agent labels
 
 ## Notifications
 
-Herdr can show popup notifications when agents finish or need input.
+Kelpie can show popup notifications when agents finish or need input.
 
 ```toml
 [ui.toast]
@@ -192,26 +192,26 @@ delivery = "off"
 
 `delivery = "off"` disables popup notifications. This is the default.
 
-`delivery = "herdr"` shows a top-right toast inside the Herdr UI. Click the toast, or bind `keys.open_notification_target`, to focus the target workspace, tab, and pane.
+`delivery = "kelpie"` shows a top-right toast inside the Kelpie UI. Click the toast, or bind `keys.open_notification_target`, to focus the target workspace, tab, and pane.
 
-`delivery = "terminal"` asks the outer terminal to show a desktop notification. Herdr sends terminal notification escape sequences for Ghostty, iTerm2, Kitty, and WezTerm. This is useful over SSH because the local terminal owns the notification.
+`delivery = "terminal"` asks the outer terminal to show a desktop notification. Kelpie sends terminal notification escape sequences for Ghostty, iTerm2, Kitty, and WezTerm. This is useful over SSH because the local terminal owns the notification.
 
-`delivery = "system"` asks the local operating system directly. On macOS, Herdr uses `terminal-notifier` when available, then falls back to `/usr/bin/osascript`. `terminal-notifier` can activate the hosting terminal when you click the notification. On Linux, Herdr uses `notify-send` and requires `DISPLAY` or `WAYLAND_DISPLAY`.
+`delivery = "system"` asks the local operating system directly. On macOS, Kelpie uses `terminal-notifier` when available, then falls back to `/usr/bin/osascript`. `terminal-notifier` can activate the hosting terminal when you click the notification. On Linux, Kelpie uses `notify-send` and requires `DISPLAY` or `WAYLAND_DISPLAY`.
 
-Popup notifications are for background attention. Herdr suppresses popups for the active tab.
+Popup notifications are for background attention. Kelpie suppresses popups for the active tab.
 
 ## Sound
 
-Sound notifications are enabled by default and are played by the local Herdr client.
+Sound notifications are enabled by default and are played by the local Kelpie client.
 
 ```toml
 [ui.sound]
 enabled = true
 ```
 
-Herdr plays a done sound when an agent finishes and an attention sound when an agent needs input. Set `enabled = false` on shared machines or remote servers unless you explicitly want audio.
+Kelpie plays a done sound when an agent finishes and an attention sound when an agent needs input. Set `enabled = false` on shared machines or remote servers unless you explicitly want audio.
 
-On macOS, Herdr uses `afplay`. On Linux, Herdr tries `paplay`, then `aplay`. If no player is available, sound playback is skipped and Herdr logs a warning.
+On macOS, Kelpie uses `afplay`. On Linux, Kelpie tries `paplay`, then `aplay`. If no player is available, sound playback is skipped and Kelpie logs a warning.
 
 Custom sounds must be mp3 files. Relative paths are resolved from the config file's directory.
 
@@ -245,7 +245,7 @@ Existing panes keep their current buffer until they are recreated.
 
 ## Nested launches
 
-Herdr normally protects you from launching Herdr inside Herdr.
+Kelpie normally protects you from launching Kelpie inside Kelpie.
 
 ```toml
 [experimental]
@@ -269,11 +269,11 @@ Leave this off unless you are testing terminal image behavior.
 
 | Variable | Purpose |
 | --- | --- |
-| `HERDR_CONFIG_PATH` | Override the config file path. |
-| `HERDR_SESSION` | Select a named session for CLI commands. |
-| `HERDR_SOCKET_PATH` | Low-level socket path override. |
-| `HERDR_LOG` | Set log filtering, for example `HERDR_LOG=herdr=debug`. |
-| `HERDR_DISABLE_SOUND` | Disable sound playback even when `[ui.sound] enabled = true`. |
+| `KELPIE_CONFIG_PATH` | Override the config file path. |
+| `KELPIE_SESSION` | Select a named session for CLI commands. |
+| `KELPIE_SOCKET_PATH` | Low-level socket path override. |
+| `KELPIE_LOG` | Set log filtering, for example `KELPIE_LOG=kelpie=debug`. |
+| `KELPIE_DISABLE_SOUND` | Disable sound playback even when `[ui.sound] enabled = true`. |
 
 ## Logs
 
@@ -282,9 +282,9 @@ Logs are useful when diagnosing startup warnings, integration state, or socket A
 Common log files:
 
 ```text
-~/.config/herdr/herdr.log
-~/.config/herdr/herdr-client.log
-~/.config/herdr/herdr-server.log
+~/.config/kelpie/kelpie.log
+~/.config/kelpie/kelpie-client.log
+~/.config/kelpie/kelpie-server.log
 ```
 
 Logs rotate automatically. Include the current log and rotated siblings when reporting issues.

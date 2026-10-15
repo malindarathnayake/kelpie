@@ -1,35 +1,35 @@
 ---
 title: Integrations
-description: Install Herdr integrations for Pi, Claude Code, Codex, OpenCode, and Hermes Agent.
+description: Install Kelpie integrations for Pi, Claude Code, Codex, OpenCode, and Hermes Agent.
 ---
 
-Herdr detects supported agents automatically. Integrations make that detection more precise by reporting semantic state directly to Herdr.
+Kelpie detects supported agents automatically. Integrations make that detection more precise by reporting semantic state directly to Kelpie.
 
 Use integrations when you want reliable `working`, `blocked`, `idle`, and `done` state from agent hooks or plugins.
 
 ## Install integrations
 
 ```bash
-herdr integration install pi
-herdr integration install claude
-herdr integration install codex
-herdr integration install opencode
-herdr integration install hermes
+kelpie integration install pi
+kelpie integration install claude
+kelpie integration install codex
+kelpie integration install opencode
+kelpie integration install hermes
 ```
 
 ## Uninstall integrations
 
 ```bash
-herdr integration uninstall pi
-herdr integration uninstall claude
-herdr integration uninstall codex
-herdr integration uninstall opencode
-herdr integration uninstall hermes
+kelpie integration uninstall pi
+kelpie integration uninstall claude
+kelpie integration uninstall codex
+kelpie integration uninstall opencode
+kelpie integration uninstall hermes
 ```
 
-## How Herdr uses integrations
+## How Kelpie uses integrations
 
-Herdr combines three signals:
+Kelpie combines three signals:
 
 | Signal | Purpose |
 | --- | --- |
@@ -44,33 +44,33 @@ Integrations enrich state reporting. They do not replace process detection.
 Install the Pi integration:
 
 ```bash
-herdr integration install pi
+kelpie integration install pi
 ```
 
-Herdr writes the bundled extension to:
+Kelpie writes the bundled extension to:
 
 ```text
-~/.pi/agent/extensions/herdr-agent-state.ts
+~/.pi/agent/extensions/kelpie-agent-state.ts
 ```
 
-If `PI_CODING_AGENT_DIR` is set, Herdr writes to that agent directory instead.
+If `PI_CODING_AGENT_DIR` is set, Kelpie writes to that agent directory instead.
 
 ## Claude Code
 
 Install the Claude Code hook:
 
 ```bash
-herdr integration install claude
+kelpie integration install claude
 ```
 
-The hook reports agent state to the local Herdr socket when Claude Code exposes hook events.
+The hook reports agent state to the local Kelpie socket when Claude Code exposes hook events.
 
 ## Codex
 
 Install the Codex hook:
 
 ```bash
-herdr integration install codex
+kelpie integration install codex
 ```
 
 Codex state is reported through the same local socket API used by other integrations.
@@ -80,22 +80,22 @@ Codex state is reported through the same local socket API used by other integrat
 Install the OpenCode plugin:
 
 ```bash
-herdr integration install opencode
+kelpie integration install opencode
 ```
 
-The plugin reports semantic state while OpenCode runs inside a Herdr pane.
+The plugin reports semantic state while OpenCode runs inside a Kelpie pane.
 
 ## Hermes Agent
 
 Install the Hermes Agent plugin:
 
 ```bash
-herdr integration install hermes
+kelpie integration install hermes
 ```
 
-Herdr writes `~/.hermes/plugins/herdr-agent-state/` and enables `herdr-agent-state` in `~/.hermes/config.yaml`. Restart Hermes after installing so the plugin loads.
+Kelpie writes `~/.hermes/plugins/kelpie-agent-state/` and enables `kelpie-agent-state` in `~/.hermes/config.yaml`. Restart Hermes after installing so the plugin loads.
 
-The plugin reports lifecycle, tool, and approval state while Hermes runs inside a Herdr pane. Native screen heuristics remain available when the plugin is not installed.
+The plugin reports lifecycle, tool, and approval state while Hermes runs inside a Kelpie pane. Native screen heuristics remain available when the plugin is not installed.
 
 ## Custom status labels
 
@@ -104,7 +104,7 @@ Integrations can report a short visual label without changing the semantic state
 For example, an agent can remain semantically `working` while showing `indexing` in the UI.
 
 ```bash
-herdr pane report-agent 1-1 \
+kelpie pane report-agent 1-1 \
   --source custom:docs \
   --agent docs-bot \
   --state working \
@@ -118,13 +118,13 @@ Custom status is visual-only. Waits, notifications, and workspace rollups still 
 List known agents:
 
 ```bash
-herdr agent list
+kelpie agent list
 ```
 
-Read a pane when you need to verify what Herdr can see:
+Read a pane when you need to verify what Kelpie can see:
 
 ```bash
-herdr pane read 1-1 --source recent --lines 50
+kelpie pane read 1-1 --source recent --lines 50
 ```
 
-If integration state looks wrong, first confirm the agent is running inside Herdr and that the relevant hook or plugin was installed for the same user account.
+If integration state looks wrong, first confirm the agent is running inside Kelpie and that the relevant hook or plugin was installed for the same user account.

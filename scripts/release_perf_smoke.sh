@@ -10,7 +10,7 @@ candidate=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 [[ -x "$candidate" ]] || { echo "candidate binary is not executable: $candidate" >&2; exit 1; }
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
-baseline=${HERDR_PERF_BASELINE_BIN:-}
+baseline=${KELPIE_PERF_BASELINE_BIN:-}
 for command in jq lsof perl tmux; do
   command -v "$command" >/dev/null || { echo "required command not found: $command" >&2; exit 1; }
 done
@@ -29,7 +29,7 @@ case "$(uname -m)" in
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-root=$(mktemp -d /var/tmp/herdr-release-perf-smoke.XXXXXX)
+root=$(mktemp -d /var/tmp/kelpie-release-perf-smoke.XXXXXX)
 cleanup() { rm -rf "$root"; }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -38,9 +38,9 @@ mkdir -p "$root/results"
 
 if [[ -z "$baseline" ]]; then
   baseline_version=$(jq -er '.version' "$repo_root/distribution/latest.json")
-  baseline="$root/herdr-baseline"
+  baseline="$root/kelpie-baseline"
   curl -fL --retry 3 \
-    "https://github.com/herdrdev/herdr/releases/download/v${baseline_version}/herdr-${platform}-${arch}" \
+    "https://kelpie.example/source/releases/download/v${baseline_version}/kelpie-${platform}-${arch}" \
     -o "$baseline"
   chmod +x "$baseline"
 else
@@ -49,8 +49,8 @@ fi
 [[ -x "$baseline" ]] || { echo "baseline binary is not executable: $baseline" >&2; exit 1; }
 
 case_script="$script_dir/release_perf_case.sh"
-seconds=${HERDR_PERF_SAMPLE_SECONDS:-10}
-warmup=${HERDR_PERF_WARMUP_SECONDS:-3}
+seconds=${KELPIE_PERF_SAMPLE_SECONDS:-10}
+warmup=${KELPIE_PERF_WARMUP_SECONDS:-3}
 
 for round in 1 2; do
   if [[ $round -eq 1 ]]; then variants="baseline candidate"; else variants="candidate baseline"; fi
