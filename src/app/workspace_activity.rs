@@ -27,6 +27,18 @@ pub(crate) fn quantize_activity_ms(ms: u64) -> u64 {
     ms - ms % ACTIVITY_QUANTUM_MS
 }
 
+/// True when the pane saw owner input or a new agent turn after the question was asked.
+/// Same rule as the digest's `possible_response_at`, plus the turn start, because an
+/// answer typed before the client recorded owner input still starts a new turn.
+fn question_has_possible_response(
+    asked_at_ms: u64,
+    last_owner_input_ms: Option<u64>,
+    turn_started_ms: Option<u64>,
+) -> bool {
+    last_owner_input_ms.is_some_and(|t| t > asked_at_ms)
+        || turn_started_ms.is_some_and(|t| t > asked_at_ms)
+}
+
 /// Supervisor facts read once per snapshot build; empty when the surface is disabled.
 #[derive(Default)]
 pub(crate) struct SupervisorActivityFacts {
@@ -96,10 +108,21 @@ impl super::App {
                 activity.last_activity_ms = activity.last_activity_ms.max(pane_last);
                 if supervisor_on {
                     if let Some(state) = self.state.supervisor.pane(*pane_id) {
+                        // "Waiting on you" counts only questions nobody has responded to:
+                        // owner input in the pane or a new agent turn after the question
+                        // is a possible response. The question itself stays open for the
+                        // supervisor digest; only the sidebar stops asking for attention.
                         let open = state
                             .questions
                             .iter()
-                            .filter(|question| question.resolution.is_none())
+                            .filter(|question| {
+                                question.resolution.is_none()
+                                    && !question_has_possible_response(
+                                        question.asked_at_ms,
+                                        owner_input,
+                                        state.turn_started_ms,
+                                    )
+                            })
                             .count();
                         activity.open_questions = activity
                             .open_questions
@@ -137,6 +160,19 @@ mod tests {
         assert_eq!(quantize_activity_ms(4_999), 0);
         assert_eq!(quantize_activity_ms(5_000), 5_000);
         assert_eq!(quantize_activity_ms(12_345), 10_000);
+    }
+
+    #[test]
+    fn answered_questions_stop_counting_as_waiting() {
+        // Asked at 100, nothing since: still waiting.
+        assert!(!question_has_possible_response(100, None, None));
+        assert!(!question_has_possible_response(100, Some(90), Some(50)));
+        // Owner typed after the question.
+        assert!(question_has_possible_response(100, Some(150), None));
+        // The agent started a new turn after the question (answer submitted).
+        assert!(question_has_possible_response(100, None, Some(120)));
+        // Equal stamps are not "after".
+        assert!(!question_has_possible_response(100, Some(100), Some(100)));
     }
 
     #[test]
