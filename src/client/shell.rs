@@ -182,21 +182,86 @@ fn status_icon(
     status: crate::api::schema::AgentStatus,
     style: crate::config::StatusIndicatorStyle,
 ) -> &'static str {
+    agent_status_icon(status, style, None)
+}
+
+/// The sidebar mark for one row: the agent's mark when the style draws agent marks
+/// and the agent is known, otherwise the dot or symbol for the status. Status is
+/// carried by the colour the caller applies, so every mark is one cell wide.
+fn agent_status_icon(
+    status: crate::api::schema::AgentStatus,
+    style: crate::config::StatusIndicatorStyle,
+    agent: Option<&str>,
+) -> &'static str {
     use crate::api::schema::AgentStatus;
     use crate::config::StatusIndicatorStyle;
+    if let Some(mark) = agent.and_then(|agent| agent_mark(style, agent)) {
+        return mark;
+    }
+    let style = if style.uses_agent_marks() {
+        StatusIndicatorStyle::Dots
+    } else {
+        style
+    };
     match (style, status) {
-        (
-            StatusIndicatorStyle::Dots,
-            AgentStatus::Working | AgentStatus::Blocked | AgentStatus::Done,
-        ) => "●",
-        (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "○",
-        (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "·",
         (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "×",
         (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "◐",
         (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "✓",
         (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "○",
         (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "·",
+        (_, AgentStatus::Working | AgentStatus::Blocked | AgentStatus::Done) => "●",
+        (_, AgentStatus::Idle) => "○",
+        (_, AgentStatus::Unknown) => "·",
     }
+}
+
+/// The mark for a known agent label in an agent-mark style; `None` for other
+/// styles and for agents without a mark.
+fn agent_mark(style: crate::config::StatusIndicatorStyle, agent: &str) -> Option<&'static str> {
+    use crate::config::StatusIndicatorStyle;
+    let agent = agent.trim();
+    let is = |label: &str| agent.eq_ignore_ascii_case(label);
+    let index = if is("claude") {
+        0
+    } else if is("codex") {
+        1
+    } else if is("cursor") {
+        2
+    } else if is("pi") {
+        3
+    } else {
+        return None;
+    };
+    let marks: [&'static str; 4] = match style {
+        StatusIndicatorStyle::Agents => ["✻", "◎", "⬢", "π"],
+        StatusIndicatorStyle::AgentShapes => ["◉", "◎", "⬢", "π"],
+        StatusIndicatorStyle::AgentLetters => ["A", "X", "U", "P"],
+        StatusIndicatorStyle::Dots | StatusIndicatorStyle::Symbols => return None,
+    };
+    Some(marks[index])
+}
+
+/// The agent whose mark represents a set of workspaces: among their labelled agents
+/// whose status equals the displayed status, the focused one, else the first.
+/// `None` when no labelled agent there carries that status.
+fn representative_agent(
+    agents: &[crate::protocol::ClientShellAgent],
+    mut in_scope: impl FnMut(&str) -> bool,
+    displayed: crate::api::schema::AgentStatus,
+) -> Option<&str> {
+    let mut chosen: Option<&crate::protocol::ClientShellAgent> = None;
+    for agent in agents {
+        if agent.agent_status != displayed
+            || agent.agent.is_none()
+            || !in_scope(&agent.workspace_id)
+        {
+            continue;
+        }
+        if chosen.is_none() || (agent.focused && !chosen.is_some_and(|chosen| chosen.focused)) {
+            chosen = Some(agent);
+        }
+    }
+    chosen.and_then(|agent| agent.agent.as_deref())
 }
 
 fn status_dot(status: crate::api::schema::AgentStatus) -> &'static str {

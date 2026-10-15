@@ -357,9 +357,12 @@ const DEFAULT_CONFIG: &str = r##"# kelpie configuration
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
 
-# Agent status indicators: "dots" preserves the compact color marks; "symbols" uses
+# Agent status indicators. "agents" (default) marks each known agent with a sign
+# like its logo (Claude ✻, Codex ◎, Cursor ⬢, pi π); "agent-shapes" uses ◉ ◎ ⬢ π;
+# "agent-letters" uses A X U P. Colour shows the state, and other agents fall back
+# to dots. "dots" keeps the compact color marks for every pane; "symbols" uses
 # distinct static glyphs for blocked, working, done, idle, and unknown states.
-# status_indicators = "dots"
+# status_indicators = "agents"
 
 # Accent color for highlights, borders, and navigation UI.
 # Accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)

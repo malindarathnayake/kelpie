@@ -23,7 +23,11 @@ pub(super) fn render_collapsed(
             rect.width,
             &format!(
                 "{initial}{}",
-                status_icon(row.agent.status, config.status_indicators)
+                agent_status_icon(
+                    row.agent.status,
+                    config.status_indicators,
+                    row.agent.agent.as_deref(),
+                )
             ),
             Style::default()
                 .fg(if row.stale {

@@ -197,8 +197,15 @@ pub(super) fn render_settings_overlay(
                 buffer,
                 content,
                 "agent status indicators",
-                "choose color dots or distinct symbols for each state",
-                &["color dots  ● ● ● ○ ·", "distinct symbols  × ◐ ✓ ○ ·"],
+                "agent marks show which agent runs there; color shows its state",
+                // Same order as `StatusIndicatorStyle::ALL`.
+                &[
+                    "agent marks  ✻ ◎ ⬢ π ●",
+                    "agent shapes  ◉ ◎ ⬢ π ●",
+                    "agent letters  A X U P ●",
+                    "color dots  ● ● ● ○ ·",
+                    "distinct symbols  × ◐ ✓ ○ ·",
+                ],
                 settings.selected,
                 palette,
                 &mut choice_hits,

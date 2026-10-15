@@ -98,7 +98,11 @@ pub(crate) fn render_collapsed_sidebar(
             rect.x.saturating_add(2),
             rect.y,
             rect.width.saturating_sub(2),
-            status_icon(status, config.status_indicators),
+            agent_status_icon(
+                status,
+                config.status_indicators,
+                workspace_agent(snapshot, workspace, status),
+            ),
             Style::default().fg(status_color(status, palette)),
         );
         hits.workspaces.push(WorkspaceHit {
@@ -165,7 +169,11 @@ pub(crate) fn render_collapsed_sidebar(
             rect.x.saturating_add(2),
             rect.y,
             rect.width.saturating_sub(2),
-            status_icon(agent.agent_status, config.status_indicators),
+            agent_status_icon(
+                agent.agent_status,
+                config.status_indicators,
+                agent.agent.as_deref(),
+            ),
             Style::default().fg(status_color(agent.agent_status, palette)),
         );
         hits.agents.push((rect, pane_id));
@@ -304,6 +312,7 @@ pub(crate) fn render_sidebar(
             continue;
         };
         let status = displayed_workspace_status(snapshot, workspace, state.collapsed_groups);
+        let agent = displayed_workspace_agent(snapshot, workspace, state.collapsed_groups, status);
         let rows = workspace_rows(workspace, status, entry.indented, &config.spaces);
         let row_height = (rows.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
         if y.saturating_add(row_height) > body.bottom() {
@@ -333,6 +342,7 @@ pub(crate) fn render_sidebar(
             rect,
             status,
             config.status_indicators,
+            agent,
             entry,
             rows,
             workspace.focused,
@@ -668,6 +678,55 @@ pub(in crate::client::shell) fn displayed_workspace_status(
         .unwrap_or(workspace.agent_status)
 }
 
+/// The agent label behind one workspace's displayed status, for agent marks.
+pub(in crate::client::shell) fn workspace_agent<'a>(
+    snapshot: &'a ClientShellSnapshot,
+    workspace: &ClientShellWorkspace,
+    status: crate::api::schema::AgentStatus,
+) -> Option<&'a str> {
+    representative_agent(
+        &snapshot.agents,
+        |workspace_id| workspace_id == workspace.workspace_id,
+        status,
+    )
+}
+
+/// The agent label behind a sidebar row's displayed status, following the same
+/// collapsed worktree grouping as [`displayed_workspace_status`].
+pub(in crate::client::shell) fn displayed_workspace_agent<'a>(
+    snapshot: &'a ClientShellSnapshot,
+    workspace: &ClientShellWorkspace,
+    collapsed_groups: &HashSet<String>,
+    status: crate::api::schema::AgentStatus,
+) -> Option<&'a str> {
+    let group_key = workspace
+        .worktree
+        .as_ref()
+        .filter(|worktree| !worktree.is_linked_worktree)
+        .map(|worktree| worktree.key.as_str())
+        .filter(|key| collapsed_groups.contains(*key));
+    let Some(group_key) = group_key else {
+        return workspace_agent(snapshot, workspace, status);
+    };
+    let members: HashSet<&str> = snapshot
+        .workspaces
+        .iter()
+        .filter(|candidate| {
+            candidate.worktree.as_ref().is_some_and(|member| {
+                member.key == group_key
+                    && (member.is_linked_worktree
+                        || candidate.workspace_id == workspace.workspace_id)
+            })
+        })
+        .map(|candidate| candidate.workspace_id.as_str())
+        .collect();
+    representative_agent(
+        &snapshot.agents,
+        |workspace_id| members.contains(workspace_id),
+        status,
+    )
+}
+
 pub(in crate::client::shell) fn workspace_rows(
     workspace: &ClientShellWorkspace,
     status: crate::api::schema::AgentStatus,
@@ -704,6 +763,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
     area: Rect,
     status: crate::api::schema::AgentStatus,
     indicators: crate::config::StatusIndicatorStyle,
+    agent: Option<&str>,
     entry: &WorkspaceEntry,
     rows: Vec<Vec<crate::ui::ResolvedToken>>,
     focused: bool,
@@ -776,7 +836,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
         let spans = crate::ui::resolved_token_spans(
             row,
             (
-                status_icon(status, indicators),
+                agent_status_icon(status, indicators, agent),
                 Style::default().fg(status_color(status, palette)),
             ),
             Style::default().fg(status_color(status, palette)),

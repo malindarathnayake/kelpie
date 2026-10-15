@@ -18,7 +18,10 @@ fn theme_index(name: &str) -> usize {
 }
 
 fn indicator_index(style: crate::config::StatusIndicatorStyle) -> usize {
-    usize::from(style == crate::config::StatusIndicatorStyle::Symbols)
+    crate::config::StatusIndicatorStyle::ALL
+        .iter()
+        .position(|candidate| *candidate == style)
+        .unwrap_or(0)
 }
 
 fn toast_index(delivery: crate::config::ToastDelivery) -> usize {
@@ -115,7 +118,8 @@ impl ClientShellState {
         match self.overlay.as_ref() {
             Some(ClientShellOverlay::Settings(settings)) => match settings.section {
                 ClientSettingsSection::Theme => crate::config::THEME_NAMES.len(),
-                ClientSettingsSection::Indicators | ClientSettingsSection::Sound => 2,
+                ClientSettingsSection::Indicators => crate::config::StatusIndicatorStyle::ALL.len(),
+                ClientSettingsSection::Sound => 2,
                 ClientSettingsSection::Toast => 4,
                 ClientSettingsSection::Integrations => settings.integrations.len(),
                 ClientSettingsSection::Host => 0,
@@ -234,10 +238,11 @@ impl ClientShellState {
                 }
             }
             ClientSettingsSection::Indicators => {
-                let style = if selected == 0 {
-                    crate::config::StatusIndicatorStyle::Dots
-                } else {
-                    crate::config::StatusIndicatorStyle::Symbols
+                let Some(style) = crate::config::StatusIndicatorStyle::ALL
+                    .get(selected)
+                    .copied()
+                else {
+                    return;
                 };
                 self.save_settings_edit(
                     crate::config::ConfigEdit::StatusIndicators(style),

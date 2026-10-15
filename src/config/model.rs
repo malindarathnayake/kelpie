@@ -111,17 +111,42 @@ enum LegacyAgentPanelScopeConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusIndicatorStyle {
+    /// One mark per known agent that resembles its logo; status stays in the colour.
     #[default]
+    Agents,
+    /// One geometric mark per known agent, all drawn by common monospace fonts.
+    #[serde(rename = "agent-shapes")]
+    AgentShapes,
+    /// One letter per known agent, for fonts without symbol glyphs.
+    #[serde(rename = "agent-letters")]
+    AgentLetters,
     Dots,
     Symbols,
 }
 
 impl StatusIndicatorStyle {
+    /// Every style, in the order the settings menu lists them.
+    pub const ALL: [Self; 5] = [
+        Self::Agents,
+        Self::AgentShapes,
+        Self::AgentLetters,
+        Self::Dots,
+        Self::Symbols,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Agents => "agents",
+            Self::AgentShapes => "agent-shapes",
+            Self::AgentLetters => "agent-letters",
             Self::Dots => "dots",
             Self::Symbols => "symbols",
         }
+    }
+
+    /// Whether the style draws a per-agent mark (falling back to dots when no agent is known).
+    pub fn uses_agent_marks(self) -> bool {
+        matches!(self, Self::Agents | Self::AgentShapes | Self::AgentLetters)
     }
 }
 
@@ -1297,7 +1322,7 @@ impl Default for UiConfig {
             window_title: super::window_title::default_window_title(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             _legacy_agent_panel_scope: None,
-            status_indicators: StatusIndicatorStyle::Dots,
+            status_indicators: StatusIndicatorStyle::Agents,
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
             toast: ToastConfig::default(),
@@ -1550,20 +1575,30 @@ agent_panel_scope = "current"
     }
 
     #[test]
-    fn status_indicator_style_defaults_to_dots_and_parses_symbols() {
+    fn status_indicator_style_defaults_to_agent_marks_and_parses_every_style() {
         assert_eq!(
             Config::default().ui.status_indicators,
-            StatusIndicatorStyle::Dots
+            StatusIndicatorStyle::Agents
+        );
+        assert_eq!(
+            toml::from_str::<Config>("").unwrap().ui.status_indicators,
+            StatusIndicatorStyle::Agents
         );
 
-        let config: Config = toml::from_str(
-            r#"
-[ui]
-status_indicators = "symbols"
-"#,
-        )
-        .unwrap();
-        assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Symbols);
+        for style in [
+            StatusIndicatorStyle::Agents,
+            StatusIndicatorStyle::AgentShapes,
+            StatusIndicatorStyle::AgentLetters,
+            StatusIndicatorStyle::Dots,
+            StatusIndicatorStyle::Symbols,
+        ] {
+            let config: Config = toml::from_str(&format!(
+                "[ui]\nstatus_indicators = \"{}\"\n",
+                style.as_str()
+            ))
+            .unwrap();
+            assert_eq!(config.ui.status_indicators, style);
+        }
     }
 
     #[test]
