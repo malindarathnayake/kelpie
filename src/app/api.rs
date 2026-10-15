@@ -1702,6 +1702,44 @@ mod tests {
 
     #[tokio::test]
     async fn agent_explain_evaluates_with_server_manifest_cache() {
+        // Detection manifests are a process-wide cache loaded from the config and
+        // state folders. Hold the shared env lock and point both folders at an empty
+        // temp base so a remote manifest left by another test (or another run) in
+        // the real folders cannot replace the built-in Codex rules.
+        let _guard = crate::config::test_config_env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let old_config = std::env::var_os("XDG_CONFIG_HOME");
+        let old_state = std::env::var_os("XDG_STATE_HOME");
+        let base = std::env::temp_dir().join(format!(
+            "kelpie-agent-explain-manifest-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::env::set_var("XDG_CONFIG_HOME", base.join("config"));
+        std::env::set_var("XDG_STATE_HOME", base.join("state"));
+        crate::detect::manifest::reload_manifests();
+        struct RestoreDirs(
+            Option<std::ffi::OsString>,
+            Option<std::ffi::OsString>,
+            std::path::PathBuf,
+        );
+        impl Drop for RestoreDirs {
+            fn drop(&mut self) {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                    None => std::env::remove_var("XDG_CONFIG_HOME"),
+                }
+                match self.1.take() {
+                    Some(value) => std::env::set_var("XDG_STATE_HOME", value),
+                    None => std::env::remove_var("XDG_STATE_HOME"),
+                }
+                crate::detect::manifest::reload_manifests();
+                let _ = std::fs::remove_dir_all(&self.2);
+            }
+        }
+        let _restore = RestoreDirs(old_config, old_state, base);
+
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &crate::config::Config::default(),
