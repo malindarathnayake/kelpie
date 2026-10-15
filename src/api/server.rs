@@ -815,7 +815,7 @@ mod windows_tests {
     use std::sync::mpsc::{self, Receiver};
 
     fn local_stream_pair(name: &str) -> (LocalStream, LocalStream, PathBuf) {
-        let path = std::env::temp_dir().join(format!(
+        let path = crate::ipc::short_socket_test_dir().join(format!(
             "kelpie-api-{name}-{}-{}.sock",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
@@ -1153,7 +1153,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("kelpie-{name}-{}-{nanos}", std::process::id()))
+        crate::ipc::short_socket_test_dir()
+            .join(format!("kelpie-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn read_line(stream: &mut LocalStream) -> String {

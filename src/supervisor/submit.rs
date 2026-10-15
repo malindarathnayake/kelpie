@@ -221,7 +221,8 @@ struct SubmitEntry {
     handoff: Option<CompletionHandoff>,
 }
 
-/// Hands the PTY completion receiver to the waiter thread.
+/// Hands the PTY completion receiver to the waiter thread (debug hold knob only).
+#[cfg(debug_assertions)]
 pub type CompletionHandoff =
     std::sync::mpsc::Sender<std::sync::mpsc::Receiver<std::io::Result<()>>>;
 

@@ -82,10 +82,14 @@ impl Fixture {
             .duration_since(UNIX_EPOCH)
             .map(|elapsed| elapsed.as_nanos())
             .unwrap_or_default();
-        let base = std::env::temp_dir().join(format!(
-            "kelpie-supervisor-fixture-{}-{nanos}",
-            std::process::id()
-        ));
+        // macOS limits a Unix socket path to 104 bytes and its per-user temp folder
+        // alone is about 50, so the fixture's socket lives under /tmp there.
+        let temp_root = if cfg!(target_os = "macos") {
+            std::path::PathBuf::from("/tmp")
+        } else {
+            std::env::temp_dir()
+        };
+        let base = temp_root.join(format!("ksf-{}-{nanos}", std::process::id()));
         let config_home = base.join("config");
         let runtime_dir = base.join("runtime");
         let state_home = base.join("state");
@@ -271,6 +275,26 @@ impl Fixture {
                     &stand_in,
                 )
                 .unwrap();
+            }
+            stand_in
+        } else if cfg!(target_os = "macos") {
+            // macOS names the foreground process from argv[0] (KERN_PROCARGS2), and a
+            // script that execs a shell would show up as that shell. Copying a system
+            // shell does not work either (macOS kills relocated platform binaries), so
+            // exec bash with argv[0] set to the agent's name.
+            let stand_in = bin.join(exe_name);
+            std::fs::write(
+                &stand_in,
+                format!(
+                    "#!/bin/bash\nexport KELPIE_AGENT={agent_label}\nexec -a {exe_name} /bin/bash\n"
+                ),
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&stand_in, std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
             }
             stand_in
         } else {
@@ -1719,7 +1743,12 @@ fn p10_fixture_input_observer_child() {
         .windows(2)
         .any(|args| args == ["--exact", "p10_fixture_input_observer_child"]));
     let base = PathBuf::from(base).canonicalize().unwrap();
-    let child_temp = std::env::temp_dir();
+    // Same root the fixture chose for its base (see `start_with_config_env`).
+    let child_temp = if cfg!(target_os = "macos") {
+        PathBuf::from("/tmp")
+    } else {
+        std::env::temp_dir()
+    };
     let child_temp = child_temp.canonicalize().unwrap_or_else(|error| {
         panic!(
             "observer temp directory {child_temp:?} cannot be resolved: {error}; TEMP={:?}; TMP={:?}",
@@ -1733,7 +1762,7 @@ fn p10_fixture_input_observer_child() {
         .unwrap()
         .to_str()
         .unwrap()
-        .starts_with("kelpie-supervisor-fixture-"));
+        .starts_with("ksf-"));
     assert!(base.join("config").is_dir() && base.join("runtime").is_dir());
     assert!(base.join("p10-screen-0.ansi").is_file());
 

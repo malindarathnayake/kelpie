@@ -32,6 +32,17 @@ pub(crate) struct SocketFileIdentity {
     marker: Vec<u8>,
 }
 
+/// Directory for sockets created by tests. macOS limits a Unix socket path to 104 bytes
+/// and its per-user temp folder alone is about 50, so tests there use `/tmp`.
+#[cfg(test)]
+pub(crate) fn short_socket_test_dir() -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        std::path::PathBuf::from("/tmp")
+    } else {
+        std::env::temp_dir()
+    }
+}
+
 pub(crate) fn connect_local_stream(path: &Path) -> io::Result<LocalStream> {
     #[cfg(unix)]
     {

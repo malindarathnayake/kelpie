@@ -336,6 +336,12 @@ pub(crate) fn local_stream_peer_description(stream: &crate::ipc::LocalStream) ->
 }
 
 pub(crate) fn begin_cli_output() {
+    // Unit tests run CLI paths inside the shared test process; restoring the default
+    // SIGPIPE there would let any later socket test die on a closed peer (macOS has
+    // no MSG_NOSIGNAL), so tests keep Rust's ignored disposition.
+    if cfg!(test) {
+        return;
+    }
     set_sigpipe_disposition(libc::SIG_DFL);
 }
 
