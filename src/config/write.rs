@@ -4,6 +4,89 @@ pub(crate) enum ConfigEdit<'a> {
     StatusIndicators(super::StatusIndicatorStyle),
     Sound(bool),
     ToastDelivery(super::ToastDelivery),
+    /// Fork: a server access or supervisor switch from Settings -> access.
+    Access(AccessSetting, bool),
+}
+
+/// Server-start switches the Settings access section can flip. Each takes effect the
+/// next time the server starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AccessSetting {
+    /// `[supervisor] enabled`.
+    Supervisor,
+    /// `[server] allow_low_integrity_clients` (Windows).
+    LowIntegrityClients,
+    /// `[server] allow_unelevated_clients` (Windows).
+    UnelevatedClients,
+}
+
+impl AccessSetting {
+    /// Rows shown on this platform, in display order.
+    pub(crate) const SHOWN: &'static [Self] = if cfg!(windows) {
+        &[
+            Self::Supervisor,
+            Self::LowIntegrityClients,
+            Self::UnelevatedClients,
+        ]
+    } else {
+        &[Self::Supervisor]
+    };
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Supervisor => "supervisor",
+            Self::LowIntegrityClients => "sandboxed tools (low integrity)",
+            Self::UnelevatedClients => "ordinary clients to an elevated server",
+        }
+    }
+
+    fn section_and_key(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Supervisor => ("supervisor", "enabled"),
+            Self::LowIntegrityClients => ("server", "allow_low_integrity_clients"),
+            Self::UnelevatedClients => ("server", "allow_unelevated_clients"),
+        }
+    }
+}
+
+/// Current values of the access switches, read from the loaded config.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct AccessSettings {
+    pub(crate) supervisor: bool,
+    pub(crate) low_integrity_clients: bool,
+    pub(crate) unelevated_clients: bool,
+}
+
+impl AccessSettings {
+    pub(crate) fn from_config(config: &super::Config) -> Self {
+        Self {
+            supervisor: config.supervisor.enabled,
+            #[cfg(windows)]
+            low_integrity_clients: config.server.allow_low_integrity_clients,
+            #[cfg(not(windows))]
+            low_integrity_clients: false,
+            #[cfg(windows)]
+            unelevated_clients: config.server.allow_unelevated_clients,
+            #[cfg(not(windows))]
+            unelevated_clients: false,
+        }
+    }
+
+    pub(crate) fn set(&mut self, setting: AccessSetting, enabled: bool) {
+        match setting {
+            AccessSetting::Supervisor => self.supervisor = enabled,
+            AccessSetting::LowIntegrityClients => self.low_integrity_clients = enabled,
+            AccessSetting::UnelevatedClients => self.unelevated_clients = enabled,
+        }
+    }
+
+    pub(crate) fn get(self, setting: AccessSetting) -> bool {
+        match setting {
+            AccessSetting::Supervisor => self.supervisor,
+            AccessSetting::LowIntegrityClients => self.low_integrity_clients,
+            AccessSetting::UnelevatedClients => self.unelevated_clients,
+        }
+    }
 }
 
 impl ConfigEdit<'_> {
@@ -13,6 +96,7 @@ impl ConfigEdit<'_> {
             Self::StatusIndicators(_) => "status indicators",
             Self::Sound(_) => "sound setting",
             Self::ToastDelivery(_) => "toast setting",
+            Self::Access(_, _) => "access setting",
         }
     }
 
@@ -47,6 +131,10 @@ impl ConfigEdit<'_> {
                 };
                 let content = super::upsert_section_value(content, "ui.toast", "delivery", value);
                 super::remove_section_key(&content, "ui.toast", "enabled")
+            }
+            Self::Access(setting, enabled) => {
+                let (section, key) = setting.section_and_key();
+                super::upsert_section_bool(content, section, key, enabled)
             }
         }
     }

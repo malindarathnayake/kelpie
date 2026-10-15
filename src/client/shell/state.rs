@@ -26,6 +26,8 @@ pub(crate) struct ClientShellConfig {
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
     pub(super) sound_enabled: bool,
+    /// Fork: server access and supervisor switches shown in Settings -> access.
+    pub(super) access: crate::config::AccessSettings,
     pub(super) toast_delivery: crate::config::ToastDelivery,
     pub(super) toast_delay_seconds: u64,
     pub(super) toast_position: crate::config::ToastKelpiePosition,
@@ -395,6 +397,8 @@ pub(super) enum ClientSettingsSection {
     Sound,
     Toast,
     Integrations,
+    /// Fork: supervisor and server access switches (apply on server restart).
+    Access,
     /// Fork: read-only host facts of the attached server.
     Host,
 }
@@ -406,6 +410,7 @@ impl ClientSettingsSection {
         Self::Sound,
         Self::Toast,
         Self::Integrations,
+        Self::Access,
         Self::Host,
     ];
 
@@ -416,6 +421,7 @@ impl ClientSettingsSection {
             Self::Sound => "sound",
             Self::Toast => "toasts",
             Self::Integrations => "integrations",
+            Self::Access => "access",
             Self::Host => "host",
         }
     }
@@ -435,6 +441,8 @@ pub(super) struct ClientSettingsOverlay {
     pub(super) theme_picker: bool,
     /// Fork: Host section state, created the first time the section is selected.
     pub(super) host: Option<super::host_facts_panel::ClientHostFactsOverlay>,
+    /// Fork: access switch values shown in the Access section, refreshed after each save.
+    pub(super) access: crate::config::AccessSettings,
 }
 
 #[derive(Debug)]

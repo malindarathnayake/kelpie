@@ -126,6 +126,7 @@ impl ClientShellConfig {
             agent_panel_sort: config.ui.agent_panel_sort,
             status_indicators: config.ui.status_indicators,
             sound_enabled: config.ui.sound.enabled,
+            access: crate::config::AccessSettings::from_config(config),
             toast_delivery: config.ui.toast.delivery,
             toast_delay_seconds: config.ui.toast.delay_seconds,
             toast_position: config.ui.toast.kelpie.position,
@@ -355,6 +356,7 @@ impl ClientShellConfig {
                 self.agent_panel_sort = ui.agent_panel_sort;
                 self.status_indicators = ui.status_indicators;
                 self.sound_enabled = ui.sound.enabled;
+                self.access = crate::config::AccessSettings::from_config(config);
                 self.toast_delivery = ui.toast.delivery;
                 self.toast_delay_seconds = ui.toast.delay_seconds;
                 self.toast_position = ui.toast.kelpie.position;

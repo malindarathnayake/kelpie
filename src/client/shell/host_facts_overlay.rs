@@ -108,6 +108,7 @@ mod tests {
             installing_integrations: false,
             theme_picker: false,
             host: Some(overlay.clone()),
+            access: Default::default(),
         };
         let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
         let rendered = super::super::settings_overlay::render_settings_overlay(

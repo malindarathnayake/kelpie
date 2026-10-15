@@ -238,6 +238,30 @@ pub(super) fn render_settings_overlay(
         ClientSettingsSection::Integrations => {
             render_integrations(buffer, content, settings, palette);
         }
+        ClientSettingsSection::Access => {
+            let rows: Vec<String> = crate::config::AccessSetting::SHOWN
+                .iter()
+                .map(|setting| {
+                    let state = if settings.access.get(*setting) {
+                        "on"
+                    } else {
+                        "off"
+                    };
+                    format!("{}  {state}", setting.label())
+                })
+                .collect();
+            let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+            render_choice_section(
+                buffer,
+                content,
+                "access",
+                "enter toggles; applies after `kelpie server stop` and restart",
+                &rows,
+                settings.selected,
+                palette,
+                &mut choice_hits,
+            );
+        }
         ClientSettingsSection::Host => {}
     }
 

@@ -51,6 +51,7 @@ impl ClientShellState {
             installing_integrations: false,
             theme_picker: false,
             host: None,
+            access: self.config.access,
         }));
     }
 
@@ -69,7 +70,9 @@ impl ClientShellState {
             ClientSettingsSection::Indicators => indicator_index(self.config.status_indicators),
             ClientSettingsSection::Sound => usize::from(!self.config.sound_enabled),
             ClientSettingsSection::Toast => toast_index(self.config.toast_delivery),
-            ClientSettingsSection::Integrations | ClientSettingsSection::Host => 0,
+            ClientSettingsSection::Integrations
+            | ClientSettingsSection::Access
+            | ClientSettingsSection::Host => 0,
         }
     }
 
@@ -122,6 +125,7 @@ impl ClientShellState {
                 ClientSettingsSection::Sound => 2,
                 ClientSettingsSection::Toast => 4,
                 ClientSettingsSection::Integrations => settings.integrations.len(),
+                ClientSettingsSection::Access => crate::config::AccessSetting::SHOWN.len(),
                 ClientSettingsSection::Host => 0,
             },
             _ => 0,
@@ -265,6 +269,25 @@ impl ClientShellState {
                 );
             }
             ClientSettingsSection::Integrations => self.install_recommended_integrations(outcome),
+            ClientSettingsSection::Access => {
+                let Some(setting) = crate::config::AccessSetting::SHOWN.get(selected).copied()
+                else {
+                    return;
+                };
+                let enabled = !self.config.access.get(setting);
+                if self.save_settings_edit(
+                    crate::config::ConfigEdit::Access(setting, enabled),
+                    outcome,
+                ) {
+                    // The reload reads the global config path; record the value just
+                    // written so the section shows it even before the reload lands.
+                    self.config.access.set(setting, enabled);
+                    let access = self.config.access;
+                    if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
+                        settings.access = access;
+                    }
+                }
+            }
             // Read-only: nothing to apply.
             ClientSettingsSection::Host => {}
         }

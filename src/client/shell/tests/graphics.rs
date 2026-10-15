@@ -320,6 +320,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             installing_integrations: false,
             theme_picker: false,
             host: None,
+            access: Default::default(),
         }),
     ];
     for overlay in overlays {
