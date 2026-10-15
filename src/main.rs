@@ -236,6 +236,10 @@ const DEFAULT_CONFIG: &str = r##"# kelpie configuration
 # Windows only: allow ordinary same-account clients to control an elevated server.
 # Requires a server restart.
 # allow_unelevated_clients = false
+# Windows only: allow same-account clients at Low integrity, such as an agent
+# app's sandboxed command runner. Anything sandboxed as you can then control
+# your panes. Requires a server restart.
+# allow_low_integrity_clients = false
 # headless_cols = 120
 # headless_rows = 40
 

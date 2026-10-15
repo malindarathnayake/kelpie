@@ -25,9 +25,33 @@ pub(crate) use notifications::{
 };
 
 static ALLOW_UNELEVATED_CLIENTS: OnceLock<bool> = OnceLock::new();
+static ALLOW_LOW_INTEGRITY_CLIENTS: OnceLock<bool> = OnceLock::new();
 
 pub(crate) fn allow_unelevated_clients() {
     let _ = ALLOW_UNELEVATED_CLIENTS.set(true);
+}
+
+/// Lets same-account clients running at Low integrity (app and agent tool
+/// sandboxes) open the server pipe. Off by default: Low integrity exists to keep
+/// sandboxed code from driving the desktop, and the pipe can type into panes.
+pub(crate) fn allow_low_integrity_clients() {
+    let _ = ALLOW_LOW_INTEGRITY_CLIENTS.set(true);
+}
+
+/// Mandatory integrity label for the server pipe: lower-integrity clients can
+/// neither read nor write it.
+fn server_pipe_integrity_label(
+    elevated: bool,
+    allow_unelevated: bool,
+    allow_low: bool,
+) -> &'static str {
+    if allow_low {
+        "LW"
+    } else if elevated && !allow_unelevated {
+        "HI"
+    } else {
+        "ME"
+    }
 }
 
 pub(crate) fn probe_local_server(path: &std::path::Path) -> std::io::Result<()> {
@@ -71,12 +95,11 @@ pub(crate) fn local_server_security_descriptor(
     {
         return Err(std::io::Error::last_os_error());
     }
-    let allow_unelevated = ALLOW_UNELEVATED_CLIENTS.get().copied().unwrap_or(false);
-    let integrity = if elevation.TokenIsElevated != 0 && !allow_unelevated {
-        "HI"
-    } else {
-        "ME"
-    };
+    let integrity = server_pipe_integrity_label(
+        elevation.TokenIsElevated != 0,
+        ALLOW_UNELEVATED_CLIENTS.get().copied().unwrap_or(false),
+        ALLOW_LOW_INTEGRITY_CLIENTS.get().copied().unwrap_or(false),
+    );
     // The account DACL alone cannot distinguish ordinary and elevated clients.
     // The integrity label blocks both reading and writing from lower levels.
     user_security_descriptor("GRGW", &format!("S:(ML;;NRNW;;;{integrity})"))
@@ -138,14 +161,103 @@ pub(crate) fn local_server_connection_error(error: std::io::Error) -> std::io::E
     if error.kind() != std::io::ErrorKind::PermissionDenied {
         return error;
     }
-    std::io::Error::new(
-        error.kind(),
-        format!(
-            "For an elevated server, use an administrator terminal. Sharing with ordinary \
-             clients requires stopping it there and restarting its `kelpie server` command \
-             with --allow-unelevated-clients (closes panes). {error}"
-        ),
-    )
+    let (integrity, elevated) = current_token_integrity_and_elevation();
+    let hint = access_denied_hint(integrity, elevated);
+    std::io::Error::new(error.kind(), format!("{hint} {error}"))
+}
+
+const MEDIUM_INTEGRITY_RID: u32 = 0x2000;
+
+/// Explains an access-denied connection from what this client knows about its
+/// own token. The server's level is not visible from here, so the hint names
+/// the client's level and the likely mismatch instead of guessing.
+fn access_denied_hint(integrity: Option<u32>, elevated: Option<bool>) -> &'static str {
+    match (integrity, elevated) {
+        (Some(rid), _) if rid < MEDIUM_INTEGRITY_RID => {
+            "This kelpie client runs at Low integrity, which usually means an app or agent \
+             tool sandbox (for example a ChatGPT or Codex command runner). The server only \
+             accepts clients at Medium integrity or higher. Run the command outside the \
+             sandbox, or set `allow_low_integrity_clients = true` under [server] and restart \
+             the server (this lets sandboxed code control your panes)."
+        }
+        (_, Some(true)) => {
+            "This kelpie client is elevated and was still refused, so the server probably \
+             runs as a different Windows account."
+        }
+        _ => {
+            "The server may be elevated: use an administrator terminal, or restart its \
+             `kelpie server` command there with --allow-unelevated-clients (closes panes). \
+             If this client runs in a sandbox under another Windows account, run it as \
+             your own account instead."
+        }
+    }
+}
+
+/// Returns the current process token's integrity RID and elevation, or `None`
+/// for a value Windows would not report.
+fn current_token_integrity_and_elevation() -> (Option<u32>, Option<bool>) {
+    use windows_sys::Win32::Security::{
+        GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenElevation,
+        TokenIntegrityLevel, TOKEN_ELEVATION, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    let mut token = null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return (None, None);
+    }
+    let token = unsafe { OwnedHandle::from_raw_handle(token) };
+
+    let mut elevation = TOKEN_ELEVATION::default();
+    let mut needed = 0;
+    let elevated = (unsafe {
+        GetTokenInformation(
+            token.as_raw_handle(),
+            TokenElevation,
+            (&mut elevation as *mut TOKEN_ELEVATION).cast(),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut needed,
+        )
+    } != 0)
+        .then_some(elevation.TokenIsElevated != 0);
+
+    let mut needed = 0;
+    unsafe {
+        GetTokenInformation(
+            token.as_raw_handle(),
+            TokenIntegrityLevel,
+            null_mut(),
+            0,
+            &mut needed,
+        )
+    };
+    if needed == 0 {
+        return (None, elevated);
+    }
+    // usize storage keeps TOKEN_MANDATORY_LABEL aligned and its trailing SID alive.
+    let mut buffer = vec![0usize; (needed as usize).div_ceil(size_of::<usize>())];
+    if unsafe {
+        GetTokenInformation(
+            token.as_raw_handle(),
+            TokenIntegrityLevel,
+            buffer.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        )
+    } == 0
+    {
+        return (None, elevated);
+    }
+    // SAFETY: GetTokenInformation initialized the aligned label and its SID.
+    let label = unsafe { &*buffer.as_ptr().cast::<TOKEN_MANDATORY_LABEL>() };
+    let sid = label.Label.Sid;
+    let count = unsafe { *GetSidSubAuthorityCount(sid) };
+    if count == 0 {
+        return (None, elevated);
+    }
+    // The integrity RID is the label SID's last sub-authority.
+    let rid = unsafe { *GetSidSubAuthority(sid, u32::from(count) - 1) };
+    (Some(rid), elevated)
 }
 
 pub(crate) fn windows_virtual_terminal_input_active() -> bool {
@@ -3345,6 +3457,40 @@ mod tests {
     use windows_sys::Win32::System::Console::{
         AllocConsole, FreeConsole, GetConsoleProcessList, GetConsoleWindow,
     };
+
+    #[test]
+    fn server_pipe_label_follows_elevation_and_opt_ins() {
+        use super::server_pipe_integrity_label as label;
+        assert_eq!(label(false, false, false), "ME");
+        assert_eq!(label(true, false, false), "HI");
+        assert_eq!(label(true, true, false), "ME");
+        assert_eq!(label(false, false, true), "LW");
+        assert_eq!(label(true, false, true), "LW");
+    }
+
+    #[test]
+    fn access_denied_hint_names_the_clients_own_level() {
+        use super::access_denied_hint as hint;
+        let low = hint(Some(0x1000), Some(false));
+        assert!(low.contains("Low integrity"), "{low}");
+        assert!(low.contains("allow_low_integrity_clients"), "{low}");
+        assert!(!low.contains("administrator"), "{low}");
+
+        let elevated = hint(Some(0x3000), Some(true));
+        assert!(elevated.contains("different Windows account"), "{elevated}");
+
+        let ordinary = hint(Some(0x2000), Some(false));
+        assert!(ordinary.contains("administrator terminal"), "{ordinary}");
+        assert_eq!(hint(None, None), ordinary);
+    }
+
+    #[test]
+    fn current_token_reports_an_integrity_level() {
+        let (integrity, elevated) = super::current_token_integrity_and_elevation();
+        let rid = integrity.expect("test process has an integrity label");
+        assert!(rid >= 0x1000, "unexpected integrity RID {rid:#x}");
+        assert!(elevated.is_some());
+    }
 
     #[test]
     fn local_resources_authorize_account_without_admin_rights() {

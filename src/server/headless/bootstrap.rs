@@ -35,6 +35,10 @@ pub fn run_server() -> io::Result<()> {
     if loaded_config.config.server.allow_unelevated_clients {
         crate::platform::allow_unelevated_clients();
     }
+    #[cfg(windows)]
+    if loaded_config.config.server.allow_low_integrity_clients {
+        crate::platform::allow_low_integrity_clients();
+    }
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
     let event_hub = api::EventHub::default();
     let server_stop = crate::server::shutdown::ServerStop::default();
