@@ -1256,7 +1256,7 @@
           "type": "object"
         },
         "AgentControlParams": {
-          "description": "Parameters for `agent.interrupt` and `agent.reset`: no text.",
+          "description": "Parameters for `agent.interrupt`, `agent.reset`, and `agent.clear_draft`: no text.",
           "properties": {
             "submit_id": {
               "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
@@ -1321,14 +1321,21 @@
           "type": "object"
         },
         "AgentResumeParams": {
-          "description": "Parameters for `agent.resume`: launches `claude --resume <session_id>` in a pane that\nhosts no agent, through the `agent.start` path.",
+          "description": "Parameters for `agent.resume`: launches the agent's resume command for `session_id` in a\npane that hosts no agent, through the `agent.start` path.",
           "properties": {
+            "agent": {
+              "description": "Agent label to resume (claude, codex, cursor); default claude.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "pane_id": {
               "description": "Pane to launch in; it must host no running or known agent and no pending launch.",
               "type": "string"
             },
             "session_id": {
-              "description": "Claude session id to resume, 1-256 characters, no control characters.",
+              "description": "Agent session id to resume, 1-256 characters, no control characters.",
               "type": "string"
             },
             "submit_id": {
@@ -5639,6 +5646,22 @@
         {
           "properties": {
             "method": {
+              "const": "agent.clear_draft",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentControlParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "agent.resume",
               "type": "string"
             },
@@ -8090,6 +8113,7 @@
           "description": "Why a target generation changed.",
           "enum": [
             "session_changed",
+            "reset_written",
             "agent_started",
             "agent_exited",
             "pane_moved",
@@ -10398,7 +10422,7 @@
             },
             {
               "const": "verified",
-              "description": "A new session ref (different from the old one) with start source `clear` was\nobserved after the write.",
+              "description": "A different session ref was observed after the write: with start source `clear`\nfor immediate resets, or in a supported-agent report for lazy resets.",
               "type": "string"
             },
             {
@@ -11862,6 +11886,7 @@
             "interrupt",
             "reset",
             "resume",
+            "clear_draft",
             "unknown"
           ],
           "type": "string"

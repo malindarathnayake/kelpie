@@ -1469,6 +1469,9 @@ fn pane_report_prompt_submitted(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
+    let Some(hook_agent) = crate::detect::parse_agent_label(&agent) else {
+        return Ok(0);
+    };
     let mut input = Vec::new();
     std::io::stdin()
         .take(MAX_PROMPT_HOOK_INPUT_BYTES + 1)
@@ -1478,7 +1481,7 @@ fn pane_report_prompt_submitted(args: &[String]) -> std::io::Result<i32> {
     }
     let Some(prompt_sha256_16) = std::str::from_utf8(&input)
         .ok()
-        .and_then(crate::supervisor::submit::hook_prompt_sha256_16)
+        .and_then(|input| crate::supervisor::submit::hook_prompt_sha256_16(input, hook_agent))
     else {
         return Ok(0);
     };

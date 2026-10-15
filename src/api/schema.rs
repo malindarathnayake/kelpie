@@ -149,6 +149,8 @@ pub enum Method {
     AgentInterrupt(supervisor::AgentControlParams),
     #[serde(rename = "agent.reset")]
     AgentReset(supervisor::AgentControlParams),
+    #[serde(rename = "agent.clear_draft")]
+    AgentClearDraft(supervisor::AgentControlParams),
     #[serde(rename = "agent.resume")]
     AgentResume(supervisor::AgentResumeParams),
     #[serde(rename = "agent.submit_status")]

@@ -184,6 +184,7 @@ pub enum View {
 #[serde(rename_all = "snake_case")]
 pub enum GenerationReason {
     SessionChanged,
+    ResetWritten,
     AgentStarted,
     AgentExited,
     PaneMoved,
@@ -313,7 +314,7 @@ pub struct AgentAnswerParams {
     pub submit_id: String,
 }
 
-/// Parameters for `agent.interrupt` and `agent.reset`: no text.
+/// Parameters for `agent.interrupt`, `agent.reset`, and `agent.clear_draft`: no text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentControlParams {
     pub target_ref: TargetRef,
@@ -321,16 +322,19 @@ pub struct AgentControlParams {
     pub submit_id: String,
 }
 
-/// Parameters for `agent.resume`: launches `claude --resume <session_id>` in a pane that
-/// hosts no agent, through the `agent.start` path.
+/// Parameters for `agent.resume`: launches the agent's resume command for `session_id` in a
+/// pane that hosts no agent, through the `agent.start` path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentResumeParams {
     /// Pane to launch in; it must host no running or known agent and no pending launch.
     pub pane_id: String,
-    /// Claude session id to resume, 1-256 characters, no control characters.
+    /// Agent session id to resume, 1-256 characters, no control characters.
     pub session_id: String,
     /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
     pub submit_id: String,
+    /// Agent label to resume (claude, codex, cursor); default claude.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// Parameters for `agent.submit_status`.
@@ -393,6 +397,7 @@ pub enum SubmitKind {
     Interrupt,
     Reset,
     Resume,
+    ClearDraft,
     #[serde(other)]
     Unknown,
 }
@@ -403,8 +408,8 @@ pub enum SubmitKind {
 pub enum ResetEvidence {
     /// No replacement session has been observed (yet); the reader decides.
     Pending,
-    /// A new session ref (different from the old one) with start source `clear` was
-    /// observed after the write.
+    /// A different session ref was observed after the write: with start source `clear`
+    /// for immediate resets, or in a supported-agent report for lazy resets.
     Verified,
     /// The write did not complete cleanly, or another conversation replacement was
     /// observed first. Never carries a session.
@@ -561,6 +566,18 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<GenerationReason>(v).unwrap(),
             GenerationReason::Unknown
+        );
+    }
+
+    #[test]
+    fn reset_written_generation_reason_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_value(GenerationReason::ResetWritten).unwrap(),
+            json!("reset_written")
+        );
+        assert_eq!(
+            serde_json::from_value::<GenerationReason>(json!("reset_written")).unwrap(),
+            GenerationReason::ResetWritten
         );
     }
 

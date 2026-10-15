@@ -1,0 +1,40 @@
+
+  [0m[38;2;99;168;248m>_ [0m[1mOpenAI Codex[0m[2m (v0.162.1)[0m
+     [0m[2m~\.claude\jobs\f3e67a7d\tmp\b7-codex-cwd[0m
+
+[0m[2m  To get started, describe a task or try one of these commands:[0m
+
+  /init[0m[2m - create an AGENTS.md file with instructions for Codex[0m
+  /status[0m[2m - show current session configuration[0m
+  /permissions[0m[2m - choose what Codex is allowed to do[0m
+  /model[0m[2m - choose what model and reasoning effort to use[0m
+  /review[0m[2m - review any changes and find issues[0m
+
+
+[0m[1m[2m› [0mreply with the word ok
+
+
+[0m[2m• [0mok
+
+[0m[2m  Worked for 3s • 9:26 PM                                                                                              [0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[0m[1m›[0m [0m[2mAsk Codex to do anything[0m
+
+  [0m[38;2;246;226;183mGPT-6-Astra xhigh [0m· [0m[38;2;171;223;167m~\.claude\jobs\f3e67a7d\tmp\b7-codex-cwd [0m· [0m[38;2;235;160;172mReply with ok[0m
+  [0m[1m?[0m for shortcuts                                                                            ⚠ [0m[38;2;196;167;103m4 warnings [0m· [0m[1mf2 [0mto view

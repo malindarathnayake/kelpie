@@ -1,0 +1,25 @@
+PS C:\Users\RedactedUserName0\.claude\jobs\f3e67a7d\tmp\b7-cursor-cwd> [0m[38;5;11mpwsh [0m[38;5;8m-NoProfile -File [0m[38;5;7mC:\Users\RedactedUserName0[0m
+[0m[38;5;7m\.claude\jobs\f3e67a7d\tmp\b7-run-cursor.ps1 [0m[38;5;8m--trust[0m
+
+
+  Cursor Agent
+  [0m[2mv2026.10.12-d47ca18[0m
+  [0m[2mTip: Use /plan to iterate on an implementation plan before code changes.[0m
+
+ [0m[48;2;36;36;40m                                                                                                                     [0m 
+ [0m[48;2;36;36;40m reply with the word ok                                                                                              [0m 
+ [0m[48;2;36;36;40m                                                                                                                     [0m 
+
+  ok
+
+
+
+ [0m[48;2;21;21;21m                                                                                                                     [0m 
+ [0m[48;2;21;21;21m → [0m[1m[38;5;6m[48;2;21;21;21m/clear[0m[7m[48;2;21;21;21m [0m[48;2;21;21;21m                                                                                                           [0m 
+ [0m[48;2;21;21;21m                                                                                                                     [0m 
+
+   → [0m[1m/clear                    Start a new chat session[0m
+   [0m[2m  /bedrock [subcommand] […[0m  [0m[2mConfigure Bedrock in-chat (configure/status/disable/clear)[0m
+   [0m[2m  /autopilot                Keep a PR merge-ready by triaging comments, resolving clear conflicts, and fixing CI…[0m   
+   [0m[2m  /create-rule              Create Cursor rules for persistent AI guidance. Use when you want to create a rule,…[0m
+   [0m[2m  /run-claudeultracode[0m      [0m[2mRun Claude Code headless as an adversarial architecture, plan, code, or database…[0m

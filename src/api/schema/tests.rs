@@ -1513,3 +1513,58 @@ fn agents_digest_method_name_and_read_only() {
     );
     assert!(!crate::api::request_changes_ui(&request));
 }
+
+#[test]
+fn clear_draft_request_contract() {
+    use super::supervisor::{AgentControlParams, TargetRef};
+
+    let request = Request {
+        id: "clear-draft-request".into(),
+        method: Method::AgentClearDraft(AgentControlParams {
+            target_ref: TargetRef {
+                server_epoch: "e".repeat(32),
+                pane_id: "pane-1".into(),
+                generation: 1,
+            },
+            submit_id: "clear-draft-1".into(),
+        }),
+    };
+    let json = serde_json::to_value(&request).unwrap();
+    assert_eq!(json["method"], "agent.clear_draft");
+    assert_eq!(serde_json::from_value::<Request>(json).unwrap(), request);
+    assert_eq!(
+        crate::api::server::api_method_name(&request.method),
+        "agent.clear_draft"
+    );
+    assert!(crate::api::request_changes_ui(&request));
+}
+
+#[test]
+fn clear_draft_receipt_kind_compatibility() {
+    use super::supervisor::{SubmitKind, SubmitReceipt};
+
+    let json = serde_json::to_value(SubmitKind::ClearDraft).unwrap();
+    assert_eq!(json, serde_json::json!("clear_draft"));
+    assert_eq!(
+        serde_json::from_value::<SubmitKind>(json).unwrap(),
+        SubmitKind::ClearDraft
+    );
+    assert_eq!(
+        serde_json::from_value::<SubmitKind>(serde_json::json!("future_kind")).unwrap(),
+        SubmitKind::Unknown
+    );
+    let legacy: SubmitReceipt = serde_json::from_value(serde_json::json!({
+        "submit_id": "legacy-submit-1",
+        "target_ref": {
+            "server_epoch": "e".repeat(32),
+            "pane_id": "pane-1",
+            "generation": 1
+        },
+        "state": "written",
+        "accepted_at_ms": 1,
+        "acknowledged": "unsupported",
+        "text_sha256_16": "0123456789abcdef"
+    }))
+    .unwrap();
+    assert_eq!(legacy.kind, SubmitKind::Submit);
+}

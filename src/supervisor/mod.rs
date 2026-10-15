@@ -6,6 +6,7 @@ pub mod background;
 pub mod digest;
 pub mod draft;
 pub mod fence;
+pub mod profile;
 pub mod question;
 pub mod registry;
 pub mod submit;

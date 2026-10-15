@@ -449,7 +449,7 @@ fn agent_command() -> Command {
                         .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
                 )
                 .after_help(
-                    "Claude only. The agent must be working (else agent_not_working) and the draft clean. The receipt's turn_end_observed_after_write_at_ms is the first idle or awaiting-human edge after the write completed (an uncorrelated observation, not an acknowledgement).\n\nnext: herdr agent submit-status <ID>",
+                    "Agents with a profile (claude, codex, cursor). The agent must be working (else agent_not_working) and the draft clean. The receipt's turn_end_observed_after_write_at_ms is the first idle or awaiting-human edge after the write completed (an uncorrelated observation, not an acknowledgement).\n\nnext: herdr agent submit-status <ID>",
                 ),
         )
         .subcommand(
@@ -473,10 +473,30 @@ fn agent_command() -> Command {
                 ),
         )
         .subcommand(
-            Command::new("resume")
-                .about("Resume a Claude session in a pane that hosts no agent")
+            Command::new("clear-draft")
+                .about("Clear the supervisor's own interrupted draft")
                 .override_usage(
-                    "herdr agent resume --pane <ID> --session-id <ID> --submit-id <ID>",
+                    "herdr agent clear-draft --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id <ID>",
+                )
+                .arg(
+                    option("target-ref", "SERVER_EPOCH:PANE_ID:GENERATION")
+                        .required(true)
+                        .help("Complete target_ref from agent digest; never refreshed by the CLI"),
+                )
+                .arg(
+                    option("submit-id", "ID")
+                        .required(true)
+                        .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
+                )
+                .after_help(
+                    "Only agents that support restoring interrupted drafts can clear them. The draft must exactly match the supervisor's own interrupted text; the owner latch and fence are preserved. An already clean draft is refused with draft_already_clean; another draft is refused with draft_not_own. Currently Cursor supports this; Claude and Codex return unsupported_agent.\n\nnext: herdr agent submit-status <ID>",
+                ),
+        )
+        .subcommand(
+            Command::new("resume")
+                .about("Resume an agent session in a pane that hosts no agent")
+                .override_usage(
+                    "herdr agent resume --pane <ID> --session-id <ID> --submit-id <ID> [--agent <LABEL>]",
                 )
                 .arg(
                     option("pane", "ID")
@@ -486,15 +506,19 @@ fn agent_command() -> Command {
                 .arg(
                     option("session-id", "ID")
                         .required(true)
-                        .help("Claude session id: 1-256 characters of [A-Za-z0-9_-], not starting with -"),
+                        .help("Agent session id: 1-256 characters of [A-Za-z0-9_-], not starting with -"),
                 )
                 .arg(
                     option("submit-id", "ID")
                         .required(true)
                         .help("Idempotency key: 1-64 characters of [A-Za-z0-9._:-]"),
                 )
+                .arg(
+                    option("agent", "LABEL")
+                        .help("Agent to resume: claude (default), codex or cursor"),
+                )
                 .after_help(
-                    "Claude only. Launches claude --resume <ID> through the agent start path. The receipt's state is launched when the start was accepted, failed (with start_error) when it was refused before anything was sent, or indeterminate (start_unconfirmed) when it failed after the command was sent. A pane where the owner typed is rejected draft_not_clean unless a one-time handoff is armed. Its resume is verified only when the pane's agent reports the requested session id (start source resume or startup) after the launch, mismatch (with reported_session) when it reports a different id first, and pending otherwise. new_generation is the pane's generation once the agent was observed. Repeating a submit_id returns the same receipt and never launches again.\n\nnext: herdr agent submit-status <ID>",
+                    "Agents with a profile (claude, codex, cursor). Launches the agent's resume command through the agent start path. The receipt's state is launched when the start was accepted, failed (with start_error) when it was refused before anything was sent, or indeterminate (start_unconfirmed) when it failed after the command was sent. A pane where the owner typed is rejected draft_not_clean unless a one-time handoff is armed. Its resume is verified only when the pane's agent reports the requested session id (start source resume or startup) after the launch, mismatch (with reported_session) when it reports a different id first, and pending otherwise. new_generation is the pane's generation once the agent was observed. Repeating a submit_id returns the same receipt and never launches again.\n\nnext: herdr agent submit-status <ID>",
                 ),
         )
         .subcommand(
@@ -1279,6 +1303,8 @@ mod tests {
             );
         }
         assert!(!has_option(resume, "target-ref"));
+        assert!(has_option(resume, "agent"));
+        assert!(!option_arg(resume, "agent").is_required_set());
         let full = [
             "herdr",
             "agent",
@@ -1306,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn spec_lists_agent_answer_interrupt_and_reset_with_required_flags() {
+    fn spec_lists_agent_answer_interrupt_reset_and_clear_draft_with_required_flags() {
         let cmd = super::command();
         let answer = command_path(&cmd, &["agent", "answer"]);
         for option in ["target-ref", "question-id", "submit-id"] {
@@ -1343,7 +1369,7 @@ mod tests {
             ])
             .is_err());
 
-        for name in ["interrupt", "reset"] {
+        for name in ["interrupt", "reset", "clear-draft"] {
             let sub = command_path(&cmd, &["agent", name]);
             assert!(option_arg(sub, "target-ref").is_required_set(), "{name}");
             assert!(option_arg(sub, "submit-id").is_required_set(), "{name}");
@@ -1373,6 +1399,9 @@ mod tests {
                 .is_err());
             assert!(super::command()
                 .try_get_matches_from(["herdr", "agent", name, "--submit-id", "c1"])
+                .is_err());
+            assert!(super::command()
+                .try_get_matches_from(["herdr", "agent", name, "--target-ref", "e:w1:p1:3"])
                 .is_err());
         }
     }

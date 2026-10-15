@@ -8,8 +8,9 @@ use crate::api::schema::supervisor::{
     Confidence, FactSource, GenerationReason, LineageEntry, PendingQuestion, QuestionKind,
     QuestionResolution, ResolutionBy, TargetRef,
 };
-use crate::detect::AgentState;
+use crate::detect::{parse_agent_label, AgentState};
 use crate::layout::PaneId;
+use crate::supervisor::profile::profile_for;
 use crate::supervisor::question::{
     content_rows, detect_prose_question, normalize, question_id, sanitize_excerpt,
 };
@@ -25,6 +26,7 @@ pub const QUIESCENCE_RESCAN_MS: u64 = 1500;
 fn reason_name(reason: GenerationReason) -> &'static str {
     match reason {
         GenerationReason::SessionChanged => "session_changed",
+        GenerationReason::ResetWritten => "reset_written",
         GenerationReason::AgentStarted => "agent_started",
         GenerationReason::AgentExited => "agent_exited",
         GenerationReason::PaneMoved => "pane_moved",
@@ -99,6 +101,9 @@ pub struct PaneSupervisorState {
     /// Last known session identity of the pane's terminal (kind and value only).
     /// Kept across loss (some to none) so a later different identity is a replacement.
     pub last_session_ref: Option<AgentSessionRef>,
+    /// A written lazy reset has already replaced this conversation; its next
+    /// different reported session verifies the reset without replacing it again.
+    lazy_reset_pending: bool,
     /// Set when a resolved question was dropped for the cap.
     pub truncated_resolved: bool,
     pub turn_started_ms: Option<u64>,
@@ -133,6 +138,7 @@ impl PaneSupervisorState {
             truncated_questions: false,
             unresolved_overflow: 0,
             last_session_ref: None,
+            lazy_reset_pending: false,
             truncated_resolved: false,
             turn_started_ms: None,
             turn_seq: None,
@@ -225,6 +231,16 @@ impl SupervisorState {
     /// questions, pending scans and turn/idle markers are kept and the question
     /// epoch is unchanged. Every other reason replaces the conversation.
     pub fn bump_generation(&mut self, pane: PaneId, reason: GenerationReason, now_ms: u64) -> u64 {
+        self.bump_generation_except_reset(pane, reason, now_ms, None)
+    }
+
+    fn bump_generation_except_reset(
+        &mut self,
+        pane: PaneId,
+        reason: GenerationReason,
+        now_ms: u64,
+        reset_submit_id: Option<&str>,
+    ) -> u64 {
         // Any generation change fences this pane's queued submissions before their first byte.
         self.submits.trip_pane(
             pane,
@@ -233,7 +249,12 @@ impl SupervisorState {
         if reason != GenerationReason::PaneMoved {
             // A conversation replacement other than an already-classified clear: a written
             // reset still pending can no longer be verified.
-            self.submits.note_other_replacement(pane);
+            if let Some(submit_id) = reset_submit_id {
+                self.submits
+                    .note_other_replacement_except(pane, Some(submit_id));
+            } else {
+                self.submits.note_other_replacement(pane);
+            }
         }
         let state = self.pane_mut(pane);
         let old = state.generation;
@@ -263,6 +284,7 @@ impl SupervisorState {
             return new;
         }
         state.question_epoch += 1;
+        state.lazy_reset_pending = false;
         for q in state
             .questions
             .iter_mut()
@@ -322,14 +344,40 @@ impl SupervisorState {
         facts: TerminalMutationFacts,
         now_ms: u64,
     ) -> Option<GenerationReason> {
-        let session_changed =
-            self.observe_session_ref(pane, facts.session_before, facts.session_after.clone());
-        let reason = generation_reason(session_changed, facts.agent_released, facts.agent_started);
         let resume_evidence = self
             .mutation_reported_session
             .as_ref()
-            .filter(|(agent_label, _)| agent_label == "claude")
+            .filter(|(label, _)| parse_agent_label(label).and_then(profile_for).is_some())
             .and_then(|(_, session)| session.clone());
+        let reported_session_changed = matches!(
+            (self.pane(pane).and_then(|state| state.last_session_ref.as_ref())
+                .or(facts.session_before.as_ref()), resume_evidence.as_ref()),
+            (Some(before), Some(reported)) if before != reported
+        );
+        let lazy_reset_evidence = reported_session_changed
+            && self
+                .pane(pane)
+                .is_some_and(|state| state.lazy_reset_pending);
+        let session_changed =
+            self.observe_session_ref(pane, facts.session_before, facts.session_after.clone());
+        if lazy_reset_evidence && !facts.agent_released && !facts.agent_started {
+            if let Some(session) = resume_evidence.as_ref() {
+                let seq = self.next_event_seq();
+                let state = self.pane_mut(pane);
+                let generation = state.generation;
+                state.lazy_reset_pending = false;
+                state.last_session_ref = Some(session.clone());
+                self.submits
+                    .note_written_clear_session(pane, session, generation, seq);
+            }
+        }
+        // Only the expected identity replacement is already accounted for. A
+        // simultaneous release or start still replaces the conversation.
+        let reason = generation_reason(
+            session_changed && !lazy_reset_evidence,
+            facts.agent_released,
+            facts.agent_started,
+        );
         let Some(reason) = reason else {
             if let Some(session) = resume_evidence {
                 self.note_resume_session(pane, &session);
@@ -344,8 +392,13 @@ impl SupervisorState {
                 // clear interrupted maps to `written` instead of indeterminate.
                 let seq = self.next_event_seq();
                 let new_generation = self.pane_mut(pane).generation + 1;
-                self.submits
-                    .note_clear_session(pane, after, new_generation, seq);
+                if reported_session_changed && resume_evidence.as_ref() == Some(after) {
+                    self.submits
+                        .note_clear_session(pane, after, new_generation, seq);
+                } else {
+                    self.submits
+                        .note_immediate_clear_session(pane, after, new_generation, seq);
+                }
             }
         }
         let new_generation = self.record_generation_change(pane, reason, now_ms);
@@ -388,14 +441,27 @@ impl SupervisorState {
         self.mutation_reported_session = None;
     }
 
-    /// `agent.resume` evidence: the session ref a Claude session report carried, applied
+    /// `agent.resume` evidence: the session ref a supported-agent report carried, applied
     /// (accepted) by the terminal in this mutation.
     fn note_resume_session(&mut self, pane: PaneId, session: &AgentSessionRef) {
+        let Some(reported_agent) = self
+            .mutation_reported_session
+            .as_ref()
+            .and_then(|(label, _)| parse_agent_label(label))
+        else {
+            return;
+        };
         let seq = self.next_event_seq();
         let generation = self.pane_mut(pane).generation;
         let source = self.mutation_start_source.clone();
-        self.submits
-            .note_resume_session(pane, session, source.as_deref(), generation, seq);
+        self.submits.note_resume_session(
+            pane,
+            reported_agent,
+            session,
+            source.as_deref(),
+            generation,
+            seq,
+        );
     }
 
     /// `agent.resume`: the start command was sent but the start path then failed.
@@ -603,6 +669,17 @@ impl SupervisorState {
     ) {
         let seq = self.next_event_seq();
         self.submits.complete(submit_id, result, fence, seq, now_ms);
+        if let Some(pane) = self.submits.newly_written_lazy_reset(submit_id, seq) {
+            self.bump_generation_except_reset(
+                pane,
+                GenerationReason::ResetWritten,
+                now_ms,
+                Some(submit_id),
+            );
+            let state = self.pane_mut(pane);
+            state.lazy_reset_pending = true;
+            state.exited = false;
+        }
     }
 
     /// Records an agent state transition and marks the scan App performs after the event.
@@ -743,7 +820,14 @@ impl SupervisorState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::schema::supervisor::{Confidence, FactSource, QuestionKind};
+    use crate::api::schema::supervisor::{
+        Confidence, FactSource, QuestionKind, ResetEvidence, ResumeEvidence, SubmitAcknowledged,
+        SubmitKind, SubmitState,
+    };
+    use crate::detect::Agent;
+    use crate::supervisor::fence::{fenced_error, FenceReason, SubmitFence};
+    use crate::supervisor::profile::ResetEvidenceMode;
+    use crate::supervisor::submit::{prompt_ack_sha256_16, text_sha256_16, NewReceipt};
 
     fn pid(n: u32) -> PaneId {
         PaneId::from_raw(n)
@@ -1380,7 +1464,612 @@ mod tests {
         }
     }
 
-    /// `agent.resume` evidence comes from the reported session ref of a Claude report,
+    fn accept_profile_receipt(
+        s: &mut SupervisorState,
+        id: &str,
+        pane: u32,
+        label: &str,
+        kind: SubmitKind,
+    ) -> SubmitFence {
+        let profile = parse_agent_label(label).and_then(profile_for).unwrap();
+        let target_ref = s.target_ref(pid(pane), &format!("p{pane}"));
+        let fence = SubmitFence::new();
+        s.submits
+            .insert_accepted(
+                id,
+                NewReceipt {
+                    kind,
+                    lazy_reset: kind == SubmitKind::Reset
+                        && profile.reset_evidence == ResetEvidenceMode::OnNextPrompt,
+                    question_id: None,
+                    pane: pid(pane),
+                    target_ref,
+                    text_sha256_16: text_sha256_16("prompt"),
+                    own_text_sha256_16: matches!(kind, SubmitKind::Submit | SubmitKind::Answer)
+                        .then(|| text_sha256_16("prompt")),
+                    ack_sha256_16: (kind == SubmitKind::Submit)
+                        .then(|| prompt_ack_sha256_16("prompt")),
+                    handoff: false,
+                    session_id: (kind == SubmitKind::Resume).then(|| "requested".into()),
+                    resume_agent: (kind == SubmitKind::Resume)
+                        .then(|| parse_agent_label(label).unwrap()),
+                },
+                fence.clone(),
+                1,
+            )
+            .expect("accepted");
+        fence
+    }
+
+    fn profile_report(
+        s: &mut SupervisorState,
+        pane: u32,
+        label: &str,
+        reported: Option<&str>,
+        resolved: Option<&str>,
+        source: &str,
+    ) -> Option<GenerationReason> {
+        s.begin_session_report(Some(source.into()), label, reported.and_then(sref));
+        let reason = s.on_terminal_mutation(
+            pid(pane),
+            facts(None, resolved.and_then(sref), AgentState::Idle),
+            20,
+        );
+        s.end_session_report();
+        reason
+    }
+
+    #[test]
+    fn lazy_reset_written_bumps_once_and_verifies_without_second_bump() {
+        for label in ["codex", "cursor"] {
+            let mut s = SupervisorState::new();
+            s.observe_session_ref(pid(1), None, sref("old"));
+            s.insert_question(pid(1), q("old-question", None));
+            s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 1);
+            s.pane_mut(pid(1)).unresolved_overflow = 2;
+            let queued = accept_profile_receipt(&mut s, "queued", 1, label, SubmitKind::Submit);
+            let other = accept_profile_receipt(&mut s, "other", 2, label, SubmitKind::Submit);
+            let reset = accept_profile_receipt(&mut s, "reset", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            let completed = reset.close();
+            s.complete_submit("reset", &Ok(()), completed, 2);
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!((p.generation, p.question_epoch), (2, 2), "{label}");
+            assert!(p.lazy_reset_pending);
+            assert_eq!(p.lineage.len(), 1);
+            assert_eq!(p.lineage[0].reason, GenerationReason::ResetWritten);
+            assert_eq!((p.lineage[0].generation, p.lineage[0].at_ms), (2, 2));
+            assert_eq!(
+                p.questions[0].resolution.as_ref().unwrap().by,
+                ResolutionBy::Superseded
+            );
+            assert_eq!(p.unresolved_overflow, 0);
+            assert!(p.turn_seq.is_none() && p.turn_started_ms.is_none());
+            assert!(p.pending_blocked.is_none() && !p.pending_prose);
+            assert!(queued.is_tripped());
+            assert!(!other.is_tripped());
+            assert_eq!(s.pane(pid(2)).unwrap().generation, 1);
+            let r = s.submits.get("reset").unwrap();
+            assert_eq!(
+                (r.state, r.reset),
+                (SubmitState::Written, Some(ResetEvidence::Pending))
+            );
+            assert_eq!(r.target_ref.generation, 1);
+            assert!(r.new_session.is_none() && r.new_generation.is_none());
+            s.complete_submit("reset", &Ok(()), completed, 3);
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 2);
+            for (report_label, reported, resolved) in [
+                (label, Some("old"), Some("old")),
+                (label, None, None),
+                ("gemini", Some("old"), Some("old")),
+            ] {
+                assert_eq!(
+                    profile_report(&mut s, 1, report_label, reported, resolved, "clear"),
+                    None
+                );
+                assert_eq!(
+                    s.submits.get("reset").unwrap().reset,
+                    Some(ResetEvidence::Pending)
+                );
+                assert_eq!(s.pane(pid(1)).unwrap().last_session_ref, sref("old"));
+            }
+            s.on_terminal_mutation(pid(1), facts(sref("old"), None, AgentState::Working), 10);
+            assert_eq!(
+                s.submits.get("reset").unwrap().reset,
+                Some(ResetEvidence::Pending)
+            );
+            // The explicit report is authoritative even while resolved identity lags.
+            assert_eq!(
+                profile_report(&mut s, 1, label, Some("new"), Some("old"), "startup"),
+                None
+            );
+            let r = s.submits.get("reset").unwrap();
+            assert_eq!(
+                (r.state, r.reset),
+                (SubmitState::Written, Some(ResetEvidence::Verified))
+            );
+            assert_eq!(r.new_session.as_ref().unwrap().value, "new");
+            assert_eq!(r.new_generation, Some(2));
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!((p.generation, p.question_epoch, p.lineage.len()), (2, 2, 1));
+            assert!(!p.lazy_reset_pending);
+            assert_eq!(p.last_session_ref, sref("new"));
+            let verified = r.clone();
+            assert_eq!(
+                profile_report(&mut s, 1, label, Some("new"), Some("new"), "startup"),
+                None
+            );
+            s.complete_submit("reset", &Ok(()), completed, 21);
+            assert_eq!(s.submits.get("reset"), Some(&verified));
+            assert_eq!(
+                profile_report(&mut s, 1, label, Some("next"), Some("next"), "startup"),
+                Some(GenerationReason::SessionChanged)
+            );
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 3);
+
+            // Without a known prior identity, the first report is only enrichment.
+            let mut s = SupervisorState::new();
+            let reset = accept_profile_receipt(&mut s, "unknown", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            s.complete_submit("unknown", &Ok(()), reset.close(), 2);
+            assert_eq!(
+                profile_report(
+                    &mut s,
+                    1,
+                    label,
+                    Some("first-known"),
+                    Some("first-known"),
+                    "startup"
+                ),
+                None
+            );
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!(p.generation, 2);
+            assert!(p.lazy_reset_pending);
+            assert_eq!(p.last_session_ref, sref("first-known"));
+            assert_eq!(
+                s.submits.get("unknown").unwrap().reset,
+                Some(ResetEvidence::Pending)
+            );
+
+            // A valid clear between commit and completion already caused the bump.
+            let mut s = SupervisorState::new();
+            s.observe_session_ref(pid(1), None, sref("old"));
+            let reset = accept_profile_receipt(&mut s, "race", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            assert_eq!(
+                profile_report(&mut s, 1, label, Some("new"), Some("new"), "clear"),
+                Some(GenerationReason::SessionChanged)
+            );
+            let completed = reset.close();
+            assert_eq!(completed.reason, Some(FenceReason::GenerationChanged));
+            s.complete_submit("race", &Ok(()), completed, 21);
+            s.complete_submit("race", &Ok(()), completed, 22);
+            let r = s.submits.get("race").unwrap();
+            assert_eq!(
+                (r.state, r.reset, r.new_generation),
+                (SubmitState::Written, Some(ResetEvidence::Verified), Some(2))
+            );
+            assert_eq!(r.new_session.as_ref().unwrap().value, "new");
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!((p.generation, p.lineage.len()), (2, 1));
+            assert!(!p.lazy_reset_pending);
+            assert_eq!(p.lineage[0].reason, GenerationReason::SessionChanged);
+        }
+    }
+
+    #[test]
+    fn lazy_reset_verification_does_not_verify_later_inflight_reset() {
+        for label in ["codex", "cursor"] {
+            let mut s = SupervisorState::new();
+            s.observe_session_ref(pid(1), None, sref("old"));
+            let first = accept_profile_receipt(&mut s, "first", 1, label, SubmitKind::Reset);
+            assert!(first.try_commit());
+            s.complete_submit("first", &Ok(()), first.close(), 2);
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 2, "{label}");
+            let r = s.submits.get("first").unwrap();
+            assert_eq!(
+                (r.state, r.reset),
+                (SubmitState::Written, Some(ResetEvidence::Pending))
+            );
+
+            let second = accept_profile_receipt(&mut s, "second", 1, label, SubmitKind::Reset);
+            assert_eq!(s.submits.get("second").unwrap().target_ref.generation, 2);
+            assert!(second.try_commit());
+            assert_eq!(
+                profile_report(
+                    &mut s,
+                    1,
+                    label,
+                    Some("first-session"),
+                    Some("first-session"),
+                    "clear"
+                ),
+                None
+            );
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!((p.generation, p.lineage.len()), (2, 1));
+            assert!(!p.lazy_reset_pending);
+            let verified_first = s.submits.get("first").unwrap().clone();
+            assert_eq!(
+                (
+                    verified_first.state,
+                    verified_first.reset,
+                    verified_first.new_generation
+                ),
+                (SubmitState::Written, Some(ResetEvidence::Verified), Some(2))
+            );
+            assert_eq!(
+                verified_first.new_session.as_ref().unwrap().value,
+                "first-session"
+            );
+            let r = s.submits.get("second").unwrap();
+            assert_eq!(
+                (r.state, r.reset),
+                (SubmitState::Accepted, Some(ResetEvidence::Pending))
+            );
+            assert!(r.new_session.is_none() && r.new_generation.is_none());
+            assert!(!second.is_tripped());
+
+            let completed = second.close();
+            s.complete_submit("second", &Ok(()), completed, 21);
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!(
+                p.generation, 3,
+                "{label}: second reset needs its own generation bump"
+            );
+            assert!(p.lazy_reset_pending);
+            assert_eq!(p.lineage.len(), 2);
+            assert_eq!(p.lineage[1].reason, GenerationReason::ResetWritten);
+            assert_eq!((p.lineage[1].generation, p.lineage[1].at_ms), (3, 21));
+            let r = s.submits.get("second").unwrap();
+            assert_eq!(
+                (r.state, r.reset),
+                (SubmitState::Written, Some(ResetEvidence::Pending))
+            );
+            assert!(r.new_session.is_none() && r.new_generation.is_none());
+            assert_eq!(s.submits.get("first"), Some(&verified_first));
+            s.complete_submit("second", &Ok(()), completed, 22);
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 3);
+
+            assert_eq!(
+                profile_report(
+                    &mut s,
+                    1,
+                    label,
+                    Some("second-session"),
+                    Some("second-session"),
+                    "clear"
+                ),
+                None
+            );
+            let r = s.submits.get("second").unwrap();
+            assert_eq!(
+                (r.state, r.reset, r.new_generation),
+                (SubmitState::Written, Some(ResetEvidence::Verified), Some(3))
+            );
+            assert_eq!(r.new_session.as_ref().unwrap().value, "second-session");
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!((p.generation, p.lineage.len()), (3, 2));
+            assert!(!p.lazy_reset_pending);
+            assert_eq!(s.submits.get("first"), Some(&verified_first));
+        }
+    }
+
+    #[test]
+    fn lazy_reset_failed_writes_do_not_bump() {
+        for label in ["codex", "cursor"] {
+            for failure in ["write", "deadline", "pty", "fence", "late", "queue"] {
+                let mut s = SupervisorState::new();
+                s.observe_session_ref(pid(1), None, sref("old"));
+                let reset = accept_profile_receipt(&mut s, "reset", 1, label, SubmitKind::Reset);
+                let result = match failure {
+                    "queue" => {
+                        s.submits.mark_queue_failed("reset");
+                        Ok(())
+                    }
+                    "fence" => {
+                        reset.trip(FenceReason::OwnerInput);
+                        assert!(!reset.try_commit());
+                        Err(fenced_error())
+                    }
+                    "late" => {
+                        assert!(reset.try_commit());
+                        reset.trip(FenceReason::GenerationChanged);
+                        Ok(())
+                    }
+                    other => {
+                        assert!(reset.try_commit());
+                        let kind = match other {
+                            "deadline" => std::io::ErrorKind::TimedOut,
+                            "pty" => std::io::ErrorKind::BrokenPipe,
+                            _ => std::io::ErrorKind::Other,
+                        };
+                        Err(std::io::Error::new(kind, "test write failed"))
+                    }
+                };
+                let completed = reset.close();
+                s.complete_submit("reset", &result, completed, 2);
+                s.complete_submit("reset", &Ok(()), completed, 3);
+                let p = s.pane(pid(1)).unwrap();
+                assert_eq!(
+                    (p.generation, p.question_epoch, p.lineage.len()),
+                    (1, 1, 0),
+                    "{label}/{failure}"
+                );
+                assert!(!p.lazy_reset_pending);
+                let r = s.submits.get("reset").unwrap();
+                let expected = if failure == "fence" {
+                    SubmitState::Fenced
+                } else {
+                    SubmitState::Indeterminate
+                };
+                assert_eq!(
+                    (r.state, r.reset),
+                    (expected, Some(ResetEvidence::Unverified))
+                );
+                assert!(r.new_session.is_none() && r.new_generation.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_reset_unrelated_replacement_invalidates_pending() {
+        for label in ["codex", "cursor"] {
+            let mut s = SupervisorState::new();
+            s.observe_session_ref(pid(1), None, sref("old"));
+            let reset = accept_profile_receipt(&mut s, "first", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            s.complete_submit("first", &Ok(()), reset.close(), 2);
+            s.insert_question(pid(1), q("keep-on-move", None));
+            s.on_transition(pid(1), AgentState::Working, AgentState::Idle, 1, 3);
+            s.note_background_hook(pid(1), 4);
+            assert_eq!(s.bump_generation(pid(1), GenerationReason::PaneMoved, 5), 3);
+            let p = s.pane(pid(1)).unwrap();
+            assert!(p.lazy_reset_pending && p.pending_prose);
+            assert_eq!(p.question_epoch, 2);
+            assert!(p.questions[0].resolution.is_none());
+            assert!(s.background_hook_current(pid(1)));
+            assert_eq!(
+                s.submits.get("first").unwrap().reset,
+                Some(ResetEvidence::Pending)
+            );
+            assert_eq!(
+                profile_report(&mut s, 1, label, Some("new"), Some("new"), "startup"),
+                None
+            );
+            assert_eq!(s.submits.get("first").unwrap().new_generation, Some(3));
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 3);
+
+            // A newer written reset exempts only itself from replacement invalidation.
+            let reset = accept_profile_receipt(&mut s, "second", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            s.complete_submit("second", &Ok(()), reset.close(), 6);
+            let reset = accept_profile_receipt(&mut s, "third", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            s.complete_submit("third", &Ok(()), reset.close(), 7);
+            assert_eq!(
+                s.submits.get("second").unwrap().reset,
+                Some(ResetEvidence::Unverified)
+            );
+            assert_eq!(
+                s.submits.get("third").unwrap().reset,
+                Some(ResetEvidence::Pending)
+            );
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 5);
+            s.record_generation_change(pid(1), GenerationReason::AgentExited, 8);
+            assert_eq!(
+                s.submits.get("third").unwrap().reset,
+                Some(ResetEvidence::Unverified)
+            );
+            assert!(s.pane(pid(1)).unwrap().exited);
+            assert!(!s.pane(pid(1)).unwrap().lazy_reset_pending);
+
+            for event in [
+                "unreported",
+                "unsupported",
+                "absent",
+                "same",
+                "exit",
+                "start",
+            ] {
+                let mut s = SupervisorState::new();
+                s.observe_session_ref(pid(1), None, sref("old"));
+                let reset = accept_profile_receipt(&mut s, "reset", 1, label, SubmitKind::Reset);
+                assert!(reset.try_commit());
+                s.complete_submit("reset", &Ok(()), reset.close(), 2);
+                let mut mutation = facts(sref("old"), sref("new"), AgentState::Idle);
+                mutation.agent_released = event == "exit";
+                mutation.agent_started = event == "start";
+                if event != "unreported" {
+                    let report_label = if event == "unsupported" {
+                        "gemini"
+                    } else {
+                        label
+                    };
+                    let reported = match event {
+                        "absent" => None,
+                        "same" => sref("old"),
+                        _ => sref("new"),
+                    };
+                    s.begin_session_report(Some("clear".into()), report_label, reported);
+                }
+                let expected = match event {
+                    "exit" => GenerationReason::AgentExited,
+                    "start" => GenerationReason::AgentStarted,
+                    _ => GenerationReason::SessionChanged,
+                };
+                assert_eq!(
+                    s.on_terminal_mutation(pid(1), mutation, 3),
+                    Some(expected),
+                    "{label}/{event}"
+                );
+                s.end_session_report();
+                assert_eq!(
+                    s.submits.get("reset").unwrap().reset,
+                    Some(ResetEvidence::Unverified),
+                    "{label}/{event}"
+                );
+                let p = s.pane(pid(1)).unwrap();
+                assert_eq!(p.generation, 3);
+                assert!(!p.lazy_reset_pending);
+                assert_eq!(p.exited, event == "exit");
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_reset_verification_preserves_first_post_reset_submit() {
+        for label in ["codex", "cursor"] {
+            let mut s = SupervisorState::new();
+            s.observe_session_ref(pid(1), None, sref("old"));
+            let reset = accept_profile_receipt(&mut s, "reset", 1, label, SubmitKind::Reset);
+            assert!(reset.try_commit());
+            s.complete_submit("reset", &Ok(()), reset.close(), 2);
+            let first = accept_profile_receipt(&mut s, "first", 1, label, SubmitKind::Submit);
+            let current = s.submits.get("first").unwrap().target_ref.clone();
+            s.insert_question(pid(1), q("current-question", None));
+            s.on_transition(pid(1), AgentState::Idle, AgentState::Working, 1, 3);
+            let turn_seq = s.pane(pid(1)).unwrap().turn_seq;
+            assert!(first.try_commit());
+            assert_eq!(
+                profile_report(&mut s, 1, label, Some("new"), Some("new"), "startup"),
+                None
+            );
+            assert!(!first.is_tripped());
+            assert_eq!(s.pane(pid(1)).unwrap().generation, current.generation);
+            let p = s.pane(pid(1)).unwrap();
+            assert_eq!(p.turn_seq, turn_seq);
+            assert_eq!(p.turn_started_ms, Some(3));
+            assert!(p.questions[0].resolution.is_none());
+            // The native hook can arrive during the first post-reset write.
+            let hash = prompt_ack_sha256_16("prompt");
+            assert_eq!(s.note_prompt_submitted(pid(1), &hash, 21), None);
+            s.complete_submit("first", &Ok(()), first.close(), 22);
+            let r = s.submits.get("first").unwrap();
+            assert_eq!(
+                (r.state, r.acknowledged),
+                (SubmitState::Written, SubmitAcknowledged::Confirmed)
+            );
+            assert_eq!(r.acknowledged_at_ms, Some(22));
+            assert_eq!(s.pane(pid(1)).unwrap().generation, 2);
+        }
+    }
+
+    #[test]
+    fn resume_evidence_requires_requested_profile_agent() {
+        for requested in ["claude", "codex", "cursor"] {
+            for foreign in ["claude", "codex", "cursor"] {
+                if foreign == requested {
+                    continue;
+                }
+                for foreign_session in ["requested", "different"] {
+                    for (valid_session, expected) in [
+                        ("requested", ResumeEvidence::Verified),
+                        ("different", ResumeEvidence::Mismatch),
+                    ] {
+                        let mut s = SupervisorState::new();
+                        accept_profile_receipt(&mut s, "resume", 1, requested, SubmitKind::Resume);
+                        s.mark_resume_launched("resume", 2);
+                        let pending = s.submits.get("resume").unwrap().clone();
+                        assert_eq!(pending.resume, Some(ResumeEvidence::Pending));
+                        profile_report(
+                            &mut s,
+                            1,
+                            foreign,
+                            Some(foreign_session),
+                            Some(foreign_session),
+                            "startup",
+                        );
+                        assert_eq!(
+                            s.submits.get("resume"),
+                            Some(&pending),
+                            "{requested} resume must ignore {foreign} report of {foreign_session}"
+                        );
+                        profile_report(
+                            &mut s,
+                            1,
+                            requested,
+                            Some(valid_session),
+                            Some(valid_session),
+                            "resume",
+                        );
+                        let settled = s.submits.get("resume").unwrap();
+                        assert_eq!(
+                            settled.resume,
+                            Some(expected),
+                            "{requested} report must settle after ignored {foreign} evidence"
+                        );
+                        assert_eq!(settled.session_start_source.as_deref(), Some("resume"));
+                        assert_eq!(
+                            settled.new_generation,
+                            Some(s.pane(pid(1)).unwrap().generation)
+                        );
+                        assert_eq!(
+                            settled
+                                .reported_session
+                                .as_ref()
+                                .map(|session| session.value.as_str()),
+                            (expected == ResumeEvidence::Mismatch).then_some(valid_session)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resume_evidence_accepts_profile_agents() {
+        for label in ["claude", "codex", "cursor", "cursor-agent"] {
+            for (reported, resolved, expected) in [
+                ("different", "requested", ResumeEvidence::Mismatch),
+                ("requested", "different", ResumeEvidence::Verified),
+            ] {
+                let mut s = SupervisorState::new();
+                accept_profile_receipt(&mut s, "resume", 1, label, SubmitKind::Resume);
+                s.mark_resume_launched("resume", 2);
+                for unsupported in ["gemini", "unknown-agent"] {
+                    profile_report(&mut s, 1, unsupported, Some("requested"), None, "startup");
+                    assert_eq!(
+                        s.submits.get("resume").unwrap().resume,
+                        Some(ResumeEvidence::Pending)
+                    );
+                }
+                profile_report(&mut s, 1, label, None, Some("requested"), "startup");
+                s.on_terminal_mutation(pid(1), facts(None, sref("requested"), AgentState::Idle), 3);
+                profile_report(
+                    &mut s,
+                    2,
+                    label,
+                    Some("requested"),
+                    Some("requested"),
+                    "startup",
+                );
+                assert_eq!(
+                    s.submits.get("resume").unwrap().resume,
+                    Some(ResumeEvidence::Pending)
+                );
+                profile_report(&mut s, 1, label, Some(reported), Some(resolved), "startup");
+                let r = s.submits.get("resume").unwrap();
+                assert_eq!(
+                    (r.state, r.resume),
+                    (SubmitState::Launched, Some(expected)),
+                    "{label}"
+                );
+                assert_eq!(r.session_start_source.as_deref(), Some("startup"));
+                if expected == ResumeEvidence::Mismatch {
+                    assert_eq!(r.reported_session.as_ref().unwrap().value, reported);
+                } else {
+                    assert!(r.reported_session.is_none());
+                }
+                let settled = r.clone();
+                profile_report(&mut s, 1, label, Some("later"), Some(resolved), "resume");
+                assert_eq!(s.submits.get("resume"), Some(&settled));
+            }
+        }
+    }
+
+    /// `agent.resume` evidence comes from the reported session ref of a supported report,
     /// never from the terminal's resolved identity (`session_after`).
     #[test]
     fn resume_evidence_uses_the_reported_ref_not_the_resolved_identity() {
@@ -1393,13 +2082,16 @@ mod tests {
                     id,
                     NewReceipt {
                         kind: SubmitKind::Resume,
+                        lazy_reset: false,
                         question_id: None,
                         pane: pid(pane),
                         target_ref,
                         text_sha256_16: String::new(),
                         ack_sha256_16: None,
+                        own_text_sha256_16: None,
                         handoff: false,
                         session_id: Some("x".into()),
+                        resume_agent: Some(Agent::Claude),
                     },
                     crate::supervisor::fence::SubmitFence::new(),
                     1,
@@ -1429,7 +2121,7 @@ mod tests {
         );
         // A report labelled with another agent is ignored.
         launch(&mut s, "c", 3);
-        report(&mut s, 3, "codex", "x", "x");
+        report(&mut s, 3, "gemini", "x", "x");
         assert_eq!(
             s.submits.get("c").unwrap().resume,
             Some(ResumeEvidence::Pending)

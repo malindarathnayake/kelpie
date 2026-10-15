@@ -1150,6 +1150,9 @@ impl App {
                 return self.handle_agent_interrupt(request.id, params);
             }
             Method::AgentReset(params) => return self.handle_agent_reset(request.id, params),
+            Method::AgentClearDraft(params) => {
+                return self.handle_agent_clear_draft(request.id, params);
+            }
             Method::AgentResume(params) => return self.handle_agent_resume(request.id, params),
             Method::AgentSubmitStatus(params) => {
                 return self.handle_agent_submit_status(request.id, params);

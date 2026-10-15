@@ -224,32 +224,47 @@ impl Fixture {
     /// `agent submit` sees the agent as the pane's foreground process. It is an
     /// interactive shell, so typed prompts are echoed and otherwise harmless.
     fn launch_stand_in_claude(&self, pane: &str) {
-        let stand_in = self.write_stand_in_claude();
+        self.launch_stand_in_agent(pane, "claude", "claude");
+    }
+
+    fn launch_stand_in_agent(&self, pane: &str, agent_label: &str, exe_name: &str) {
+        let stand_in = self.write_stand_in_agent(agent_label, exe_name);
         let command = if cfg!(windows) {
             format!("\"{}\" /q /k", stand_in.display())
         } else {
             format!("'{}'", stand_in.display())
         };
         self.cli_json(&["pane", "run", pane, &command]);
-        // Detection only, no report yet: the pane's own agent must be Claude.
+        self.wait_identified_agent(pane, agent_label);
+    }
+
+    fn wait_identified_agent(&self, pane: &str, agent_label: &str) {
+        // Detection only, no report yet: identify the actual foreground process.
         let identified = wait_until(Duration::from_secs(10), || {
             let output = self.cli(&["agent", "get", pane]);
             output.status.success()
                 && serde_json::from_slice::<serde_json::Value>(&output.stdout)
-                    .is_ok_and(|got| got["result"]["agent"]["agent"] == "claude")
+                    .is_ok_and(|got| got["result"]["agent"]["agent"] == agent_label)
         });
-        assert!(identified, "stand-in claude was not identified in {pane}");
+        assert!(
+            identified,
+            "stand-in {agent_label} was not identified in {pane}"
+        );
     }
 
     /// Write the stand-in Claude executable into `<base>/bin` and return its path. It
     /// ignores its arguments (so `claude --resume <id>` starts it too).
     fn write_stand_in_claude(&self) -> PathBuf {
+        self.write_stand_in_agent("claude", "claude")
+    }
+
+    fn write_stand_in_agent(&self, agent_label: &str, exe_name: &str) -> PathBuf {
         let bin = self.base.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         if cfg!(windows) {
             let system_root =
                 std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
-            let stand_in = bin.join("claude.exe");
+            let stand_in = bin.join(format!("{exe_name}.exe"));
             if !stand_in.exists() {
                 std::fs::copy(
                     PathBuf::from(system_root).join(r"System32\cmd.exe"),
@@ -259,10 +274,10 @@ impl Fixture {
             }
             stand_in
         } else {
-            let stand_in = bin.join("claude");
+            let stand_in = bin.join(exe_name);
             std::fs::write(
                 &stand_in,
-                "#!/bin/sh\nexport HERDR_AGENT=claude\nexec /bin/sh\n",
+                format!("#!/bin/sh\nexport HERDR_AGENT={agent_label}\nexec /bin/sh\n"),
             )
             .unwrap();
             #[cfg(unix)]
@@ -1355,6 +1370,775 @@ fn b1_prompt_submit_hook_confirms_the_written_receipt_once() {
         "server log contains prompt text: {}",
         log_path.display()
     );
+}
+
+// P10 uses real fixture PTYs and shipped hooks, without starting a model client.
+const P10_OBSERVER_ENV: &str = "P10_FIXTURE_INPUT_OBSERVER_BASE";
+const P10_INPUT_BARRIER: &str = "p10-input-barrier-end";
+
+/// Only composer shape and styling are taken from the captured agent screens.
+/// No paths, account data, or incidental transcript text belongs in this fixture.
+fn p10_clean_screen(agent: &str) -> String {
+    let composer = match agent {
+        "codex" => {
+            "\u{203a} \x1b[2mAsk Codex to do anything\x1b[0m\r\n\r\n  100% context left".to_string()
+        }
+        "cursor" => {
+            let bg = "\x1b[48;2;21;21;21m";
+            format!(
+                "{bg}{pad}\x1b[0m\r\n{bg} \u{2192} \x1b[2mPlan, search, build anything\x1b[0m{bg}{rest}\x1b[0m\r\n{bg}{pad}\x1b[0m\r\n  / commands",
+                pad = " ".repeat(60),
+                rest = " ".repeat(30)
+            )
+        }
+        "gemini" => "fixture gemini ready".to_string(),
+        _ => panic!("unsupported fixture agent {agent}"),
+    };
+    // Disable bracketed paste so the captured delivery has an exact byte shape.
+    format!("\x1b[?2004l\x1b[2J\x1b[HDone.\r\n\r\n{composer}")
+}
+
+fn p10_cursor_dirty_screen(text: &str) -> String {
+    let bg = "\x1b[48;2;21;21;21m";
+    format!(
+        "\x1b[2J\x1b[HDone.\r\n\r\n{bg}          \x1b[0m\r\n{bg} \u{2192} {text}\x1b[0m\r\n{bg}          \x1b[0m\r\n  Auto"
+    )
+}
+
+/// Quote only fixture-owned paths/assignments for the pane shell. Reject cmd
+/// expansion characters rather than letting a local path become shell syntax.
+fn p10_shell_quote(value: &str) -> String {
+    #[cfg(windows)]
+    {
+        assert!(
+            !value
+                .chars()
+                .any(|ch| matches!(ch, '"' | '%' | '!' | '\r' | '\n')),
+            "unsupported shell character in fixture-owned path"
+        );
+        format!("\"{value}\"")
+    }
+    #[cfg(unix)]
+    {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+/// Records only synthetic bytes delivered to this fixture's own terminal. Screen
+/// updates use files, not keyboard input, so they cannot set the owner-input latch.
+struct P10InputObserver {
+    base: PathBuf,
+    screen_seq: usize,
+}
+
+impl P10InputObserver {
+    fn start(fixture: &Fixture, pane: &str, agent: &str, exe_name: &str) -> Self {
+        fixture.launch_stand_in_agent(pane, agent, exe_name);
+        let observer = Self {
+            base: fixture.base.clone(),
+            screen_seq: 0,
+        };
+        std::fs::write(
+            observer.base.join("p10-screen-0.ansi"),
+            p10_clean_screen(agent),
+        )
+        .unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let base_assignment =
+            p10_shell_quote(&format!("{P10_OBSERVER_ENV}={}", fixture.base.display()));
+        let executable = p10_shell_quote(executable.to_str().unwrap());
+        let stderr = p10_shell_quote(observer.base.join("p10-child.stderr").to_str().unwrap());
+        #[cfg(windows)]
+        let command = {
+            // Windows shell setup reconstructs TEMP/TMP below USERPROFILE. The
+            // fixture owns a different temp root, so carry it explicitly while
+            // preserving the child's canonical direct-parent isolation check.
+            let temp_root = fixture.base.parent().unwrap().display();
+            let temp = p10_shell_quote(&format!("TEMP={temp_root}"));
+            let tmp = p10_shell_quote(&format!("TMP={temp_root}"));
+            format!(
+                "set {base_assignment} & set {temp} & set {tmp} & {executable} --exact p10_fixture_input_observer_child --nocapture 2>{stderr}"
+            )
+        };
+        #[cfg(unix)]
+        let command = format!(
+            "env {base_assignment} {executable} --exact p10_fixture_input_observer_child --nocapture 2>{stderr}"
+        );
+        fixture.cli_json(&["pane", "run", pane, &command]);
+        observer.wait_screen(fixture, pane);
+        // The observer is below the renamed shell in the process tree; prove that
+        // it did not replace the detected agent with a fixture/report-only label.
+        fixture.wait_identified_agent(pane, agent);
+        observer
+    }
+
+    fn wait_screen(&self, fixture: &Fixture, pane: &str) {
+        let ack = self
+            .base
+            .join(format!("p10-screen-{}.ready", self.screen_seq));
+        assert!(
+            wait_until(Duration::from_secs(10), || ack.exists()),
+            "observer did not render screen {} in {}: {}",
+            self.screen_seq,
+            self.base.display(),
+            self.diagnostics(fixture, pane)
+        );
+    }
+
+    /// Preserve bounded, fixture-owned diagnostics in the test failure output
+    /// before Fixture::drop removes the child files and terminal.
+    fn diagnostics(&self, fixture: &Fixture, pane: &str) -> String {
+        use std::io::Read;
+
+        let mut details = Vec::new();
+        for format in ["text", "ansi"] {
+            let stdout = self.base.join(format!("p10-diagnostic-{format}.stdout"));
+            let stderr = self.base.join(format!("p10-diagnostic-{format}.stderr"));
+            let result = (|| -> std::io::Result<String> {
+                let mut child = fixture
+                    .command(&[
+                        "agent",
+                        "read",
+                        pane,
+                        "--source",
+                        "detection",
+                        "--format",
+                        format,
+                    ])
+                    .stdout(std::fs::File::create(&stdout)?)
+                    .stderr(std::fs::File::create(&stderr)?)
+                    .spawn()?;
+                let exited = wait_until(Duration::from_secs(5), || {
+                    matches!(child.try_wait(), Ok(Some(_)))
+                });
+                if !exited {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                Ok(format!("pane {format}: exited={exited}"))
+            })();
+            details.push(format!("{result:?}"));
+        }
+        for name in [
+            "p10-diagnostic-text.stdout",
+            "p10-diagnostic-text.stderr",
+            "p10-diagnostic-ansi.stdout",
+            "p10-diagnostic-ansi.stderr",
+            "p10-child.stderr",
+            "p10-input.bin",
+            "p10-stopped",
+        ] {
+            let value = (|| -> std::io::Result<Vec<u8>> {
+                let mut bytes = Vec::new();
+                std::fs::File::open(self.base.join(name))?
+                    .take(16384)
+                    .read_to_end(&mut bytes)?;
+                Ok(bytes)
+            })();
+            details.push(match value {
+                Ok(bytes) => format!("{name}: {:?}", String::from_utf8_lossy(&bytes)),
+                Err(error) => format!("{name}: {error}"),
+            });
+        }
+        details.join("\n")
+    }
+
+    fn show(&mut self, fixture: &Fixture, pane: &str, screen: &str) {
+        self.screen_seq += 1;
+        let staged = self.base.join("p10-screen.staged");
+        std::fs::write(&staged, screen).unwrap();
+        std::fs::rename(
+            staged,
+            self.base
+                .join(format!("p10-screen-{}.ansi", self.screen_seq)),
+        )
+        .unwrap();
+        self.wait_screen(fixture, pane);
+    }
+
+    fn bytes(&self) -> Vec<u8> {
+        std::fs::read(self.base.join("p10-input.bin")).unwrap_or_default()
+    }
+
+    fn wait_bytes(&self, fixture: &Fixture, pane: &str, expected: &[u8]) {
+        assert!(
+            wait_until(Duration::from_secs(10), || self.bytes().len()
+                >= expected.len()),
+            "observer expected {expected:?}, received {:?}: {}",
+            self.bytes(),
+            self.diagnostics(fixture, pane)
+        );
+        assert_eq!(
+            self.bytes(),
+            expected,
+            "actual fixture PTY input: {}",
+            self.diagnostics(fixture, pane)
+        );
+    }
+
+    /// An in-band barrier orders this read after all earlier PTY writes. Call
+    /// only after the final action: pane input deliberately sets the owner latch.
+    fn assert_bytes_through_barrier(&self, fixture: &Fixture, pane: &str, expected: &[u8]) {
+        fixture.cli_json(&["pane", "send-text", pane, P10_INPUT_BARRIER]);
+        let mut through_barrier = expected.to_vec();
+        through_barrier.extend_from_slice(P10_INPUT_BARRIER.as_bytes());
+        self.wait_bytes(fixture, pane, &through_barrier);
+        std::fs::write(self.base.join("p10-stop"), b"stop").unwrap();
+        let stopped = wait_until(Duration::from_secs(5), || {
+            self.base.join("p10-stopped").exists()
+        });
+        let completed =
+            std::fs::read(self.base.join("p10-completed")).is_ok_and(|bytes| bytes == b"complete");
+        let quiet = std::fs::metadata(self.base.join("p10-child.stderr"))
+            .is_ok_and(|metadata| metadata.len() == 0);
+        assert!(
+            stopped && completed && quiet,
+            "observer did not finish successfully: stopped={stopped}, completed={completed}, quiet={quiet}; {}",
+            self.diagnostics(fixture, pane)
+        );
+    }
+}
+
+impl Drop for P10InputObserver {
+    fn drop(&mut self) {
+        let _ = std::fs::write(self.base.join("p10-stop"), b"stop");
+        // Fixture::drop stops the owned server/PTY even if the observer failed.
+        let _ = wait_until(Duration::from_secs(5), || {
+            self.base.join("p10-stopped").exists()
+        });
+    }
+}
+
+/// Crossterm's Windows raw mode clears cooked input flags but does not enable
+/// VT input. The byte observer needs console key events (including Escape) to
+/// become bytes, and must restore the exact inherited mode when it exits.
+struct P10RawInputMode {
+    #[cfg(windows)]
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    #[cfg(windows)]
+    original_mode: u32,
+    active: bool,
+}
+
+impl P10RawInputMode {
+    fn enable() -> std::io::Result<Self> {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+            use windows_sys::Win32::System::Console::{
+                GetConsoleMode, GetStdHandle, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
+                ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_INPUT_HANDLE,
+            };
+
+            // SAFETY: these calls inspect the borrowed standard input handle;
+            // the mode output points to a live u32 and no handle is closed.
+            let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                return Err(std::io::Error::other(format!(
+                    "invalid fixture stdin handle {handle:?}: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+            let mut original_mode = 0;
+            if unsafe { GetConsoleMode(handle, &mut original_mode) } == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let mode = Self {
+                handle,
+                original_mode,
+                active: true,
+            };
+            let raw_mode = (original_mode
+                & !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT))
+                | ENABLE_VIRTUAL_TERMINAL_INPUT;
+            // Construct the guard first so a failed set/readback also restores.
+            mode.set_windows_mode(raw_mode)?;
+            Ok(mode)
+        }
+        #[cfg(unix)]
+        {
+            crossterm::terminal::enable_raw_mode()?;
+            Ok(Self { active: true })
+        }
+    }
+
+    #[cfg(windows)]
+    fn set_windows_mode(&self, expected: u32) -> std::io::Result<()> {
+        use windows_sys::Win32::System::Console::{GetConsoleMode, SetConsoleMode};
+
+        // SAFETY: the validated console handle is borrowed for the observer's
+        // lifetime, and the readback output points to a live u32.
+        if unsafe { SetConsoleMode(self.handle, expected) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut actual = 0;
+        if unsafe { GetConsoleMode(self.handle, &mut actual) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if actual != expected {
+            return Err(std::io::Error::other(format!(
+                "fixture stdin {:?} mode: expected {expected:#x}, got {actual:#x}",
+                self.handle
+            )));
+        }
+        Ok(())
+    }
+
+    fn restore(&mut self) -> std::io::Result<()> {
+        if self.active {
+            #[cfg(windows)]
+            self.set_windows_mode(self.original_mode)?;
+            #[cfg(unix)]
+            crossterm::terminal::disable_raw_mode()?;
+            self.active = false;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for P10RawInputMode {
+    fn drop(&mut self) {
+        if let Err(error) = self.restore() {
+            eprintln!("failed to restore fixture stdin mode: {error}");
+        }
+    }
+}
+
+/// Filtered subprocess entrypoint. A normal test run returns before touching the
+/// terminal. The activation path must be a direct fixture child of this run's temp
+/// directory; all I/O paths are fixed filenames beneath that canonical directory.
+#[test]
+fn p10_fixture_input_observer_child() {
+    use std::io::{Read, Write};
+
+    let Some(base) = std::env::var_os(P10_OBSERVER_ENV) else {
+        return;
+    };
+    let args: Vec<_> = std::env::args().collect();
+    assert!(args
+        .windows(2)
+        .any(|args| args == ["--exact", "p10_fixture_input_observer_child"]));
+    let base = PathBuf::from(base).canonicalize().unwrap();
+    let child_temp = std::env::temp_dir();
+    let child_temp = child_temp.canonicalize().unwrap_or_else(|error| {
+        panic!(
+            "observer temp directory {child_temp:?} cannot be resolved: {error}; TEMP={:?}; TMP={:?}",
+            std::env::var_os("TEMP"),
+            std::env::var_os("TMP")
+        )
+    });
+    assert_eq!(base.parent(), Some(child_temp.as_path()));
+    assert!(base
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("herdr-supervisor-fixture-"));
+    assert!(base.join("config").is_dir() && base.join("runtime").is_dir());
+    assert!(base.join("p10-screen-0.ansi").is_file());
+
+    struct RawMode(PathBuf, P10RawInputMode);
+    impl Drop for RawMode {
+        fn drop(&mut self) {
+            if let Err(error) = self.1.restore() {
+                eprintln!("failed to restore fixture stdin mode: {error}");
+            }
+            let _ = std::fs::write(self.0.join("p10-stopped"), b"stopped");
+        }
+    }
+    let input_mode = P10RawInputMode::enable().expect("enable fixture raw byte input");
+    let mut raw_mode = RawMode(base.clone(), input_mode);
+    let mut input_file = std::fs::File::create(base.join("p10-input.bin")).unwrap();
+    let (send, receive) = std::sync::mpsc::sync_channel(16);
+    // Blocking console reads stay in this disposable subprocess, never the test
+    // parent. The bounded main loop exits the process even if stdin stays open.
+    thread::spawn(move || {
+        let mut input = std::io::stdin().lock();
+        let mut buffer = [0; 1024];
+        while let Ok(length) = input.read(&mut buffer) {
+            if length == 0 || send.send(buffer[..length].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let mut screen_seq = 0;
+    let mut recorded = 0;
+    while !base.join("p10-stop").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "observer exceeded its 90s lifetime"
+        );
+        let screen = base.join(format!("p10-screen-{screen_seq}.ansi"));
+        if screen.exists() {
+            let screen = std::fs::read(screen).unwrap();
+            assert!(screen.len() <= 4096);
+            let mut output = std::io::stdout().lock();
+            output.write_all(&screen).unwrap();
+            output.flush().unwrap();
+            std::fs::write(
+                base.join(format!("p10-screen-{screen_seq}.ready")),
+                b"ready",
+            )
+            .unwrap();
+            screen_seq += 1;
+        }
+        if let Ok(bytes) = receive.recv_timeout(Duration::from_millis(20)) {
+            recorded += bytes.len();
+            assert!(recorded <= 65536, "fixture input exceeded its bound");
+            input_file.write_all(&bytes).unwrap();
+            input_file.flush().unwrap();
+        }
+    }
+    raw_mode.1.restore().expect("restore fixture stdin mode");
+    std::fs::write(base.join("p10-completed"), b"complete").unwrap();
+}
+
+impl Fixture {
+    fn p10_ready_agent(
+        &mut self,
+        pane: &str,
+        agent: &str,
+        exe_name: &str,
+    ) -> (P10InputObserver, serde_json::Value) {
+        let observer = P10InputObserver::start(self, pane, agent, exe_name);
+        self.report(pane, agent, "idle");
+        let entry = self.digest_agent_until(pane, "idle with a clean composer", |entry| {
+            entry["agent_status"] == "idle"
+                && (agent == "gemini" || entry["owner_input"]["draft"] == "clean")
+        });
+        (observer, entry)
+    }
+
+    fn p10_run_hook(&self, pane: &str, agent: &str, action: &str, payload: &[u8]) -> Output {
+        use std::io::Write;
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/integration/assets")
+            .join(agent);
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("powershell");
+            command
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                ])
+                .arg(assets.join("herdr-agent-state.ps1"));
+            command
+        };
+        #[cfg(unix)]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.arg(assets.join("herdr-agent-state.sh"));
+            command
+        };
+        command.arg(action);
+        self.isolate(&mut command);
+        command
+            .env("HERDR_ENV", "1")
+            .env("HERDR_PANE_ID", pane)
+            .env("HERDR_BIN_PATH", env!("CARGO_BIN_EXE_herdr"))
+            .env_remove("CODEX_THREAD_ID")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(payload).unwrap();
+        let status = wait_child_exit(&mut child, Duration::from_secs(30));
+        let output = child.wait_with_output().unwrap();
+        assert!(status.success(), "{agent} {action} hook failed: {status:?}");
+        assert!(
+            output.stderr.iter().all(u8::is_ascii_whitespace),
+            "{agent} {action} hook stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    }
+
+    fn p10_report_session(
+        &mut self,
+        pane: &str,
+        agent: &str,
+        session_id: &str,
+        start_source: &str,
+    ) {
+        self.seq += 1;
+        self.cli_json(&[
+            "pane",
+            "report-agent-session",
+            pane,
+            "--source",
+            &format!("herdr:{agent}"),
+            "--agent",
+            agent,
+            "--agent-session-id",
+            session_id,
+            "--session-start-source",
+            start_source,
+            "--seq",
+            &self.seq.to_string(),
+        ]);
+    }
+
+    fn p10_no_receipt(&self, submit_id: &str) {
+        let unknown = self.cli_error(&["agent", "submit-status", submit_id]);
+        assert_eq!(unknown["error"]["code"], "submit_not_found", "{unknown}");
+    }
+
+    fn p10_no_prompt_log(&self, marker: &str) {
+        let path = self
+            .config_home
+            .join(app_dir_name())
+            .join("herdr-server.log");
+        let log = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !log.contains(marker),
+            "server log leaked synthetic prompt: {}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn b7_codex_prompt_hook_confirms_written_receipt() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let (observer, agent) = fixture.p10_ready_agent(&pane, "codex", "codex");
+    let text = comment_line("p10-codex-prompt-marker");
+    let target = target_ref_arg(&agent);
+    fixture.submit_ok(&target, "p10-codex-prompt", &text);
+    let written = fixture.wait_receipt("p10-codex-prompt", &text, "written", |r| {
+        r["state"] == "written"
+    });
+    assert_eq!(written["acknowledged"], "unsupported");
+    observer.wait_bytes(&fixture, &pane, format!("{text}\r").as_bytes());
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "session_id": "p10-codex-session", "transcript_path": "fixture.jsonl",
+        "cwd": fixture.base, "permission_mode": "default",
+        "hook_event_name": "UserPromptSubmit", "prompt": format!("{text}\n")
+    }))
+    .unwrap();
+    let output = fixture.p10_run_hook(&pane, "codex", "prompt", &payload);
+    assert!(output.stdout.is_empty(), "Codex hook must remain silent");
+    let confirmed = fixture.wait_receipt("p10-codex-prompt", &text, "confirmed", |r| {
+        r["acknowledged"] == "confirmed"
+    });
+    assert_eq!(confirmed["state"], "written");
+    assert_eq!(confirmed["target_ref"], agent["target_ref"]);
+    assert!(confirmed["acknowledged_at_ms"].is_u64());
+    let duplicate = fixture.p10_run_hook(&pane, "codex", "prompt", &payload);
+    assert!(duplicate.stdout.is_empty());
+    assert_eq!(fixture.submit_status("p10-codex-prompt", &text), confirmed);
+    fixture.p10_no_prompt_log("p10-codex-prompt-marker");
+    observer.assert_bytes_through_barrier(&fixture, &pane, format!("{text}\r").as_bytes());
+}
+
+#[test]
+fn b7_codex_reset_bumps_once_and_verifies_lazily() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let (observer, _) = fixture.p10_ready_agent(&pane, "codex", "codex");
+    fixture.p10_report_session(&pane, "codex", "p10-codex-old", "startup");
+    let old = fixture.digest_agent_until(&pane, "old Codex session", |a| {
+        a["agent_session"]["value"] == "p10-codex-old"
+    });
+    let generation = old["target_ref"]["generation"].as_u64().unwrap();
+    let lineage_len = old["lineage"].as_array().unwrap().len();
+    let target = target_ref_arg(&old);
+    fixture.control_ok("reset", &target, "p10-codex-reset");
+    let written = fixture.wait_receipt("p10-codex-reset", NO_TEXT, "written", |r| {
+        r["state"] == "written"
+    });
+    assert_eq!(written["kind"], "reset");
+    assert_eq!(written["reset"], "pending");
+    assert!(written["new_session"].is_null() && written["new_generation"].is_null());
+    observer.wait_bytes(&fixture, &pane, b"/clear\r");
+    let pending = fixture.digest_agent_until(&pane, "reset-written generation", |a| {
+        a["target_ref"]["generation"].as_u64() == Some(generation + 1)
+    });
+    let lineage = pending["lineage"].as_array().unwrap();
+    assert_eq!(lineage.len(), lineage_len + 1);
+    assert_eq!(lineage.last().unwrap()["reason"], "reset_written");
+    fixture.p10_report_session(&pane, "codex", "p10-codex-new", "clear");
+    let verified = fixture.wait_receipt("p10-codex-reset", NO_TEXT, "verified", |r| {
+        r["reset"] == "verified"
+    });
+    assert_eq!(
+        verified["new_session"],
+        serde_json::json!({"kind": "id", "value": "p10-codex-new"})
+    );
+    assert_eq!(verified["new_generation"].as_u64(), Some(generation + 1));
+    assert_eq!(verified["target_ref"], old["target_ref"]);
+    let after = fixture.digest_agent_until(&pane, "new Codex session", |a| {
+        a["agent_session"]["value"] == "p10-codex-new"
+    });
+    assert_eq!(
+        after["target_ref"]["generation"],
+        pending["target_ref"]["generation"]
+    );
+    assert_eq!(after["lineage"], pending["lineage"]);
+    assert_eq!(
+        fixture.control_ok("reset", &target, "p10-codex-reset"),
+        verified
+    );
+    observer.assert_bytes_through_barrier(&fixture, &pane, b"/clear\r");
+}
+
+#[test]
+fn b7_cursor_prompt_hook_confirms_and_refreshes_identity() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let (observer, _) = fixture.p10_ready_agent(&pane, "cursor", "cursor-agent");
+    let startup = serde_json::to_vec(&serde_json::json!({"hook_event_name": "sessionStart", "conversation_id": "p10-cursor-old"})).unwrap();
+    let output = fixture.p10_run_hook(&pane, "cursor", "session", &startup);
+    #[cfg(windows)]
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({})
+    );
+    #[cfg(unix)]
+    assert!(output.stdout.is_empty());
+    let old = fixture.digest_agent_until(&pane, "legacy Cursor session hook identity", |a| {
+        a["agent_session"]["value"] == "p10-cursor-old"
+    });
+    assert_eq!(old["agent_session"]["source"], "herdr:cursor");
+    assert_eq!(old["agent_session"]["agent"], "cursor");
+    let text = comment_line("p10-cursor-prompt-marker");
+    fixture.submit_ok(&target_ref_arg(&old), "p10-cursor-prompt", &text);
+    let written = fixture.wait_receipt("p10-cursor-prompt", &text, "written", |r| {
+        r["state"] == "written"
+    });
+    assert_eq!(written["acknowledged"], "unsupported");
+    observer.wait_bytes(&fixture, &pane, format!("{text}\r").as_bytes());
+    let mut payload = b"\xef\xbb\xbf".to_vec();
+    payload.extend(serde_json::to_vec(&serde_json::json!({"hook_event_name": "beforeSubmitPrompt", "conversation_id": "p10-cursor-new", "prompt": text})).unwrap());
+    let output = fixture.p10_run_hook(&pane, "cursor", "prompt", &payload);
+    // from_slice rejects a second JSON value as trailing data.
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({"continue": true})
+    );
+    let confirmed = fixture.wait_receipt("p10-cursor-prompt", &text, "confirmed", |r| {
+        r["acknowledged"] == "confirmed"
+    });
+    assert_eq!(confirmed["state"], "written");
+    assert!(confirmed["acknowledged_at_ms"].is_u64());
+    assert_eq!(
+        confirmed["target_ref"], old["target_ref"],
+        "acknowledgement precedes session replacement"
+    );
+    let refreshed = fixture.digest_agent_until(&pane, "prompt-refreshed Cursor session", |a| {
+        a["agent_session"]["value"] == "p10-cursor-new"
+    });
+    assert_eq!(
+        refreshed["agent_session"],
+        serde_json::json!({"source": "herdr:cursor", "agent": "cursor", "kind": "id", "value": "p10-cursor-new"})
+    );
+    assert_eq!(
+        refreshed["target_ref"]["generation"].as_u64(),
+        old["target_ref"]["generation"].as_u64().map(|g| g + 1)
+    );
+    let duplicate = fixture.p10_run_hook(&pane, "cursor", "prompt", &payload);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&duplicate.stdout).unwrap(),
+        serde_json::json!({"continue": true})
+    );
+    assert_eq!(fixture.submit_status("p10-cursor-prompt", &text), confirmed);
+    let after = fixture.digest_agent(&pane);
+    assert_eq!(after["agent_session"], refreshed["agent_session"]);
+    assert_eq!(after["target_ref"], refreshed["target_ref"]);
+    assert_eq!(after["lineage"], refreshed["lineage"]);
+    fixture.p10_no_prompt_log("p10-cursor-prompt-marker");
+    observer.assert_bytes_through_barrier(&fixture, &pane, format!("{text}\r").as_bytes());
+}
+
+const P10_CURSOR_OWN_TEXT: &str = "p10 synthetic restored draft";
+
+fn p10_interrupted_cursor(
+    fixture: &mut Fixture,
+    pane: &str,
+    restored: &str,
+) -> (P10InputObserver, serde_json::Value, Vec<u8>) {
+    let (mut observer, clean) = fixture.p10_ready_agent(pane, "cursor", "cursor-agent");
+    let target = target_ref_arg(&clean);
+    fixture.submit_ok(&target, "p10-cursor-own", P10_CURSOR_OWN_TEXT);
+    fixture.wait_receipt(
+        "p10-cursor-own",
+        P10_CURSOR_OWN_TEXT,
+        "written submit",
+        |r| r["state"] == "written",
+    );
+    let mut bytes = format!("{P10_CURSOR_OWN_TEXT}\r").into_bytes();
+    observer.wait_bytes(fixture, pane, &bytes);
+    fixture.report(pane, "cursor", "working");
+    fixture.digest_agent_until(pane, "working Cursor", |a| a["agent_status"] == "working");
+    fixture.control_ok("interrupt", &target, "p10-cursor-interrupt");
+    let interrupted =
+        fixture.wait_receipt("p10-cursor-interrupt", NO_TEXT, "written interrupt", |r| {
+            r["state"] == "written"
+        });
+    assert_eq!(interrupted["kind"], "interrupt");
+    bytes.push(0x1b);
+    observer.wait_bytes(fixture, pane, &bytes);
+    fixture.report(pane, "cursor", "idle");
+    observer.show(fixture, pane, &p10_cursor_dirty_screen(restored));
+    let dirty = fixture.digest_agent_until(pane, "idle restored dirty composer", |a| {
+        a["agent_status"] == "idle" && a["owner_input"]["draft"] == "dirty"
+    });
+    assert_eq!(dirty["target_ref"], clean["target_ref"]);
+    (observer, dirty, bytes)
+}
+
+#[test]
+fn b6_cursor_clear_draft_writes_ctrl_u_for_own_text() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let (observer, dirty, mut bytes) =
+        p10_interrupted_cursor(&mut fixture, &pane, P10_CURSOR_OWN_TEXT);
+    let target = target_ref_arg(&dirty);
+    fixture.control_ok("clear-draft", &target, "p10-cursor-clear");
+    let written = fixture.wait_receipt("p10-cursor-clear", NO_TEXT, "written clear", |r| {
+        r["state"] == "written"
+    });
+    assert_eq!(written["kind"], "clear_draft");
+    assert_eq!(written["acknowledged"], "unsupported");
+    bytes.push(0x15);
+    observer.wait_bytes(&fixture, &pane, &bytes);
+    assert_eq!(
+        fixture.control_ok("clear-draft", &target, "p10-cursor-clear"),
+        written
+    );
+    observer.assert_bytes_through_barrier(&fixture, &pane, &bytes);
+}
+
+#[test]
+fn b6_cursor_clear_draft_refuses_owner_text() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let (observer, dirty, bytes) =
+        p10_interrupted_cursor(&mut fixture, &pane, "p10 different owner draft");
+    let error = fixture.control_error("clear-draft", &target_ref_arg(&dirty), "p10-cursor-refused");
+    assert_eq!(error["error"]["code"], "draft_not_own", "{error}");
+    fixture.p10_no_receipt("p10-cursor-refused");
+    observer.assert_bytes_through_barrier(&fixture, &pane, &bytes);
+}
+
+#[test]
+fn b7_gemini_submit_is_unsupported() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.pane();
+    let (observer, agent) = fixture.p10_ready_agent(&pane, "gemini", "gemini");
+    let error = fixture.submit_error(
+        &target_ref_arg(&agent),
+        "p10-gemini-submit",
+        "p10 unsupported marker",
+    );
+    assert_eq!(error["error"]["code"], "unsupported_agent", "{error}");
+    fixture.p10_no_receipt("p10-gemini-submit");
+    observer.assert_bytes_through_barrier(&fixture, &pane, b"");
 }
 
 /// S6d(i): after a generation bump the old full target_ref is stale and

@@ -6,6 +6,47 @@
 
 param([string]$Action = "")
 
+if ($Action -eq "prompt") {
+    # Forward raw hook JSON bytes without console decoding or newline changes.
+    if ($env:HERDR_ENV -ne "1") { exit 0 }
+    if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { exit 0 }
+    $buffer = $null
+    $process = $null
+    try {
+        $buffer = New-Object System.IO.MemoryStream
+        [Console]::OpenStandardInput().CopyTo($buffer)
+        $buffer.Position = 0
+        $herdr = if ([string]::IsNullOrWhiteSpace($env:HERDR_BIN_PATH)) { "herdr" } else { $env:HERDR_BIN_PATH }
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $herdr
+        $startInfo.Arguments = "pane report-prompt-submitted `"$($env:HERDR_PANE_ID)`" --source herdr:codex --agent codex"
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        # One deadline includes forwarding: a child that never reads stdin must
+        # not hold this hook open before the exit wait starts.
+        $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+        $forwarding = $buffer.CopyToAsync($process.StandardInput.BaseStream)
+        $remaining = [Math]::Max(0, 5000 - [int]$deadline.ElapsedMilliseconds)
+        if ($forwarding.Wait($remaining)) {
+            $process.StandardInput.Close()
+            $remaining = [Math]::Max(0, 5000 - [int]$deadline.ElapsedMilliseconds)
+            [void]$process.WaitForExit($remaining)
+        }
+    } catch {
+    } finally {
+        if ($null -ne $process) {
+            try { if (-not $process.HasExited) { $process.Kill() } } catch {}
+            try { $process.StandardInput.Close() } catch {}
+            $process.Dispose()
+        }
+        if ($null -ne $buffer) { $buffer.Dispose() }
+    }
+    exit 0
+}
 if ($Action -notin @("session", "working", "idle")) { exit 0 }
 if ($env:HERDR_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { exit 0 }

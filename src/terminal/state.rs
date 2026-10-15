@@ -1422,6 +1422,10 @@ impl TerminalState {
                 "herdr:codex",
                 "codex",
                 Some("startup" | "clear" | "resume" | "compact")
+            ) | (
+                "herdr:cursor",
+                "cursor",
+                Some("startup" | "resume" | "prompt")
             ) | ("herdr:mastracode", "mastracode", Some("startup"))
                 | ("herdr:hermes", "hermes", Some("startup" | "new" | "resume"))
                 | ("herdr:opencode", "opencode", Some("select"))
@@ -1676,8 +1680,10 @@ impl TerminalState {
         let previous_state = self.state;
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_session = self.current_session_identity_for_persistence();
-        if (source.as_str(), agent_label.as_str()) == ("herdr:codex", "codex")
-            && session_replacement_allowed
+        if matches!(
+            (source.as_str(), agent_label.as_str()),
+            ("herdr:codex", "codex") | ("herdr:cursor", "cursor")
+        ) && session_replacement_allowed
             && self.hook_authority.as_ref().is_some_and(|authority| {
                 authority.source == source
                     && authority.agent_label == agent_label
@@ -4919,6 +4925,200 @@ mod tests {
                     .map(|session| session.session_ref.value.as_str()),
                 Some(next_session.as_str())
             );
+        }
+    }
+
+    #[test]
+    fn session_report_allows_cursor_lifecycle_replacement() {
+        for reason in ["startup", "resume", "prompt"] {
+            let mut terminal = test_terminal();
+            terminal.set_detected_state(Some(Agent::Cursor), AgentState::Idle);
+            terminal
+                .set_hook_authority_with_session_ref(
+                    "herdr:cursor".into(),
+                    "cursor".into(),
+                    AgentState::Idle,
+                    None,
+                    crate::agent_resume::AgentSessionRef::id("old-session"),
+                    Some(20),
+                )
+                .expect("old Cursor hook authority");
+            let new_ref = crate::agent_resume::AgentSessionRef::id("new-session");
+            let mutation = terminal
+                .set_agent_session_ref_for_session_start(
+                    "herdr:cursor".into(),
+                    "cursor".into(),
+                    new_ref.clone(),
+                    Some(21),
+                    Some(reason.into()),
+                )
+                .unwrap_or_else(|| panic!("Cursor {reason} should replace its session"));
+
+            assert!(mutation.session_ref_changed, "{reason}");
+            assert!(terminal.hook_authority.is_none(), "{reason}");
+            assert_eq!(
+                terminal
+                    .persisted_agent_session
+                    .as_ref()
+                    .map(|s| &s.session_ref),
+                new_ref.as_ref(),
+                "{reason}"
+            );
+            let expected = Some((
+                "herdr:cursor".into(),
+                "cursor".into(),
+                crate::agent_resume::AgentSessionRefKind::Id,
+                "new-session".into(),
+            ));
+            assert_eq!(terminal.current_session_identity(), expected, "{reason}");
+
+            let repeated = terminal
+                .set_agent_session_ref_for_session_start(
+                    "herdr:cursor".into(),
+                    "cursor".into(),
+                    new_ref.clone(),
+                    Some(22),
+                    Some(reason.into()),
+                )
+                .expect("repeated current session");
+            assert!(!repeated.session_ref_changed, "{reason}");
+            let working = terminal
+                .set_hook_authority_with_session_ref(
+                    "herdr:cursor".into(),
+                    "cursor".into(),
+                    AgentState::Working,
+                    None,
+                    new_ref,
+                    Some(23),
+                )
+                .expect("next Cursor state report");
+            assert!(!working.session_ref_changed, "{reason}");
+            assert_eq!(terminal.current_session_identity(), expected, "{reason}");
+        }
+
+        for (agent, source, label, reason, seq) in [
+            (Agent::Cursor, "herdr:cursor", "cursor", None, Some(21)),
+            (Agent::Cursor, "herdr:cursor", "cursor", Some(""), Some(21)),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("other"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("clear"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("compact"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("new"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("fork"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("select"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("branch"),
+                Some(21),
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("prompt"),
+                None,
+            ),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "cursor",
+                Some("prompt"),
+                Some(20),
+            ),
+            (
+                Agent::Cursor,
+                "custom:cursor",
+                "cursor",
+                Some("prompt"),
+                Some(21),
+            ),
+            (Agent::Cursor, "", "cursor", Some("prompt"), Some(21)),
+            (
+                Agent::Cursor,
+                "herdr:cursor",
+                "codex",
+                Some("prompt"),
+                Some(21),
+            ),
+            (
+                Agent::Claude,
+                "herdr:claude",
+                "claude",
+                Some("prompt"),
+                Some(21),
+            ),
+            (
+                Agent::Codex,
+                "herdr:codex",
+                "codex",
+                Some("prompt"),
+                Some(21),
+            ),
+        ] {
+            let mut terminal = test_terminal();
+            terminal.set_detected_state(Some(agent), AgentState::Idle);
+            let owner = crate::detect::agent_label(agent);
+            terminal
+                .set_hook_authority_with_session_ref(
+                    format!("herdr:{owner}"),
+                    owner.into(),
+                    AgentState::Idle,
+                    None,
+                    crate::agent_resume::AgentSessionRef::id("old-session"),
+                    Some(20),
+                )
+                .expect("old session hook authority");
+            let old_identity = terminal.current_session_identity();
+            let replacement = terminal.set_agent_session_ref_for_session_start(
+                source.into(),
+                label.into(),
+                crate::agent_resume::AgentSessionRef::id("new-session"),
+                seq,
+                reason.map(str::to_string),
+            );
+            assert!(
+                replacement.is_none(),
+                "{agent:?} {source} {label} {reason:?} {seq:?}"
+            );
+            assert_eq!(terminal.current_session_identity(), old_identity);
+            assert!(terminal.hook_authority.is_some());
         }
     }
 

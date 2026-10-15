@@ -1322,6 +1322,21 @@ fn codex_v2_integration_status_is_outdated() {
     let _ = fs::remove_dir_all(base);
 }
 
+fn expected_codex_hook_groups(hook_path: &Path, actions: &[&str]) -> Value {
+    Value::Array(
+        actions
+            .iter()
+            .map(|action| {
+                json!({"hooks": [{
+                    "type": "command",
+                    "command": hook_command(hook_path, Some(action)),
+                    "timeout": 10,
+                }]})
+            })
+            .collect(),
+    )
+}
+
 #[test]
 fn install_codex_writes_hook_and_updates_hooks_and_config() {
     let _lock = integration_env_lock();
@@ -1342,24 +1357,20 @@ fn install_codex_writes_hook_and_updates_hooks_and_config() {
     assert_eq!(installed.hooks_path, codex_dir.join("hooks.json"));
     assert_eq!(installed.config_path, codex_dir.join("config.toml"));
     assert_eq!(hook_content, CODEX_HOOK_ASSET);
-    assert!(hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains(" session"));
-    assert!(hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains(" working"));
+    for (event, actions) in [
+        ("SessionStart", &["session"][..]),
+        ("UserPromptSubmit", &["working", "prompt"][..]),
+        ("Stop", &["idle"][..]),
+        ("Interrupt", &["idle"][..]),
+    ] {
+        assert_eq!(
+            hooks["hooks"][event],
+            expected_codex_hook_groups(&installed.hook_path, actions),
+            "{event} must install each managed action exactly once with timeout 10"
+        );
+    }
     assert!(hooks["hooks"].get("PreToolUse").is_none());
     assert!(hooks["hooks"].get("PermissionRequest").is_none());
-    assert!(hooks["hooks"]["Stop"][0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains(" idle"));
-    assert!(hooks["hooks"]["Interrupt"][0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains(" idle"));
     assert!(config.contains("model = \"gpt-5.4\""));
     assert!(config.contains("[features]"));
     assert!(config.contains("hooks = true"));
@@ -1395,6 +1406,27 @@ fn install_codex_is_idempotent_for_hook_entries_and_feature_flag() {
     let home = base.join("home");
     let codex_dir = home.join(".codex");
     fs::create_dir_all(&codex_dir).unwrap();
+    let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
+    let user_hook = json!({"type": "command", "command": "echo keep", "timeout": 7});
+    let hooks = json!({
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": legacy_bash_hook_command(&hook_path, Some("idle")), "timeout": 10}]}],
+            "UserPromptSubmit": [{"hooks": [
+                {"type": "command", "command": legacy_bash_hook_command(&hook_path, Some("working")), "timeout": 1},
+                {"type": "command", "command": legacy_bash_hook_command(&hook_path, Some("prompt")), "timeout": 1},
+                {"type": "command", "command": hook_command(&hook_path, Some("working")), "timeout": 1},
+                {"type": "command", "command": hook_command(&hook_path, Some("prompt")), "timeout": 1},
+                user_hook.clone()
+            ]}],
+            "PreToolUse": [{"hooks": [{"type": "command", "command": legacy_bash_hook_command(&hook_path, Some("working")), "timeout": 10}]}],
+            "PermissionRequest": [{"hooks": [{"type": "command", "command": legacy_bash_hook_command(&hook_path, Some("blocked")), "timeout": 10}]}]
+        }
+    });
+    fs::write(
+        codex_dir.join("hooks.json"),
+        serde_json::to_string(&hooks).unwrap(),
+    )
+    .unwrap();
     fs::write(
         codex_dir.join("config.toml"),
         "[features]\ncodex_hooks = false\nother = true\n",
@@ -1409,15 +1441,26 @@ fn install_codex_is_idempotent_for_hook_entries_and_feature_flag() {
         serde_json::from_str(&fs::read_to_string(codex_dir.join("hooks.json")).unwrap()).unwrap();
     let config = fs::read_to_string(codex_dir.join("config.toml")).unwrap();
 
-    assert_eq!(hooks["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        hooks["hooks"]["UserPromptSubmit"].as_array().unwrap().len(),
-        1
-    );
+    for (event, actions) in [
+        ("SessionStart", &["session"][..]),
+        ("UserPromptSubmit", &["working", "prompt"][..]),
+        ("Stop", &["idle"][..]),
+        ("Interrupt", &["idle"][..]),
+    ] {
+        let mut expected = expected_codex_hook_groups(&hook_path, actions);
+        if event == "UserPromptSubmit" {
+            expected
+                .as_array_mut()
+                .unwrap()
+                .insert(0, json!({"hooks": [user_hook.clone()]}));
+        }
+        assert_eq!(
+            hooks["hooks"][event], expected,
+            "{event} must preserve user hooks and install each managed action exactly once"
+        );
+    }
     assert!(hooks["hooks"].get("PreToolUse").is_none());
     assert!(hooks["hooks"].get("PermissionRequest").is_none());
-    assert_eq!(hooks["hooks"]["Stop"].as_array().unwrap().len(), 1);
-    assert_eq!(hooks["hooks"]["Interrupt"].as_array().unwrap().len(), 1);
     assert_eq!(config.matches("hooks = true").count(), 1);
     assert!(!config.contains("codex_hooks"));
     assert!(config.contains("other = true"));
@@ -1465,6 +1508,7 @@ fn uninstall_codex_removes_herdr_hooks_and_leaves_config_alone() {
             "SessionStart": [{"hooks": [{"type": "command", "command": format!("bash '{}' idle", hook_path.display()), "timeout": 10}]}],
             "UserPromptSubmit": [{"hooks": [
                 {"type": "command", "command": format!("bash '{}' working", hook_path.display()), "timeout": 10},
+                {"type": "command", "command": hook_command(&hook_path, Some("prompt")), "timeout": 10},
                 {"type": "command", "command": "echo keep", "timeout": 10}
             ]}],
             "PreToolUse": [{"hooks": [{"type": "command", "command": format!("bash '{}' working", hook_path.display()), "timeout": 10}]}],
@@ -1499,18 +1543,10 @@ fn uninstall_codex_removes_herdr_hooks_and_leaves_config_alone() {
     assert!(hooks["hooks"].get("Stop").is_none());
     assert!(hooks["hooks"].get("Interrupt").is_none());
     assert_eq!(
-        hooks["hooks"]["UserPromptSubmit"][0]["hooks"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
+        hooks["hooks"]["UserPromptSubmit"],
+        json!([{"hooks": [{"type": "command", "command": "echo keep", "timeout": 10}]}])
     );
-    assert_eq!(
-        hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
-        "echo keep"
-    );
-    assert!(config.contains("hooks = true"));
-    assert!(config.contains("other = true"));
+    assert_eq!(config, "[features]\nhooks = true\nother = true\n");
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -3456,7 +3492,16 @@ fn bundled_integration_asset_versions_match_expected_versions() {
         ("pi", PI_EXTENSION_ASSET, PI_INTEGRATION_VERSION),
         ("omp", OMP_EXTENSION_ASSET, OMP_INTEGRATION_VERSION),
         ("claude", CLAUDE_HOOK_ASSET, CLAUDE_INTEGRATION_VERSION),
-        ("codex", CODEX_HOOK_ASSET, CODEX_INTEGRATION_VERSION),
+        (
+            "codex shell",
+            include_str!("assets/codex/herdr-agent-state.sh"),
+            CODEX_INTEGRATION_VERSION,
+        ),
+        (
+            "codex powershell",
+            include_str!("assets/codex/herdr-agent-state.ps1"),
+            CODEX_INTEGRATION_VERSION,
+        ),
         ("kimi", KIMI_HOOK_ASSET, KIMI_INTEGRATION_VERSION),
         ("copilot", COPILOT_HOOK_ASSET, COPILOT_INTEGRATION_VERSION),
         ("devin", DEVIN_HOOK_ASSET, DEVIN_INTEGRATION_VERSION),
@@ -3477,7 +3522,16 @@ fn bundled_integration_asset_versions_match_expected_versions() {
             QODERCLI_HOOK_ASSET,
             QODERCLI_INTEGRATION_VERSION,
         ),
-        ("cursor", CURSOR_HOOK_ASSET, CURSOR_INTEGRATION_VERSION),
+        (
+            "cursor shell",
+            include_str!("assets/cursor/herdr-agent-state.sh"),
+            CURSOR_INTEGRATION_VERSION,
+        ),
+        (
+            "cursor powershell",
+            include_str!("assets/cursor/herdr-agent-state.ps1"),
+            CURSOR_INTEGRATION_VERSION,
+        ),
         (
             "antigravity_cli",
             ANTIGRAVITY_CLI_HOOK_ASSET,
@@ -4115,9 +4169,25 @@ fn install_cursor_writes_hook_and_updates_hooks_json() {
     let base = unique_base();
     let cursor_dir = base.join(".cursor");
     fs::create_dir_all(&cursor_dir).unwrap();
+    let hook_path = cursor_dir.join(CURSOR_HOOK_INSTALL_NAME);
+    let user_session = json!({"command": "echo user-session", "timeout": 7});
+    let user_prompt = json!({"command": "echo user-prompt", "custom": {"keep": true}});
+    let user_stop = json!({"command": "echo keep-me", "timeout": 3});
     fs::write(
         cursor_dir.join("hooks.json"),
-        r#"{"version":1,"hooks":{"stop":[{"command":"echo keep-me"}]}}"#,
+        serde_json::to_string(&json!({
+            "version": 1,
+            "custom": {"enabled": true},
+            "hooks": {
+                "sessionStart": [user_session.clone()],
+                "beforeSubmitPrompt": [
+                    {"command": hook_command(&hook_path, Some("session"))},
+                    user_prompt.clone()
+                ],
+                "stop": [user_stop.clone()]
+            }
+        }))
+        .unwrap(),
     )
     .unwrap();
     std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
@@ -4136,21 +4206,19 @@ fn install_cursor_writes_hook_and_updates_hooks_json() {
 
     let hooks_file: Value =
         serde_json::from_str(&fs::read_to_string(cursor_dir.join("hooks.json")).unwrap()).unwrap();
+    assert_eq!(hooks_file["version"], json!(1));
+    assert_eq!(hooks_file["custom"], json!({"enabled": true}));
     let hooks = hooks_file.get("hooks").and_then(Value::as_object).unwrap();
-    let session_start = hooks.get("sessionStart").and_then(Value::as_array).unwrap();
-    assert_eq!(session_start.len(), 1);
     assert_eq!(
-        session_start[0].get("command").and_then(Value::as_str),
-        Some(hook_command(&installed.hook_path, Some("session")).as_str())
+        hooks["sessionStart"],
+        json!([user_session, {"command": hook_command(&installed.hook_path, Some("session"))}])
     );
-    assert!(hooks.get("beforeSubmitPrompt").is_none());
+    assert_eq!(
+        hooks["beforeSubmitPrompt"],
+        json!([user_prompt, {"command": hook_command(&installed.hook_path, Some("prompt"))}])
+    );
     assert!(hooks.get("beforeShellExecution").is_none());
-    let stop = hooks.get("stop").and_then(Value::as_array).unwrap();
-    assert_eq!(stop.len(), 1);
-    assert_eq!(
-        stop[0].get("command").and_then(Value::as_str),
-        Some("echo keep-me")
-    );
+    assert_eq!(hooks["stop"], json!([user_stop]));
 
     std::env::remove_var(CURSOR_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
@@ -4164,14 +4232,35 @@ fn install_cursor_is_idempotent_for_hook_entries() {
     fs::create_dir_all(&cursor_dir).unwrap();
     std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
 
+    let installed = install_cursor().unwrap();
+    let mut hooks_file: Value =
+        serde_json::from_str(&fs::read_to_string(&installed.hooks_path).unwrap()).unwrap();
+    // Reinstall also repairs duplicate managed entries from older settings.
+    for event in ["sessionStart", "beforeSubmitPrompt"] {
+        let entries = hooks_file["hooks"][event].as_array_mut().unwrap();
+        entries.push(entries[0].clone());
+    }
+    fs::write(
+        &installed.hooks_path,
+        serde_json::to_string(&hooks_file).unwrap(),
+    )
+    .unwrap();
     install_cursor().unwrap();
     install_cursor().unwrap();
 
     let hooks_file: Value =
         serde_json::from_str(&fs::read_to_string(cursor_dir.join("hooks.json")).unwrap()).unwrap();
     let hooks = hooks_file.get("hooks").and_then(Value::as_object).unwrap();
-    let session_start = hooks.get("sessionStart").and_then(Value::as_array).unwrap();
-    assert_eq!(session_start.len(), 1);
+    for (event, action) in [
+        ("sessionStart", "session"),
+        ("beforeSubmitPrompt", "prompt"),
+    ] {
+        assert_eq!(
+            hooks[event],
+            json!([{"command": hook_command(&installed.hook_path, Some(action))}]),
+            "{event} must install exactly one managed command"
+        );
+    }
 
     std::env::remove_var(CURSOR_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
@@ -4185,10 +4274,15 @@ fn uninstall_cursor_removes_herdr_hooks_and_preserves_others() {
     fs::create_dir_all(&cursor_dir).unwrap();
     std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
 
-    install_cursor().unwrap();
+    let installed = install_cursor().unwrap();
     let mut hooks_file: Value =
         serde_json::from_str(&fs::read_to_string(cursor_dir.join("hooks.json")).unwrap()).unwrap();
-    hooks_file["hooks"]["beforeSubmitPrompt"] = json!([{ "command": "echo user-defined" }]);
+    let user_hook = json!({"command": "echo user-defined", "timeout": 7});
+    let prompt_hooks = hooks_file["hooks"]["beforeSubmitPrompt"]
+        .as_array_mut()
+        .unwrap();
+    prompt_hooks.push(user_hook.clone());
+    prompt_hooks.push(json!({"command": hook_command(&installed.hook_path, Some("session"))}));
     fs::write(
         cursor_dir.join("hooks.json"),
         serde_json::to_string_pretty(&hooks_file).unwrap(),
@@ -4204,7 +4298,7 @@ fn uninstall_cursor_removes_herdr_hooks_and_preserves_others() {
         serde_json::from_str(&fs::read_to_string(cursor_dir.join("hooks.json")).unwrap()).unwrap();
     let hooks = hooks_file.get("hooks").and_then(Value::as_object).unwrap();
     assert!(!hooks.contains_key("sessionStart"));
-    assert!(hooks.contains_key("beforeSubmitPrompt"));
+    assert_eq!(hooks["beforeSubmitPrompt"], json!([user_hook]));
 
     std::env::remove_var(CURSOR_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
@@ -4231,7 +4325,7 @@ fn install_cursor_uses_cursor_config_dir_env() {
 }
 
 #[test]
-fn cursor_v1_integration_status_is_current() {
+fn cursor_v1_integration_status_is_outdated() {
     let _lock = integration_env_lock();
     let base = unique_base();
     let cursor_dir = base.join(".cursor");
@@ -4249,8 +4343,9 @@ fn cursor_v1_integration_status_is_current() {
         .iter()
         .find(|status| status.target == crate::api::schema::IntegrationTarget::Cursor)
         .expect("cursor integration status");
-    assert_eq!(cursor.state, IntegrationStatusKind::Current);
-    assert_eq!(cursor.installed_version, Some(CURSOR_INTEGRATION_VERSION));
+    assert_eq!(cursor.state, IntegrationStatusKind::Outdated);
+    assert_eq!(cursor.installed_version, Some(1));
+    assert_eq!(cursor.expected_version, 2);
 
     clear_integration_path_env();
     let _ = fs::remove_dir_all(base);

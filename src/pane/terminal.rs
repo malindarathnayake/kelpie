@@ -6030,7 +6030,13 @@ mod tests {
     fn draft_screen_bottom_reads_physical_rows_with_styles() {
         use crate::api::schema::supervisor::DraftState;
         let draft = |ansi: Option<&str>| {
-            crate::supervisor::draft::derive_draft(ansi, Some("claude"), false, None, Some(5))
+            crate::supervisor::draft::derive_draft(
+                ansi,
+                crate::supervisor::profile::profile_for(crate::detect::Agent::Claude),
+                false,
+                None,
+                Some(5),
+            )
         };
         let placeholder = claude_box_pane("\x1b[2mTry \"write a test\"\x1b[0m");
         // Guard: the unwrapped source really joins the rule and the input row.
@@ -6076,7 +6082,7 @@ mod tests {
         assert_eq!(
             crate::supervisor::draft::derive_draft(
                 ansi.as_deref(),
-                Some("claude"),
+                crate::supervisor::profile::profile_for(crate::detect::Agent::Claude),
                 false,
                 None,
                 Some(5)

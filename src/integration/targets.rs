@@ -189,6 +189,7 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, Some("idle"))?;
     remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
+    remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("prompt"))?;
     remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, Some("session"))?;
@@ -201,6 +202,7 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     )?;
     for (event, action) in [
         ("UserPromptSubmit", "working"),
+        ("UserPromptSubmit", "prompt"),
         ("Stop", "idle"),
         ("Interrupt", "idle"),
     ] {
@@ -637,6 +639,8 @@ pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
                 remove_hook_commands(hooks, "SessionStart", &hook_path, Some("session"))?;
             updated_hooks |=
                 remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
+            updated_hooks |=
+                remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("prompt"))?;
             updated_hooks |=
                 remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
             updated_hooks |=
@@ -1302,7 +1306,11 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
     remove_simple_command_hook(hooks, "beforeMCPExecution", &session_command)?;
     remove_simple_command_hook(hooks, "stop", &session_command)?;
     remove_simple_command_hook(hooks, "sessionEnd", &session_command)?;
+    remove_simple_command_hook(hooks, "sessionStart", &session_command)?;
     ensure_simple_command_hook(hooks, "sessionStart", session_command)?;
+    let prompt_command = hook_command(&hook_path, Some("prompt"));
+    remove_simple_command_hook(hooks, "beforeSubmitPrompt", &prompt_command)?;
+    ensure_simple_command_hook(hooks, "beforeSubmitPrompt", prompt_command)?;
 
     write_config(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
 
@@ -1460,6 +1468,9 @@ pub(crate) fn uninstall_cursor() -> io::Result<CursorUninstallResult> {
             "cursor hooks file hooks",
         )? {
             let session_command = hook_command(&hook_path, Some("session"));
+            let prompt_command = hook_command(&hook_path, Some("prompt"));
+            updated_hooks |=
+                remove_simple_command_hook(hooks, "beforeSubmitPrompt", &prompt_command)?;
             updated_hooks |= remove_simple_command_hook(hooks, "sessionStart", &session_command)?;
             updated_hooks |=
                 remove_simple_command_hook(hooks, "beforeSubmitPrompt", &session_command)?;

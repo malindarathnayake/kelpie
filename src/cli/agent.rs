@@ -29,6 +29,7 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         "answer" => agent_answer(&args[1..]),
         "interrupt" => agent_interrupt(&args[1..]),
         "reset" => agent_reset(&args[1..]),
+        "clear-draft" => agent_clear_draft(&args[1..]),
         "resume" => agent_resume(&args[1..]),
         "submit-status" => agent_submit_status(&args[1..]),
         "get" => agent_get(&args[1..]),
@@ -509,7 +510,10 @@ const INTERRUPT_USAGE: &str =
     "herdr agent interrupt --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
 const RESET_USAGE: &str =
     "herdr agent reset --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
-const RESUME_USAGE: &str = "herdr agent resume --pane ID --session-id ID --submit-id ID";
+const CLEAR_DRAFT_USAGE: &str =
+    "herdr agent clear-draft --target-ref <SERVER_EPOCH>:<PANE_ID>:<GENERATION> --submit-id ID";
+const RESUME_USAGE: &str =
+    "herdr agent resume --pane ID --session-id ID --submit-id ID [--agent LABEL]";
 const SUBMIT_STATUS_USAGE: &str = "herdr agent submit-status <SUBMIT_ID>";
 const WATCH_DEFAULT_INTERVAL_MS: u64 = 500;
 const WATCH_MIN_INTERVAL_MS: u64 = 100;
@@ -812,7 +816,7 @@ struct SupervisedArgs {
     text: Option<String>,
 }
 
-/// Shared parser for `agent submit|answer|interrupt|reset`: `--target-ref` (complete,
+/// Shared parser for `agent submit|answer|interrupt|reset|clear-draft`: `--target-ref` (complete,
 /// never refreshed) and `--submit-id` are required; `--question-id` only when
 /// `question`; exactly one positional text only when `text` names the command.
 fn parse_supervised_args(
@@ -917,15 +921,16 @@ fn parse_agent_control_args(args: &[String], usage: &str) -> Result<AgentControl
     })
 }
 
-/// `agent resume`: `--pane`, `--session-id` and `--submit-id`, each required once; no
-/// positional arguments.
+/// `agent resume`: `--pane`, `--session-id` and `--submit-id`, each required once, and an
+/// optional `--agent` at most once; no positional arguments.
 fn parse_agent_resume_args(args: &[String]) -> Result<AgentResumeParams, String> {
-    const FLAGS: [&str; 3] = ["--pane", "--session-id", "--submit-id"];
+    const FLAGS: [&str; 4] = ["--pane", "--session-id", "--submit-id", "--agent"];
     let args = super::expand_equals_args(args, &FLAGS);
     let usage = || format!("usage: {RESUME_USAGE}");
     let mut pane: Option<String> = None;
     let mut session_id: Option<String> = None;
     let mut submit_id: Option<String> = None;
+    let mut agent: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
@@ -938,6 +943,7 @@ fn parse_agent_resume_args(args: &[String]) -> Result<AgentResumeParams, String>
         let slot = match arg {
             "--pane" => &mut pane,
             "--session-id" => &mut session_id,
+            "--agent" => &mut agent,
             _ => &mut submit_id,
         };
         if slot.replace(value.clone()).is_some() {
@@ -958,6 +964,7 @@ fn parse_agent_resume_args(args: &[String]) -> Result<AgentResumeParams, String>
         pane_id: super::normalize_pane_id(&pane),
         session_id,
         submit_id,
+        agent,
     })
 }
 
@@ -1008,7 +1015,16 @@ fn agent_reset(args: &[String]) -> std::io::Result<i32> {
     )
 }
 
-/// `herdr agent resume`: launches `claude --resume <session-id>` in a pane hosting no agent.
+/// `herdr agent clear-draft`: clears the supervisor's own interrupted draft.
+fn agent_clear_draft(args: &[String]) -> std::io::Result<i32> {
+    send_supervised(
+        "cli:agent:clear-draft",
+        parse_agent_control_args(args, CLEAR_DRAFT_USAGE).map(Method::AgentClearDraft),
+    )
+}
+
+/// `herdr agent resume`: launches the agent's resume command for `<session-id>` (default
+/// agent `claude`) in a pane hosting no agent.
 fn agent_resume(args: &[String]) -> std::io::Result<i32> {
     send_supervised(
         "cli:agent:resume",
@@ -1433,6 +1449,7 @@ fn print_agent_help() {
     eprintln!("  {ANSWER_USAGE}");
     eprintln!("  {INTERRUPT_USAGE}");
     eprintln!("  {RESET_USAGE}");
+    eprintln!("  {CLEAR_DRAFT_USAGE}");
     eprintln!("  {RESUME_USAGE}");
     eprintln!("  {SUBMIT_STATUS_USAGE}");
     eprintln!("  herdr agent get <target>");
@@ -1464,7 +1481,7 @@ mod tests {
     use super::{
         parse_agent_answer_args, parse_agent_control_args, parse_agent_digest_args,
         parse_agent_resume_args, parse_agent_submit_args, parse_agent_watch_args, parse_target_ref,
-        watch_view, watch_view_changed, INTERRUPT_USAGE, RESET_USAGE,
+        watch_view, watch_view_changed, CLEAR_DRAFT_USAGE, INTERRUPT_USAGE, RESET_USAGE,
     };
     use std::time::Duration;
 
@@ -1679,7 +1696,41 @@ mod tests {
         assert_eq!(params.pane_id, "w1:p2");
         assert_eq!(params.session_id, "sess-1");
         assert_eq!(params.submit_id, "r-1");
+        assert_eq!(params.agent, None);
+        let params = parse_agent_resume_args(&args(&[
+            "--pane",
+            "w1:p2",
+            "--session-id",
+            "sess-1",
+            "--submit-id",
+            "r-1",
+            "--agent",
+            "codex",
+        ]))
+        .unwrap();
+        assert_eq!(params.agent.as_deref(), Some("codex"));
         for bad in [
+            args(&[
+                "--pane",
+                "p",
+                "--session-id",
+                "s",
+                "--submit-id",
+                "r",
+                "--agent",
+                "codex",
+                "--agent",
+                "cursor",
+            ]),
+            args(&[
+                "--pane",
+                "p",
+                "--session-id",
+                "s",
+                "--submit-id",
+                "r",
+                "--agent",
+            ]),
             args(&["--session-id", "s", "--submit-id", "r"]),
             args(&["--pane", "p", "--submit-id", "r"]),
             args(&["--pane", "p", "--session-id", "s"]),
@@ -1719,21 +1770,50 @@ mod tests {
     }
 
     #[test]
-    fn interrupt_and_reset_args_take_no_text() {
-        for usage in [INTERRUPT_USAGE, RESET_USAGE] {
+    fn interrupt_reset_and_clear_draft_args_take_no_text() {
+        for usage in [INTERRUPT_USAGE, RESET_USAGE, CLEAR_DRAFT_USAGE] {
             let params = parse_agent_control_args(
                 &args(&["--target-ref", "e:w1:p1:4", "--submit-id", "c-1"]),
                 usage,
             )
             .unwrap();
+            assert_eq!(params.target_ref.server_epoch, "e");
+            assert_eq!(params.target_ref.pane_id, "w1:p1");
             assert_eq!(params.target_ref.generation, 4);
             assert_eq!(params.submit_id, "c-1");
             for bad in [
+                args(&[]),
                 args(&["--target-ref", "e:w1:p1:4", "--submit-id", "c", "text"]),
                 args(&["--target-ref", "e:w1:p1:4"]),
                 args(&["--submit-id", "c"]),
                 args(&["--target-ref", "w1:p1", "--submit-id", "c"]),
                 args(&["--target-ref", "e:p:1", "--submit-id", "c", "--", "x"]),
+                args(&["--target-ref"]),
+                args(&["--target-ref", "e:p:1", "--submit-id"]),
+                args(&[
+                    "--target-ref",
+                    "e:p:1",
+                    "--target-ref",
+                    "e:p:2",
+                    "--submit-id",
+                    "c",
+                ]),
+                args(&[
+                    "--target-ref",
+                    "e:p:1",
+                    "--submit-id",
+                    "c",
+                    "--submit-id",
+                    "d",
+                ]),
+                args(&[
+                    "--target-ref",
+                    "e:p:1",
+                    "--submit-id",
+                    "c",
+                    "--unknown",
+                    "x",
+                ]),
                 args(&[
                     "--target-ref",
                     "e:p:1",
@@ -1746,6 +1826,30 @@ mod tests {
                 assert!(parse_agent_control_args(&bad, usage).is_err(), "{bad:?}");
             }
         }
+    }
+
+    #[test]
+    fn clear_draft_dispatch_rejects_invalid_args_before_sending() {
+        for bad in [
+            args(&["clear-draft"]),
+            args(&["clear-draft", "--target-ref", "e:p:1", "--submit-id"]),
+            args(&[
+                "clear-draft",
+                "--target-ref",
+                "e:p:1",
+                "--submit-id",
+                "c",
+                "text",
+            ]),
+        ] {
+            assert_eq!(super::run_agent_command(&bad).unwrap(), 2, "{bad:?}");
+        }
+        let error = parse_agent_control_args(
+            &args(&["--target-ref", "e:p:1", "--submit-id", "c", "text"]),
+            CLEAR_DRAFT_USAGE,
+        )
+        .unwrap_err();
+        assert_eq!(error, format!("usage: {CLEAR_DRAFT_USAGE}"));
     }
 
     #[test]

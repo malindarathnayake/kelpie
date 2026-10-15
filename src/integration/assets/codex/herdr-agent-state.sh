@@ -14,6 +14,25 @@ cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
   session|working|idle) ;;
+  prompt)
+    # UserPromptSubmit: herdr reads the hook JSON and reports only a hash of the prompt.
+    [ "${HERDR_ENV:-}" = "1" ] || exit 0
+    [ -n "${HERDR_PANE_ID:-}" ] || exit 0
+    # Open the hook JSON, then unlink it before spawning so a hung child cannot
+    # leave prompt text behind. The watchdog bounds the child to 5 seconds.
+    exec 3<"$hook_input_file"
+    rm -f "$hook_input_file"
+    "${HERDR_BIN_PATH:-herdr}" pane report-prompt-submitted "$HERDR_PANE_ID" \
+      --source herdr:codex --agent codex <&3 >/dev/null 2>&1 &
+    report_pid=$!
+    exec 3<&-
+    ( sleep 5; kill -KILL "$report_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    watchdog_pid=$!
+    wait "$report_pid" 2>/dev/null || true
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 

@@ -14,31 +14,40 @@ use crate::api::schema::supervisor::{
 use crate::api::schema::ResponseResult;
 use crate::app::App;
 use crate::events::AppEvent;
+use crate::supervisor::draft::{derive_draft, draft_box_text};
 use crate::supervisor::fence::SubmitFence;
+use crate::supervisor::profile::{profile_for, ProfileKey, ResetEvidenceMode};
+use crate::supervisor::question::WINDOW_LINES;
 use crate::supervisor::registry::AnswerReject;
 use crate::supervisor::submit::{
     prompt_ack_sha256_16, text_sha256_16, valid_prompt_sha256_16, valid_resume_session_id,
     valid_submit_id, valid_submit_text, NewReceipt, Repeat, RequestKey, SubmitEvent,
-    INTERRUPT_HASH_TEXT, MAX_RESUME_SESSION_ID_CHARS, RESET_TEXT, SUBMIT_DEADLINE,
+    CLEAR_DRAFT_HASH_TEXT, INTERRUPT_HASH_TEXT, MAX_RESUME_SESSION_ID_CHARS, RESET_TEXT,
+    SUBMIT_DEADLINE,
 };
 
 use super::agents::agent_not_found;
 use super::responses::{encode_error, encode_success};
 use super::supervisor::RequestLog;
 
-/// Paste-to-Enter delay between the submitted text and its Enter key.
-const SUBMIT_ENTER_DELAY: Duration = Duration::from_millis(300);
 /// Upper bound on an `agent.answer` question_id (ids are short hashes; this only bounds
 /// garbage input).
 const MAX_QUESTION_ID_BYTES: usize = 128;
 
-/// The Esc key as the pane's terminal encodes it (the bytes an owner pressing Esc sends).
-fn encode_interrupt_key(runtime: &crate::terminal::TerminalRuntime) -> Vec<u8> {
-    let esc = crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Esc,
-        crossterm::event::KeyModifiers::NONE,
-    );
-    runtime.encode_terminal_key(esc.into())
+/// A profile key as the pane's terminal encodes it (the bytes an owner pressing that key
+/// sends).
+fn encode_profile_key(runtime: &crate::terminal::TerminalRuntime, key: ProfileKey) -> Vec<u8> {
+    let event = match key {
+        ProfileKey::Esc => crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Esc,
+            crossterm::event::KeyModifiers::NONE,
+        ),
+        ProfileKey::CtrlU => crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('u'),
+            crossterm::event::KeyModifiers::CONTROL,
+        ),
+    };
+    runtime.encode_terminal_key(event.into())
 }
 
 /// Debug builds only: delays a submission write so a fixture can trip the fence while it
@@ -91,8 +100,9 @@ struct WriteRequest {
     submit_id: String,
     /// `answer` only.
     question_id: Option<String>,
-    /// Text sent through the submit path (text, 300 ms, Enter); None sends the Esc key
-    /// alone as one fenced write with no Enter (`interrupt`).
+    /// Text sent through the submit path (text, the profile's Enter delay, Enter); None
+    /// sends the profile's interrupt or clear key alone as one fenced write with no Enter
+    /// (`interrupt` / `clear_draft`). For `reset` the bytes written come from the profile's reset text.
     text: Option<String>,
 }
 
@@ -139,7 +149,7 @@ impl App {
         )
     }
 
-    /// S8: one fenced Esc to a Working Claude pane.
+    /// S8: one fenced interrupt key (from the agent profile) to a Working agent pane.
     pub(super) fn handle_agent_interrupt(
         &mut self,
         id: String,
@@ -169,7 +179,36 @@ impl App {
         )
     }
 
-    /// S9: submits `/clear` through the submit path.
+    /// Clears only a complete restored draft proved by adjacent submit/interrupt receipts.
+    pub(super) fn handle_agent_clear_draft(
+        &mut self,
+        id: String,
+        params: AgentControlParams,
+    ) -> String {
+        self.handle_agent_clear_draft_with_hold(id, params, dev_submit_hold())
+    }
+
+    fn handle_agent_clear_draft_with_hold(
+        &mut self,
+        id: String,
+        params: AgentControlParams,
+        hold: Option<Duration>,
+    ) -> String {
+        self.handle_supervised_write(
+            id,
+            WriteRequest {
+                method: "agent.clear_draft",
+                kind: SubmitKind::ClearDraft,
+                target_ref: params.target_ref,
+                submit_id: params.submit_id,
+                question_id: None,
+                text: None,
+            },
+            hold,
+        )
+    }
+
+    /// S9: submits the agent profile's reset text (`/clear`) through the submit path.
     pub(super) fn handle_agent_reset(&mut self, id: String, params: AgentControlParams) -> String {
         let hold = dev_submit_hold();
         self.handle_agent_reset_with_hold(id, params, hold)
@@ -195,8 +234,8 @@ impl App {
         )
     }
 
-    /// S10: launches `claude --resume <session_id>` in a pane hosting no agent, through the
-    /// `agent.start` path. Receipt: `launched` or `failed`; resume evidence from the first
+    /// S10: launches the agent's resume command for `session_id` (default agent `claude`)
+    /// in a pane hosting no agent, through the `agent.start` path. Receipt: `launched` or `failed`; resume evidence from the first
     /// session report after the launch.
     pub(super) fn handle_agent_resume(&mut self, id: String, params: AgentResumeParams) -> String {
         let log = RequestLog::new("agent.resume", &id);
@@ -229,6 +268,16 @@ impl App {
                 ),
             );
         }
+        let requested_agent = params.agent.as_deref().unwrap_or("claude");
+        let Some(resume_agent) = crate::detect::parse_agent_label(requested_agent)
+            .filter(|agent| profile_for(*agent).is_some())
+        else {
+            return reject(
+                id,
+                "unsupported_agent",
+                format!("agent.resume has no profile for {requested_agent}"),
+            );
+        };
         let session_hash = text_sha256_16(&params.session_id);
         let request_target = TargetRef {
             server_epoch: crate::supervisor::server_epoch().to_string(),
@@ -243,6 +292,7 @@ impl App {
                 target_ref: &request_target,
                 text_sha256_16: &session_hash,
                 session_id: Some(&params.session_id),
+                resume_agent: Some(resume_agent),
             },
         ) {
             Repeat::Same(receipt) => {
@@ -254,7 +304,8 @@ impl App {
                 return reject(
                     id,
                     "submit_id_conflict",
-                    "submit_id was already used with a different method, pane or session_id".into(),
+                    "submit_id was already used with a different method, pane, session_id or agent"
+                        .into(),
                 );
             }
             Repeat::New => {}
@@ -300,12 +351,14 @@ impl App {
             kind: crate::agent_resume::AgentSessionRefKind::Id,
             value: params.session_id.clone(),
         };
-        let executable = crate::detect::interactive_agent_executable(crate::detect::Agent::Claude);
-        let Some(args) = crate::agent_resume::plan("herdr:claude", "claude", &session_ref)
-            .and_then(|plan| match plan.argv.split_first() {
-                Some((program, args)) if program == executable => Some(args.to_vec()),
-                _ => None,
-            })
+        let executable = crate::detect::interactive_agent_executable(resume_agent);
+        let resume_label = crate::detect::agent_label(resume_agent);
+        let Some(args) =
+            crate::agent_resume::plan(&format!("herdr:{resume_label}"), resume_label, &session_ref)
+                .and_then(|plan| match plan.argv.split_first() {
+                    Some((program, args)) if program == executable => Some(args.to_vec()),
+                    _ => None,
+                })
         else {
             return reject(
                 id,
@@ -364,13 +417,16 @@ impl App {
             &params.submit_id,
             NewReceipt {
                 kind: SubmitKind::Resume,
+                lazy_reset: false,
                 question_id: None,
                 pane: pane_id,
                 target_ref,
                 text_sha256_16: session_hash,
                 ack_sha256_16: None,
+                own_text_sha256_16: None,
                 handoff: operator_handoff.is_some(),
                 session_id: Some(params.session_id.clone()),
+                resume_agent: Some(resume_agent),
             },
             SubmitFence::new(),
             now,
@@ -383,7 +439,7 @@ impl App {
         };
         let started = self.start_agent(crate::api::schema::AgentStartParams {
             name,
-            kind: crate::detect::agent_label(crate::detect::Agent::Claude).to_string(),
+            kind: resume_label.to_string(),
             pane_id: params.pane_id.clone(),
             args,
             timeout_ms: None,
@@ -459,7 +515,12 @@ impl App {
                 format!("question_id must be 1-{MAX_QUESTION_ID_BYTES} bytes"),
             );
         }
-        let text_hash = text_sha256_16(req.text.as_deref().unwrap_or(INTERRUPT_HASH_TEXT));
+        let key_hash_text = if req.kind == SubmitKind::ClearDraft {
+            CLEAR_DRAFT_HASH_TEXT
+        } else {
+            INTERRUPT_HASH_TEXT
+        };
+        let text_hash = text_sha256_16(req.text.as_deref().unwrap_or(key_hash_text));
         match self.state.supervisor.submits.repeat(
             &req.submit_id,
             RequestKey {
@@ -468,6 +529,7 @@ impl App {
                 target_ref: &req.target_ref,
                 text_sha256_16: &text_hash,
                 session_id: None,
+                resume_agent: None,
             },
         ) {
             Repeat::Same(receipt) => {
@@ -527,17 +589,47 @@ impl App {
             log.error("agent_not_found", &response);
             return response;
         }
-        if validated.expected_agent != crate::detect::Agent::Claude {
+        let agent_label = crate::detect::agent_label(validated.expected_agent);
+        let Some(profile) = profile_for(validated.expected_agent) else {
             return reject(
                 id,
                 "unsupported_agent",
-                format!(
-                    "{} supports claude only, not {}",
-                    req.method,
-                    crate::detect::agent_label(validated.expected_agent)
-                ),
+                format!("{} has no profile for {agent_label}", req.method),
+            );
+        };
+        if req.kind == SubmitKind::Answer && !profile.supports_answer {
+            return reject(
+                id,
+                "unsupported_agent",
+                format!("{} is not supported for {agent_label}", req.method),
             );
         }
+        let control_key = if req.kind == SubmitKind::ClearDraft {
+            let Some(key) = profile.clear_key.filter(|_| profile.restores_on_interrupt) else {
+                return reject(
+                    id,
+                    "unsupported_agent",
+                    format!("{} is not supported for {agent_label}", req.method),
+                );
+            };
+            key
+        } else {
+            profile.interrupt
+        };
+        // Bytes written through the submit path: the profile's reset text for `reset`,
+        // otherwise the request text. The idempotency hash above stays on the request text.
+        let write_text: Option<&str> = if req.kind == SubmitKind::Reset {
+            let Some(reset_text) = profile.reset_text else {
+                return reject(
+                    id,
+                    "unsupported_agent",
+                    format!("{} has no reset text for {agent_label}", req.method),
+                );
+            };
+            Some(reset_text)
+        } else {
+            req.text.as_deref()
+        };
         if let Some(question_id) = req.question_id.as_deref() {
             // Structured approvals and a Blocked agent are answered by the owner in the pane.
             if validated.blocked {
@@ -603,23 +695,74 @@ impl App {
         // discard a typed draft, so `interrupt` applies the same rule.
         let operator_handoff = activity.valid_handoff(req.target_ref.generation, now);
         let latched = activity.draft_latched() && operator_handoff.is_none();
-        let draft = self.pane_draft_state(
-            ws_idx,
-            pane_id,
-            Some(crate::detect::agent_label(validated.expected_agent)),
-            latched,
-            activity.last_owner_input_ms(),
-            activity.last_output_ms(),
-        );
-        if draft != DraftState::Clean {
-            return reject(
-                id,
-                "draft_not_clean",
-                format!(
-                    "owner input draft is not clean; draft={}",
-                    draft_name(draft)
-                ),
+        if req.kind == SubmitKind::ClearDraft {
+            let last_input = activity.last_owner_input_ms();
+            let last_output = activity.last_output_ms();
+            if latched
+                || last_output.is_none()
+                || last_input.is_some_and(|input| last_output.is_none_or(|output| input >= output))
+            {
+                return reject(
+                    id,
+                    "draft_not_clean",
+                    "owner input draft is not clean; draft=unknown".into(),
+                );
+            }
+            // One bounded snapshot supplies both classification and the transient ownership
+            // text. Do not re-read a potentially different screen between the two checks.
+            let ansi = self
+                .state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+                .and_then(|runtime| runtime.screen_bottom_styled_ansi(WINDOW_LINES));
+            let draft = derive_draft(
+                ansi.as_deref(),
+                Some(profile),
+                latched,
+                last_input,
+                last_output,
             );
+            if draft == DraftState::Clean {
+                return reject(
+                    id,
+                    "draft_already_clean",
+                    "agent input draft is already clean".into(),
+                );
+            }
+            let own_hash = self
+                .state
+                .supervisor
+                .submits
+                .own_restored_text_hash(pane_id, req.target_ref.generation);
+            let visible_hash = ansi
+                .as_deref()
+                .and_then(|ansi| draft_box_text(ansi, profile))
+                .map(|text| text_sha256_16(&text));
+            if draft != DraftState::Dirty || own_hash.is_none() || own_hash != visible_hash {
+                return reject(
+                    id,
+                    "draft_not_own",
+                    "agent input draft is not a proven restored submit".into(),
+                );
+            }
+        } else {
+            let draft = self.pane_draft_state(
+                ws_idx,
+                pane_id,
+                Some(agent_label),
+                latched,
+                activity.last_owner_input_ms(),
+                activity.last_output_ms(),
+            );
+            if draft != DraftState::Clean {
+                return reject(
+                    id,
+                    "draft_not_clean",
+                    format!(
+                        "owner input draft is not clean; draft={}",
+                        draft_name(draft)
+                    ),
+                );
+            }
         }
 
         // Accept. The waiter starts first so a refused thread fails while nothing is
@@ -639,18 +782,30 @@ impl App {
             &req.submit_id,
             NewReceipt {
                 kind: req.kind,
+                lazy_reset: req.kind == SubmitKind::Reset
+                    && profile.reset_evidence == ResetEvidenceMode::OnNextPrompt,
                 question_id: req.question_id.clone(),
                 pane: pane_id,
                 target_ref: req.target_ref.clone(),
                 text_sha256_16: text_hash,
+                own_text_sha256_16: match req.kind {
+                    SubmitKind::Submit | SubmitKind::Answer => write_text.map(|text| {
+                        text_sha256_16(&text.split_whitespace().collect::<Vec<_>>().join(" "))
+                    }),
+                    _ => None,
+                },
                 ack_sha256_16: match req.kind {
                     SubmitKind::Submit | SubmitKind::Answer | SubmitKind::Reset => {
-                        req.text.as_deref().map(prompt_ack_sha256_16)
+                        write_text.map(prompt_ack_sha256_16)
                     }
-                    SubmitKind::Interrupt | SubmitKind::Resume | SubmitKind::Unknown => None,
+                    SubmitKind::Interrupt
+                    | SubmitKind::Resume
+                    | SubmitKind::ClearDraft
+                    | SubmitKind::Unknown => None,
                 },
                 handoff: operator_handoff.is_some(),
                 session_id: None,
+                resume_agent: None,
             },
             fence.clone(),
             now,
@@ -669,16 +824,24 @@ impl App {
             }
         }
         activity.arm_submit_fence(fence.clone());
-        let encoded =
-            self.lookup_runtime_sender(ws_idx, pane_id)
-                .map(|runtime| match req.text.as_deref() {
-                    Some(text) => {
-                        let (text, enter) =
-                            crate::app::api_helpers::encode_api_submission_parts(runtime, text);
-                        (text, enter, SUBMIT_ENTER_DELAY)
-                    }
-                    None => (encode_interrupt_key(runtime), Vec::new(), Duration::ZERO),
-                });
+        let encoded = self
+            .lookup_runtime_sender(ws_idx, pane_id)
+            .map(|runtime| match write_text {
+                Some(text) => {
+                    let (text, enter) =
+                        crate::app::api_helpers::encode_api_submission_parts(runtime, text);
+                    (
+                        text,
+                        enter,
+                        Duration::from_millis(profile.submit_enter_delay_ms),
+                    )
+                }
+                None => (
+                    encode_profile_key(runtime, control_key),
+                    Vec::new(),
+                    Duration::ZERO,
+                ),
+            });
         let Some((text, enter, delay)) = encoded else {
             // Unreachable in practice: the runtime was resolved above on this thread.
             let receipt = self
@@ -808,7 +971,7 @@ impl App {
             log.error("invalid_request", &response);
             return response;
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             let response = encode_error(
                 id,
                 "pane_not_found",
@@ -817,8 +980,16 @@ impl App {
             log.error("pane_not_found", &response);
             return response;
         };
-        let claude = crate::detect::agent_label(crate::detect::Agent::Claude);
-        if crate::supervisor::enabled() && params.agent.trim().eq_ignore_ascii_case(claude) {
+        let matching_profile_agent = crate::supervisor::enabled()
+            && crate::detect::parse_agent_label(&params.agent).is_some_and(|agent| {
+                profile_for(agent).is_some_and(|profile| profile.prompt_ack)
+                    && self.state.workspaces[ws_idx]
+                        .pane_state(pane_id)
+                        .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
+                        .and_then(|terminal| terminal.effective_known_agent())
+                        == Some(agent)
+            });
+        if matching_profile_agent {
             let confirmed = self.state.supervisor.note_prompt_submitted(
                 pane_id,
                 &params.prompt_sha256_16,
@@ -996,6 +1167,8 @@ mod tests {
     use crate::layout::PaneId;
 
     const RULE: &str = "────────────────────────────────────────";
+    /// Paste-to-Enter delay of every built-in profile (claude, codex, cursor).
+    const TEST_ENTER_DELAY: Duration = Duration::from_millis(300);
 
     struct Reset;
     impl Drop for Reset {
@@ -1015,7 +1188,30 @@ mod tests {
         format!("Done.\r\n\r\n{RULE}\r\n{input}\r\n{RULE}\r\n  ? for shortcuts").into_bytes()
     }
 
+    /// Codex idle composer: `›` with the faint placeholder, then a footer row.
+    fn codex_screen() -> Vec<u8> {
+        "Done.\r\n\r\n\u{203a} \x1b[2mAsk Codex to do anything\x1b[0m\r\n\r\n  100% context left"
+            .as_bytes()
+            .to_vec()
+    }
+
+    /// Cursor idle composer: a three-row band on its background with `→` and the faint
+    /// placeholder on the middle row, then a footer row.
+    fn cursor_screen() -> Vec<u8> {
+        const BG: &str = "\x1b[48;2;21;21;21m";
+        format!(
+            "Done.\r\n\r\n{BG}{pad}\x1b[0m\r\n{BG} \u{2192} \x1b[2mPlan, search, build anything\x1b[0m{BG}{rest}\x1b[0m\r\n{BG}{pad}\x1b[0m\r\n  / commands · @ files",
+            pad = " ".repeat(78),
+            rest = " ".repeat(48),
+        )
+        .into_bytes()
+    }
+
     fn fixture_with(agent: Agent, state: AgentState, input_row: &str) -> Fixture {
+        fixture_with_screen(agent, state, &screen(input_row))
+    }
+
+    fn fixture_with_screen(agent: Agent, state: AgentState, screen_bytes: &[u8]) -> Fixture {
         let reset = Reset;
         crate::supervisor::set_enabled_for_test(Some(true));
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1043,7 +1239,7 @@ mod tests {
                 80,
                 24,
                 0,
-                &screen(input_row),
+                screen_bytes,
                 8,
             );
         runtime.supervisor_activity().set_stamps_for_test(100, 0);
@@ -1180,7 +1376,7 @@ mod tests {
         async fn assert_no_write(&mut self) {
             assert!(
                 tokio::time::timeout(
-                    SUBMIT_ENTER_DELAY + Duration::from_millis(100),
+                    TEST_ENTER_DELAY + Duration::from_millis(100),
                     self.rx.recv()
                 )
                 .await
@@ -1201,6 +1397,357 @@ mod tests {
     fn error_code(raw: &str) -> String {
         let response: ErrorResponse = serde_json::from_str(raw).expect(raw);
         response.error.code
+    }
+
+    #[tokio::test]
+    async fn clear_draft_stub_writes_nothing_and_records_nothing() {
+        let mut f = fixture();
+        let params = f.control("clear-draft-1");
+        let raw = f.app.handle_api_request(Request {
+            id: "clear-draft-request".into(),
+            method: Method::AgentClearDraft(params),
+        });
+        let response: ErrorResponse = serde_json::from_str(&raw).expect(&raw);
+        assert_eq!(response.id, "clear-draft-request");
+        assert_eq!(response.error.code, "unsupported_agent");
+        assert_eq!(f.app.state.supervisor.submits.len(), 0);
+        f.assert_no_write().await;
+    }
+
+    const CLEAR_DRAFT_OWN_TEXT: &str = " first  line\nsecond\u{2003}line ";
+
+    fn clear_draft_screen(first: &str, second: &str) -> Vec<u8> {
+        const BG: &str = "\x1b[48;2;21;21;21m";
+        format!("Done.\r\n\r\n{BG}          \x1b[0m\r\n{BG} \u{2192} {first}\x1b[0m\r\n{BG}   {second}\x1b[0m\r\n{BG}          \x1b[0m\r\n  Auto").into_bytes()
+    }
+
+    impl Fixture {
+        fn clear_draft(&mut self, submit_id: &str) -> String {
+            let params = self.control(submit_id);
+            self.clear_draft_params(params)
+        }
+
+        fn clear_draft_params(&mut self, params: AgentControlParams) -> String {
+            self.app.handle_api_request(Request {
+                id: "clear-draft-request".into(),
+                method: Method::AgentClearDraft(params),
+            })
+        }
+
+        fn clear_draft_state(&mut self, state: AgentState) {
+            self.app.handle_internal_event(AppEvent::StateChanged {
+                pane_id: self.pane_id,
+                agent: Some(Agent::Cursor),
+                state,
+                visible_blocker: state == AgentState::Blocked,
+                visible_working: state == AgentState::Working,
+                process_exited: false,
+                observed_at: Instant::now(),
+            });
+        }
+
+        fn clear_draft_key(&self, key: ProfileKey) -> Bytes {
+            Bytes::from(encode_profile_key(
+                self.app.lookup_runtime_sender(0, self.pane_id).unwrap(),
+                key,
+            ))
+        }
+    }
+
+    /// A real submit and interrupt through API dispatch, their writer completions, and the
+    /// resulting multiline restored composer. No receipt state is seeded by the fixture.
+    async fn clear_draft_ready() -> Fixture {
+        let mut f = fixture_with_screen(Agent::Cursor, AgentState::Idle, &cursor_screen());
+        let expected = crate::app::api_helpers::encode_api_submission_parts(
+            f.app.lookup_runtime_sender(0, f.pane_id).unwrap(),
+            CLEAR_DRAFT_OWN_TEXT,
+        );
+        let params = f.params("own-prompt", CLEAR_DRAFT_OWN_TEXT);
+        let accepted = receipt(&f.submit(params));
+        assert_eq!(accepted.state, SubmitState::Accepted);
+        assert_eq!(
+            accepted.text_sha256_16,
+            text_sha256_16(CLEAR_DRAFT_OWN_TEXT)
+        );
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from(expected.0));
+        assert_eq!(f.rx.recv().await.unwrap(), Bytes::from(expected.1));
+        f.pump_submit_event().await;
+        assert_eq!(receipt(&f.status("own-prompt")).state, SubmitState::Written);
+        f.clear_draft_state(AgentState::Working);
+        let expected = f.clear_draft_key(ProfileKey::Esc);
+        assert_eq!(
+            receipt(&f.interrupt("own-interrupt")).state,
+            SubmitState::Accepted
+        );
+        assert_eq!(f.rx.recv().await.unwrap(), expected);
+        f.pump_submit_event().await;
+        assert_eq!(
+            receipt(&f.status("own-interrupt")).state,
+            SubmitState::Written
+        );
+        f.clear_draft_state(AgentState::Idle);
+        f.set_screen(&clear_draft_screen("first line", "second line"));
+        f
+    }
+
+    #[tokio::test]
+    async fn clear_draft_clears_only_own_restored_text() {
+        use crate::api::schema::supervisor::SubmitAcknowledged;
+        let mut f = clear_draft_ready().await;
+        let expected = f.clear_draft_key(ProfileKey::CtrlU);
+        assert!(!expected.is_empty());
+        assert_ne!(expected, f.clear_draft_key(ProfileKey::Esc));
+        let accepted = receipt(&f.clear_draft("clear-own"));
+        assert_eq!(
+            (accepted.kind, accepted.state),
+            (SubmitKind::ClearDraft, SubmitState::Accepted)
+        );
+        assert_eq!(accepted.text_sha256_16, text_sha256_16("\u{15}"));
+        assert_eq!(f.rx.recv().await.unwrap(), expected);
+        f.pump_submit_event().await;
+        let written = receipt(&f.status("clear-own"));
+        assert_eq!(written.state, SubmitState::Written);
+        assert_eq!(written.acknowledged, SubmitAcknowledged::Unsupported);
+        f.report_prompt_as("cursor", &prompt_ack_sha256_16(CLEAR_DRAFT_HASH_TEXT));
+        assert_eq!(receipt(&f.status("clear-own")), written);
+        assert_eq!(
+            receipt(&f.status("own-prompt")).text_sha256_16,
+            text_sha256_16(CLEAR_DRAFT_OWN_TEXT)
+        );
+        assert_eq!(f.app.state.supervisor.submits.len(), 3);
+        f.assert_no_write().await; // one encoded Ctrl+U, no delayed Enter
+
+        // Ownership does not require Idle, an acknowledgement, or an observed turn end.
+        let mut f = clear_draft_ready().await;
+        f.clear_draft_state(AgentState::Working);
+        assert_eq!(
+            receipt(&f.clear_draft("working-clear")).state,
+            SubmitState::Accepted
+        );
+        assert_eq!(
+            f.rx.recv().await.unwrap(),
+            f.clear_draft_key(ProfileKey::CtrlU)
+        );
+        f.pump_submit_event().await;
+        assert_eq!(
+            receipt(&f.status("working-clear")).state,
+            SubmitState::Written
+        );
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn clear_draft_refusals_record_and_write_nothing() {
+        for (bytes, expected) in [
+            (
+                clear_draft_screen("first line", "second lineX"),
+                "draft_not_own",
+            ),
+            (
+                clear_draft_screen("first line", "second lin\x1b[7mX\x1b[27m"),
+                "draft_not_own",
+            ),
+            (cursor_screen(), "draft_already_clean"),
+            (b"unrecognized".to_vec(), "draft_not_own"),
+            (
+                "\x1b[48;2;21;21;21m \u{2192} first line second line\x1b[0m\r\nfooter"
+                    .as_bytes()
+                    .to_vec(),
+                "draft_not_own",
+            ),
+        ] {
+            let mut f = clear_draft_ready().await;
+            f.set_screen(&bytes);
+            assert_eq!(error_code(&f.clear_draft("refused")), expected);
+            assert_eq!(f.app.state.supervisor.submits.len(), 2);
+            f.assert_no_write().await;
+        }
+        // Visible matching text alone, with no accepted prompt or interrupt, is not ours.
+        let mut f = fixture_with_screen(
+            Agent::Cursor,
+            AgentState::Idle,
+            &clear_draft_screen("first line", "second line"),
+        );
+        assert_eq!(error_code(&f.clear_draft("unowned")), "draft_not_own");
+        assert_eq!(f.app.state.supervisor.submits.len(), 0);
+        f.assert_no_write().await;
+        // A written submit alone cannot prove that a later draft was restored by Esc.
+        let mut f = fixture_with_screen(Agent::Cursor, AgentState::Idle, &cursor_screen());
+        let params = f.params("no-interrupt", CLEAR_DRAFT_OWN_TEXT);
+        f.submit(params);
+        f.rx.recv().await.unwrap();
+        f.rx.recv().await.unwrap();
+        f.pump_submit_event().await;
+        f.set_screen(&clear_draft_screen("first line", "second line"));
+        assert_eq!(
+            error_code(&f.clear_draft("missing-interrupt")),
+            "draft_not_own"
+        );
+        assert_eq!(f.app.state.supervisor.submits.len(), 1);
+        f.assert_no_write().await;
+        for (agent, bytes) in [
+            (Agent::Claude, screen("\u{276f} text")),
+            (Agent::Codex, codex_screen()),
+        ] {
+            let mut f = fixture_with_screen(agent, AgentState::Idle, &bytes);
+            assert_eq!(
+                error_code(&f.clear_draft("unsupported")),
+                "unsupported_agent"
+            );
+            assert_eq!(f.app.state.supervisor.submits.len(), 0);
+            f.assert_no_write().await;
+        }
+        let mut f = clear_draft_ready().await;
+        assert_eq!(error_code(&f.clear_draft("bad id")), "invalid_request");
+        let mut stale = f.control("stale");
+        stale.target_ref.generation += 1;
+        assert_eq!(error_code(&f.clear_draft_params(stale)), "stale_target");
+        let mut stale = f.control("unknown-pane");
+        stale.target_ref.pane_id = "w999:p999".into();
+        assert_eq!(error_code(&f.clear_draft_params(stale)), "stale_target");
+        crate::supervisor::set_enabled_for_test(Some(false));
+        assert_eq!(
+            error_code(&f.clear_draft("disabled")),
+            "supervisor_disabled"
+        );
+        crate::supervisor::set_enabled_for_test(Some(true));
+        f.app.state.supervisor.submits.set_cap_for_test(2);
+        assert_eq!(error_code(&f.clear_draft("full")), "submit_capacity");
+        f.app.state.supervisor.submits.set_cap_for_test(256);
+        f.clear_draft_state(AgentState::Blocked);
+        assert_eq!(error_code(&f.clear_draft("blocked")), "agent_blocked");
+        assert_eq!(f.app.state.supervisor.submits.len(), 2);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn clear_draft_retries_and_fences() {
+        let mut f = clear_draft_ready().await;
+        let params = f.control("clear-repeat");
+        // Dispatch directly until completion is pumped: API dispatch drains queued events.
+        let first = receipt(&f.app.handle_agent_clear_draft_with_hold(
+            "first".into(),
+            params.clone(),
+            None,
+        ));
+        assert_eq!(first.state, SubmitState::Accepted);
+        assert_eq!(
+            receipt(
+                &f.app
+                    .handle_agent_clear_draft("retry".into(), params.clone())
+            ),
+            first
+        );
+        let second = f.control("second-id");
+        assert_eq!(
+            error_code(&f.app.handle_agent_clear_draft("second".into(), second)),
+            "draft_not_own"
+        );
+        assert_eq!(
+            f.rx.recv().await.unwrap(),
+            f.clear_draft_key(ProfileKey::CtrlU)
+        );
+        f.pump_submit_event().await;
+        let written = receipt(&f.status("clear-repeat"));
+        assert_eq!(written.state, SubmitState::Written);
+        assert_eq!(error_code(&f.clear_draft("second-id")), "draft_not_own");
+        assert_eq!(
+            error_code(&f.interrupt("clear-repeat")),
+            "submit_id_conflict"
+        );
+        let mut changed = params.clone();
+        changed.target_ref.generation += 1;
+        assert_eq!(
+            error_code(&f.clear_draft_params(changed)),
+            "submit_id_conflict"
+        );
+        f.set_screen(b"screen changed completely");
+        assert_eq!(receipt(&f.clear_draft_params(params)), written);
+        assert_eq!(f.app.state.supervisor.submits.len(), 3);
+        f.assert_no_write().await;
+        for reason in [
+            SubmitReason::OwnerInput,
+            SubmitReason::GenerationChanged,
+            SubmitReason::PaneClosed,
+        ] {
+            let mut f = clear_draft_ready().await;
+            let params = f.control("held-clear");
+            let raw = f.app.handle_agent_clear_draft_with_hold(
+                "held".into(),
+                params,
+                Some(Duration::from_millis(30)),
+            );
+            assert_eq!(receipt(&raw).state, SubmitState::Accepted);
+            match reason {
+                SubmitReason::OwnerInput => f.activity().before_owner_bytes(),
+                SubmitReason::GenerationChanged => {
+                    f.app.state.supervisor.bump_generation(
+                        f.pane_id,
+                        crate::api::schema::supervisor::GenerationReason::PaneMoved,
+                        200,
+                    );
+                }
+                SubmitReason::PaneClosed => f.app.state.supervisor.remove_pane(f.pane_id),
+                _ => unreachable!(),
+            }
+            f.pump_submit_event().await;
+            f.pump_submit_event().await;
+            let r = receipt(&f.status("held-clear"));
+            assert_eq!((r.state, r.reason), (SubmitState::Fenced, Some(reason)));
+            f.assert_no_write().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn clear_draft_latch_and_handoff() {
+        // Stamps are set after set_screen, which installs a fresh runtime and activity.
+        for (latched, handoff, output, input, mismatch, code) in [
+            (true, false, 102, 100, false, "draft_not_clean"),
+            (false, false, 100, 100, false, "draft_not_clean"),
+            (false, false, 100, 101, false, "draft_not_clean"),
+            (false, false, 0, 0, false, "draft_not_clean"),
+            (true, true, 102, 100, true, "draft_not_own"),
+            (true, true, 100, 100, false, "draft_not_clean"),
+            (true, true, 0, 0, false, "draft_not_clean"),
+        ] {
+            let mut f = clear_draft_ready().await;
+            if mismatch {
+                f.set_screen(&clear_draft_screen("owner text", "second line"));
+            }
+            if latched {
+                f.activity().record_owner_input();
+            }
+            f.activity().set_stamps_for_test(output, input);
+            if handoff {
+                f.arm_handoff(crate::supervisor::now_ms());
+            }
+            assert_eq!(error_code(&f.clear_draft("protected")), code);
+            assert_eq!(f.handoff_valid(), handoff);
+            assert_eq!(f.app.state.supervisor.submits.len(), 2);
+            f.assert_no_write().await;
+        }
+        let mut f = clear_draft_ready().await;
+        f.owner_input_then_output(100, 102);
+        f.arm_handoff(crate::supervisor::now_ms());
+        let accepted = receipt(&f.clear_draft("handoff-clear"));
+        assert!(accepted.handoff);
+        assert!(!f.handoff_valid());
+        assert!(f.activity().draft_latched());
+        assert_eq!(
+            f.rx.recv().await.unwrap(),
+            f.clear_draft_key(ProfileKey::CtrlU)
+        );
+        f.pump_submit_event().await;
+        assert_eq!(
+            receipt(&f.status("handoff-clear")).state,
+            SubmitState::Written
+        );
+        assert_eq!(
+            error_code(&f.clear_draft("handoff-spent")),
+            "draft_not_clean"
+        );
+        assert_eq!(f.app.state.supervisor.submits.len(), 3);
+        f.assert_no_write().await;
     }
 
     #[tokio::test]
@@ -1248,7 +1795,7 @@ mod tests {
     #[tokio::test]
     async fn submit_rejects_agent_state_and_draft_without_writing() {
         for (agent, state, row, code) in [
-            (Agent::Codex, AgentState::Idle, "❯ ", "unsupported_agent"),
+            (Agent::Gemini, AgentState::Idle, "❯ ", "unsupported_agent"),
             (Agent::Claude, AgentState::Blocked, "❯ ", "agent_blocked"),
             (
                 Agent::Claude,
@@ -1324,16 +1871,210 @@ mod tests {
 
     impl Fixture {
         fn report_prompt(&mut self, hash: &str) -> String {
+            self.report_prompt_as("claude", hash)
+        }
+
+        fn report_prompt_as(&mut self, agent: &str, hash: &str) -> String {
             let pane_id = self.app.public_pane_id(0, self.pane_id).unwrap();
             self.app.handle_api_request(Request {
                 id: "hook".into(),
                 method: Method::PaneReportPromptSubmitted(PaneReportPromptSubmittedParams {
                     pane_id,
-                    source: "herdr:claude".into(),
-                    agent: "claude".into(),
+                    source: format!("herdr:{}", agent.trim()),
+                    agent: agent.into(),
                     prompt_sha256_16: hash.into(),
                 }),
             })
+        }
+    }
+
+    #[tokio::test]
+    async fn prompt_submitted_requires_matching_profile_agent() {
+        use crate::api::schema::supervisor::SubmitAcknowledged;
+
+        for (agent, bytes, matching_label) in [
+            (Agent::Claude, screen("❯ "), " Claude "),
+            (Agent::Codex, codex_screen(), " CODEX "),
+            (Agent::Cursor, cursor_screen(), " Cursor-Agent "),
+        ] {
+            let label = crate::detect::agent_label(agent);
+            let mut ignored: Vec<_> = ["claude", "codex", "cursor", "unknown-agent", "gemini"]
+                .into_iter()
+                .filter(|reported| *reported != label)
+                .map(|reported| (reported, Some(agent)))
+                .collect();
+            ignored.extend([("gemini", Some(Agent::Gemini)), (label, None)]);
+
+            for (reported, effective_agent) in ignored {
+                let mut f = fixture_with_screen(agent, AgentState::Idle, &bytes);
+                let params = f.params("profile-ack", "review this");
+                assert_eq!(receipt(&f.submit(params)).state, SubmitState::Accepted);
+                assert_eq!(
+                    f.rx.recv().await.unwrap(),
+                    Bytes::from_static(b"review this")
+                );
+                assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+                f.pump_submit_event().await;
+                let written = receipt(&f.status("profile-ack"));
+                assert_eq!(written.state, SubmitState::Written);
+                assert_eq!(written.acknowledged, SubmitAcknowledged::Unsupported);
+                let terminal_id = f.app.state.workspaces[0].tabs[0].panes[&f.pane_id]
+                    .attached_terminal_id
+                    .clone();
+                f.app
+                    .state
+                    .terminals
+                    .get_mut(&terminal_id)
+                    .unwrap()
+                    .set_detected_state(effective_agent, AgentState::Idle);
+
+                let hash = prompt_ack_sha256_16("review this\n");
+                let ok = f.report_prompt_as(reported, &hash);
+                assert!(serde_json::from_str::<SuccessResponse>(&ok).is_ok(), "{ok}");
+                assert_eq!(
+                    receipt(&f.status("profile-ack")),
+                    written,
+                    "{agent:?}: {reported} with {effective_agent:?} must be ignored"
+                );
+
+                // The ignored matching hash must not retire the legitimate acknowledgement.
+                f.app
+                    .state
+                    .terminals
+                    .get_mut(&terminal_id)
+                    .unwrap()
+                    .set_detected_state(Some(agent), AgentState::Idle);
+                let ok = f.report_prompt_as(matching_label, &hash);
+                assert!(serde_json::from_str::<SuccessResponse>(&ok).is_ok(), "{ok}");
+                let confirmed = receipt(&f.status("profile-ack"));
+                assert_eq!(confirmed.state, SubmitState::Written);
+                assert_eq!(
+                    confirmed.acknowledged,
+                    SubmitAcknowledged::Confirmed,
+                    "{agent:?}: legitimate report after {reported} with {effective_agent:?}"
+                );
+                assert!(confirmed.acknowledged_at_ms.is_some());
+                f.assert_no_write().await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn prompt_submitted_cursor_reset_keeps_generation_after_followup() {
+        for retained_authority in [false, true] {
+            let mut f = fixture_with_screen(Agent::Cursor, AgentState::Idle, &cursor_screen());
+            let session_report =
+                |pane_id, value: &str, reason: &str, seq| AppEvent::AgentSessionReported {
+                    pane_id,
+                    source: "herdr:cursor".into(),
+                    agent_label: "cursor".into(),
+                    seq: Some(seq),
+                    session_ref: crate::agent_resume::AgentSessionRef::id(value),
+                    session_start_source: Some(reason.into()),
+                };
+            f.app
+                .handle_internal_event(session_report(f.pane_id, "cursor-old", "startup", 1));
+            let terminal_id = f.app.state.workspaces[0].tabs[0].panes[&f.pane_id]
+                .attached_terminal_id
+                .clone();
+            assert!(f.app.state.terminals[&terminal_id].hook_authority.is_none());
+            if retained_authority {
+                // Model retained same-owner authority; native Cursor events cannot create it.
+                f.app
+                    .state
+                    .terminals
+                    .get_mut(&terminal_id)
+                    .unwrap()
+                    .set_hook_authority_with_session_ref(
+                        "herdr:cursor".into(),
+                        "cursor".into(),
+                        AgentState::Idle,
+                        None,
+                        crate::agent_resume::AgentSessionRef::id("cursor-old"),
+                        Some(2),
+                    )
+                    .expect("retained old same-owner Cursor authority");
+            } else {
+                f.app.handle_internal_event(AppEvent::HookStateReported {
+                    pane_id: f.pane_id,
+                    source: "herdr:cursor".into(),
+                    agent_label: "cursor".into(),
+                    state: AgentState::Idle,
+                    message: None,
+                    seq: Some(2),
+                    session_ref: crate::agent_resume::AgentSessionRef::id("cursor-old"),
+                });
+            }
+            assert_eq!(
+                f.app.state.terminals[&terminal_id].hook_authority.is_some(),
+                retained_authority
+            );
+            assert_eq!(
+                f.app.state.terminals[&terminal_id].current_session_identity(),
+                Some((
+                    "herdr:cursor".into(),
+                    "cursor".into(),
+                    crate::agent_resume::AgentSessionRefKind::Id,
+                    "cursor-old".into(),
+                ))
+            );
+            assert_eq!(f.target().generation, 1);
+
+            let first = receipt(&f.reset("cursor-reset"));
+            assert_eq!(first.state, SubmitState::Accepted);
+            assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"/clear"));
+            assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+            f.pump_submit_event().await;
+            let written = receipt(&f.status("cursor-reset"));
+            assert_eq!(written.state, SubmitState::Written);
+            assert_eq!(written.reset, Some(ResetEvidence::Pending));
+            assert_eq!(f.target().generation, 2, "Written lazy reset bumps once");
+
+            f.app
+                .handle_internal_event(session_report(f.pane_id, "cursor-new", "prompt", 3));
+            let verified = receipt(&f.status("cursor-reset"));
+            assert_eq!(verified.reset, Some(ResetEvidence::Verified));
+            assert_eq!(
+                verified.new_session.as_ref().map(|s| s.value.as_str()),
+                Some("cursor-new")
+            );
+            assert_eq!(verified.new_generation, Some(2));
+            assert_eq!(verified.target_ref.generation, 1);
+            assert_eq!(f.target().generation, 2, "verification does not bump again");
+            let expected_identity = Some((
+                "herdr:cursor".into(),
+                "cursor".into(),
+                crate::agent_resume::AgentSessionRefKind::Id,
+                "cursor-new".into(),
+            ));
+            assert!(f.app.state.terminals[&terminal_id].hook_authority.is_none());
+            assert_eq!(
+                f.app.state.terminals[&terminal_id].current_session_identity(),
+                expected_identity
+            );
+
+            for followup in [
+                AppEvent::StateChanged {
+                    pane_id: f.pane_id,
+                    agent: Some(Agent::Cursor),
+                    state: AgentState::Working,
+                    visible_blocker: false,
+                    visible_working: true,
+                    process_exited: false,
+                    observed_at: Instant::now(),
+                },
+                session_report(f.pane_id, "cursor-new", "prompt", 3),
+                session_report(f.pane_id, "cursor-new", "prompt", 4),
+            ] {
+                f.app.handle_internal_event(followup);
+                assert_eq!(f.target().generation, 2);
+                assert_eq!(
+                    f.app.state.terminals[&terminal_id].current_session_identity(),
+                    expected_identity
+                );
+                assert_eq!(receipt(&f.status("cursor-reset")), verified);
+            }
+            f.assert_no_write().await;
         }
     }
 
@@ -1979,7 +2720,7 @@ mod tests {
                 .app
                 .lookup_runtime_sender(0, f.pane_id)
                 .expect("pane runtime");
-            Bytes::from(encode_interrupt_key(runtime))
+            Bytes::from(encode_profile_key(runtime, ProfileKey::Esc))
         };
         assert!(!expected.is_empty());
         assert_eq!(f.rx.recv().await.unwrap(), expected);
@@ -2011,9 +2752,10 @@ mod tests {
             f.assert_nothing_recorded();
             f.assert_no_write().await;
         }
-        let mut codex = fixture_with(Agent::Codex, AgentState::Working, "❯ ");
-        assert_eq!(error_code(&codex.interrupt("int-c")), "unsupported_agent");
-        codex.assert_no_write().await;
+        let mut gemini = fixture_with(Agent::Gemini, AgentState::Working, "❯ ");
+        assert_eq!(error_code(&gemini.interrupt("int-c")), "unsupported_agent");
+        gemini.assert_nothing_recorded();
+        gemini.assert_no_write().await;
 
         let mut f = fixture_with(Agent::Claude, AgentState::Working, "❯ ");
         f.owner_input_then_output(1_000, 1_002);
@@ -2159,7 +2901,7 @@ mod tests {
     #[tokio::test]
     async fn reset_keeps_submit_rejections() {
         for (agent, state, row, code) in [
-            (Agent::Codex, AgentState::Idle, "❯ ", "unsupported_agent"),
+            (Agent::Gemini, AgentState::Idle, "❯ ", "unsupported_agent"),
             (Agent::Claude, AgentState::Blocked, "❯ ", "agent_blocked"),
             (
                 Agent::Claude,
@@ -2181,6 +2923,83 @@ mod tests {
             method: Method::AgentReset(stale),
         });
         assert_eq!(error_code(&raw), "stale_target");
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn codex_and_cursor_idle_composers_read_clean() {
+        for (agent, bytes) in [
+            (Agent::Codex, codex_screen()),
+            (Agent::Cursor, cursor_screen()),
+        ] {
+            let f = fixture_with_screen(agent, AgentState::Idle, &bytes);
+            let draft = f.app.pane_draft_state(
+                0,
+                f.pane_id,
+                Some(crate::detect::agent_label(agent)),
+                false,
+                Some(0),
+                Some(100),
+            );
+            assert_eq!(draft, DraftState::Clean, "{agent:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn codex_and_cursor_submit_interrupt_reset_write_profile_keys() {
+        for (agent, bytes) in [
+            (Agent::Codex, codex_screen()),
+            (Agent::Cursor, cursor_screen()),
+        ] {
+            // Submit: text, then Enter after the profile delay.
+            let mut f = fixture_with_screen(agent, AgentState::Idle, &bytes);
+            let params = f.params("sub-1", "hello");
+            let first = receipt(&f.submit(params));
+            assert_eq!(first.state, SubmitState::Accepted, "{agent:?}");
+            assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"hello"));
+            assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+            f.pump_submit_event().await;
+            assert_eq!(receipt(&f.status("sub-1")).state, SubmitState::Written);
+            f.assert_no_write().await;
+
+            // Interrupt: exactly the profile's Esc encoding, no Enter.
+            let mut f = fixture_with_screen(agent, AgentState::Working, &bytes);
+            let first = receipt(&f.interrupt("int-1"));
+            assert_eq!(first.kind, SubmitKind::Interrupt, "{agent:?}");
+            let expected = {
+                let runtime = f
+                    .app
+                    .lookup_runtime_sender(0, f.pane_id)
+                    .expect("pane runtime");
+                Bytes::from(encode_profile_key(runtime, ProfileKey::Esc))
+            };
+            assert!(!expected.is_empty());
+            assert_eq!(f.rx.recv().await.unwrap(), expected);
+            f.pump_submit_event().await;
+            assert_eq!(receipt(&f.status("int-1")).state, SubmitState::Written);
+            f.assert_no_write().await;
+
+            // Reset: the profile's reset text through the submit path.
+            let mut f = fixture_with_screen(agent, AgentState::Idle, &bytes);
+            let first = receipt(&f.reset("rst-1"));
+            assert_eq!(first.kind, SubmitKind::Reset, "{agent:?}");
+            assert_eq!(first.text_sha256_16, text_sha256_16(RESET_TEXT));
+            assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"/clear"));
+            assert_eq!(f.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+            f.pump_submit_event().await;
+            let written = receipt(&f.status("rst-1"));
+            assert_eq!(written.kind, SubmitKind::Reset);
+            assert_eq!(written.state, SubmitState::Written);
+            f.assert_no_write().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn codex_answer_is_unsupported() {
+        let mut f = fixture_with_screen(Agent::Codex, AgentState::Idle, &codex_screen());
+        let raw = f.answer("a-codex", "q-1", "yes");
+        assert_eq!(error_code(&raw), "unsupported_agent", "{raw}");
         f.assert_nothing_recorded();
         f.assert_no_write().await;
     }
@@ -2259,12 +3078,23 @@ mod tests {
         }
 
         fn resume_in(&mut self, pane_id: &str, submit_id: &str, session_id: &str) -> String {
+            self.resume_agent_in(pane_id, submit_id, session_id, None)
+        }
+
+        fn resume_agent_in(
+            &mut self,
+            pane_id: &str,
+            submit_id: &str,
+            session_id: &str,
+            agent: Option<&str>,
+        ) -> String {
             self.app.handle_api_request(Request {
                 id: "rs".into(),
                 method: Method::AgentResume(AgentResumeParams {
                     pane_id: pane_id.into(),
                     session_id: session_id.into(),
                     submit_id: submit_id.into(),
+                    agent: agent.map(str::to_string),
                 }),
             })
         }
@@ -2377,6 +3207,132 @@ mod tests {
         assert_eq!(error_code(&f.resume("r-2", "sess-123")), "agent_running");
         assert_eq!(f.app.state.supervisor.submits.len(), 1);
         f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn resume_repeat_requires_same_profile_agent() {
+        for (requested, canonical, equivalents) in [
+            (
+                None,
+                "claude",
+                &[Some("claude"), Some("CLAUDE"), Some("claude-code")][..],
+            ),
+            (Some("claude-code"), "claude", &[None, Some("Claude")][..]),
+            (Some("codex"), "codex", &[Some("CODEX"), Some("Codex")][..]),
+            (
+                Some("cursor-agent"),
+                "cursor",
+                &[Some("cursor"), Some("CURSOR-AGENT")][..],
+            ),
+        ] {
+            let mut f = shell_fixture();
+            let pane = f.public_pane();
+            let first =
+                receipt(&f.resume_agent_in(&pane, "profile-repeat", "requested", requested));
+            assert_eq!(first.state, SubmitState::Launched);
+            assert_eq!(first.session_id.as_deref(), Some("requested"));
+            assert_eq!(first.text_sha256_16, text_sha256_16("requested"));
+            f.next_write().await;
+            for equivalent in equivalents {
+                assert_eq!(
+                    receipt(&f.resume_agent_in(&pane, "profile-repeat", "requested", *equivalent)),
+                    first,
+                    "{requested:?} repeated as {equivalent:?}"
+                );
+            }
+            for different in ["claude", "codex", "cursor"] {
+                if different == canonical {
+                    continue;
+                }
+                let raw = f.resume_agent_in(&pane, "profile-repeat", "requested", Some(different));
+                let response: serde_json::Value = serde_json::from_str(&raw).unwrap();
+                assert_eq!(
+                    response["error"]["code"], "submit_id_conflict",
+                    "{requested:?} repeated as {different} must conflict before pane-busy checks"
+                );
+                assert_eq!(receipt(&f.status("profile-repeat")), first);
+            }
+            assert_eq!(f.app.state.supervisor.submits.len(), 1);
+            f.assert_no_write().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_foreign_agent_report_stays_pending() {
+        for reported in ["requested", "different"] {
+            let mut f = shell_fixture();
+            let pane = f.public_pane();
+            let pending =
+                receipt(&f.resume_agent_in(&pane, "cursor-resume", "requested", Some("cursor")));
+            assert_eq!(pending.state, SubmitState::Launched);
+            assert_eq!(pending.resume, Some(ResumeEvidence::Pending));
+            f.next_write().await;
+            let terminal_id = f.app.state.workspaces[0].tabs[0].panes[&f.pane_id]
+                .attached_terminal_id
+                .clone();
+            assert!(f.app.state.terminals[&terminal_id]
+                .current_session_identity()
+                .is_none());
+
+            // Before process detection, this fresh canonical Claude startup report is
+            // accepted by the terminal even though the pending launch requested Cursor.
+            f.report_session(reported, "startup", 1);
+            let identity = f.app.state.terminals[&terminal_id]
+                .current_session_identity()
+                .unwrap();
+            assert_eq!(
+                (
+                    identity.0.as_str(),
+                    identity.1.as_str(),
+                    identity.3.as_str()
+                ),
+                ("herdr:claude", "claude", reported),
+                "foreign report must be accepted by the terminal"
+            );
+            assert_eq!(
+                receipt(&f.status("cursor-resume")),
+                pending,
+                "accepted foreign report {reported} must leave the entire receipt pending"
+            );
+
+            // Real detection then permits the requested agent's startup report to take
+            // ownership. The foreign evidence must not have consumed this settlement.
+            f.app.handle_internal_event(AppEvent::StateChanged {
+                pane_id: f.pane_id,
+                agent: Some(Agent::Cursor),
+                state: AgentState::Idle,
+                visible_blocker: false,
+                visible_working: false,
+                process_exited: false,
+                observed_at: Instant::now(),
+            });
+            f.app.handle_internal_event(AppEvent::AgentSessionReported {
+                pane_id: f.pane_id,
+                source: "herdr:cursor".into(),
+                agent_label: "cursor".into(),
+                seq: Some(1),
+                session_ref: crate::agent_resume::AgentSessionRef::id("requested"),
+                session_start_source: Some("startup".into()),
+            });
+            let identity = f.app.state.terminals[&terminal_id]
+                .current_session_identity()
+                .unwrap();
+            assert_eq!(
+                (
+                    identity.0.as_str(),
+                    identity.1.as_str(),
+                    identity.3.as_str()
+                ),
+                ("herdr:cursor", "cursor", "requested"),
+                "requested report must be accepted by the terminal"
+            );
+            let settled = receipt(&f.status("cursor-resume"));
+            assert_eq!(settled.resume, Some(ResumeEvidence::Verified));
+            assert_eq!(settled.session_start_source.as_deref(), Some("startup"));
+            assert!(settled.reported_session.is_none());
+            assert_eq!(settled.new_generation, Some(f.target().generation));
+            f.assert_no_write().await;
+        }
     }
 
     #[tokio::test]
@@ -2557,6 +3513,25 @@ mod tests {
         assert!(r.handoff, "receipt records the consumed handoff");
         assert!(!f.handoff_valid(), "handoff consumed at accept");
         let expected = f.start_bytes(&["claude", "--resume", "sess"]);
+        assert_eq!(f.next_write().await, expected);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn resume_agent_param_selects_profile() {
+        let mut f = shell_fixture();
+        let pane = f.public_pane();
+        for label in ["gemini", "nope"] {
+            let raw = f.resume_agent_in(&pane, "r-bad", "sess-1", Some(label));
+            assert_eq!(error_code(&raw), "unsupported_agent", "{label}: {raw}");
+        }
+        f.assert_nothing_recorded();
+        f.assert_no_write().await;
+
+        let first = receipt(&f.resume_agent_in(&pane, "r-codex", "sess-1", Some("codex")));
+        assert_eq!(first.kind, SubmitKind::Resume);
+        assert_eq!(first.state, SubmitState::Launched);
+        let expected = f.start_bytes(&["codex", "resume", "sess-1"]);
         assert_eq!(f.next_write().await, expected);
         f.assert_no_write().await;
     }

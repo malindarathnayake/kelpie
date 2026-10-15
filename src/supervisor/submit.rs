@@ -12,6 +12,7 @@ use crate::api::schema::supervisor::{
     ReceiptSession, ResetEvidence, ResumeEvidence, SubmitAcknowledged, SubmitKind, SubmitReason,
     SubmitReceipt, SubmitState, TargetRef,
 };
+use crate::detect::Agent;
 use crate::layout::PaneId;
 use crate::supervisor::fence::{is_fenced_error, FenceReason, FenceSnapshot, SubmitFence};
 
@@ -25,6 +26,8 @@ pub const SUBMIT_DEADLINE: Duration = Duration::from_secs(5);
 pub const RESET_TEXT: &str = "/clear";
 /// Logical text hashed into an `agent.interrupt` receipt: the single Esc key.
 pub const INTERRUPT_HASH_TEXT: &str = "\u{1b}";
+/// Logical clear key, independent of the terminal/platform encoding.
+pub const CLEAR_DRAFT_HASH_TEXT: &str = "\u{15}";
 
 /// Upper bound on an `agent.resume` session id, in characters.
 pub const MAX_RESUME_SESSION_ID_CHARS: usize = 256;
@@ -117,21 +120,30 @@ pub fn prompt_ack_sha256_16(text: &str) -> String {
     text_sha256_16(&prompt_ack_text(text))
 }
 
-/// Hash a prompt-submit hook reports for Claude's `UserPromptSubmit` stdin JSON: the
-/// `prompt_ack_sha256_16` of its `prompt`. None for any other event, a Cursor payload
-/// (Cursor imports Claude hooks), a subagent, invalid JSON, or an empty prompt. The prompt
-/// text is dropped here and never leaves this function.
-pub fn hook_prompt_sha256_16(input: &str) -> Option<String> {
+/// Hash the normalized prompt in a supported agent's prompt-submit hook stdin JSON.
+/// Claude and Codex use `UserPromptSubmit`; Cursor uses `beforeSubmitPrompt`. Claude
+/// rejects imported Cursor hooks, and `UserPromptSubmit` rejects subagent reports.
+/// Invalid JSON, unsupported agents/events, and empty prompts return None. The parsed
+/// prompt text is dropped here; only its hash leaves this function.
+pub fn hook_prompt_sha256_16(input: &str, agent: Agent) -> Option<String> {
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
     let value: serde_json::Value = serde_json::from_str(input).ok()?;
     let object = value.as_object()?;
-    if object.get("hook_event_name")?.as_str()? != "UserPromptSubmit"
-        || object.contains_key("cursor_version")
-        || object
-            .get("agent_id")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|id| !id.is_empty())
-    {
-        return None;
+    let event = object.get("hook_event_name")?.as_str()?;
+    match agent {
+        Agent::Claude | Agent::Codex => {
+            if event != "UserPromptSubmit"
+                || (agent == Agent::Claude && object.contains_key("cursor_version"))
+                || object
+                    .get("agent_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| !id.is_empty())
+            {
+                return None;
+            }
+        }
+        Agent::Cursor if event == "beforeSubmitPrompt" => {}
+        _ => return None,
     }
     let prompt = object.get("prompt")?.as_str()?;
     let normalised = prompt_ack_text(prompt);
@@ -181,6 +193,8 @@ struct SubmitEntry {
     fence: SubmitFence,
     /// Registry event sequence at which the write was confirmed.
     written_seq: Option<u64>,
+    /// The profile defers reset session evidence until the next prompt.
+    lazy_reset: bool,
     /// `reset`: the next generation-changed trip of this fence is the expected clear
     /// SessionChanged bump (armed only while committed and untripped).
     expected_reset_trip: bool,
@@ -188,9 +202,13 @@ struct SubmitEntry {
     reset_candidate: Option<(ReceiptSession, u64)>,
     /// `resume`: registry event sequence at which the launch was accepted.
     launched_seq: Option<u64>,
+    /// `resume`: canonical requested profile agent; never exposed on the receipt.
+    resume_agent: Option<Agent>,
     /// `submit` / `answer` / `reset`: `prompt_ack_sha256_16` of the submitted text, matched
     /// against prompt-submit hook reports. None for kinds with their own evidence.
     ack_sha256_16: Option<String>,
+    /// Submit/answer ownership proof only; collapsed whitespace, never raw text.
+    own_text_sha256_16: Option<String>,
     /// A matching hook report applied while the write was in flight (first byte written,
     /// completion not yet handled): its time. Consumed once when the write completes;
     /// dropped unless the receipt ends `written`.
@@ -229,21 +247,29 @@ pub struct RequestKey<'a> {
     pub text_sha256_16: &'a str,
     /// `resume` only: the requested session id.
     pub session_id: Option<&'a str>,
+    /// `resume` only: the canonical requested profile agent.
+    pub resume_agent: Option<Agent>,
 }
 
 /// Fields of a newly accepted receipt.
 #[derive(Debug, Clone)]
 pub struct NewReceipt {
     pub kind: SubmitKind,
+    /// Internal profile policy; never exposed on the public receipt.
+    pub lazy_reset: bool,
     pub question_id: Option<String>,
     pub pane: PaneId,
     pub target_ref: TargetRef,
     pub text_sha256_16: String,
     /// `submit` / `answer` / `reset`: `prompt_ack_sha256_16` of the text; None otherwise.
     pub ack_sha256_16: Option<String>,
+    /// Submit/answer ownership proof only; never exposed on a public receipt.
+    pub own_text_sha256_16: Option<String>,
     pub handoff: bool,
     /// `resume` only: the requested session id.
     pub session_id: Option<String>,
+    /// `resume` only: the canonical requested profile agent.
+    pub resume_agent: Option<Agent>,
 }
 
 fn session_wire(session: &AgentSessionRef) -> ReceiptSession {
@@ -293,6 +319,37 @@ impl SubmitLedger {
         self.entries.get(submit_id).map(|e| &e.receipt)
     }
 
+    /// Only the newest two receipts in this pane generation can prove a restored draft.
+    /// Select by acceptance order before checking kind/state: intervening attempts revoke
+    /// ownership, even when they were fenced or never written. Bounded by the receipt cap.
+    pub fn own_restored_text_hash(&self, pane: PaneId, generation: u64) -> Option<String> {
+        let mut newest: Option<&SubmitEntry> = None;
+        let mut previous: Option<&SubmitEntry> = None;
+        for entry in self
+            .entries
+            .values()
+            .filter(|entry| entry.pane == pane && entry.receipt.target_ref.generation == generation)
+        {
+            if newest.is_none_or(|latest| entry.order > latest.order) {
+                previous = newest;
+                newest = Some(entry);
+            } else if previous.is_none_or(|prior| entry.order > prior.order) {
+                previous = Some(entry);
+            }
+        }
+        let interrupt = newest?;
+        let prompt = previous?;
+        if interrupt.receipt.kind != SubmitKind::Interrupt
+            || interrupt.receipt.state != SubmitState::Written
+            || !matches!(prompt.receipt.kind, SubmitKind::Submit | SubmitKind::Answer)
+            || prompt.receipt.state != SubmitState::Written
+            || prompt.written_seq? >= interrupt.written_seq?
+        {
+            return None;
+        }
+        prompt.own_text_sha256_16.clone()
+    }
+
     /// Fork (Q1): receipts still `accepted` (write queued or in progress), per pane.
     /// Bounded by the receipt cap; empty ledger costs one length check.
     pub fn accepted_by_pane(&self) -> HashMap<PaneId, u32> {
@@ -316,7 +373,7 @@ impl SubmitLedger {
 
     /// Same id with the same kind, question, target and text returns the stored receipt;
     /// any difference is a conflict. A `resume` names a pane, not a generation (its own
-    /// launch bumps the generation), so it compares epoch, pane and session id.
+    /// launch bumps the generation), so it compares epoch, pane, session id and agent.
     pub fn repeat(&self, submit_id: &str, key: RequestKey<'_>) -> Repeat {
         let Some(e) = self.entries.get(submit_id) else {
             return Repeat::New;
@@ -333,6 +390,7 @@ impl SubmitLedger {
             && target_same
             && r.text_sha256_16 == key.text_sha256_16
             && r.session_id.as_deref() == key.session_id
+            && e.resume_agent == key.resume_agent
         {
             Repeat::Same(Box::new(r.clone()))
         } else {
@@ -382,10 +440,13 @@ impl SubmitLedger {
                 pane: new.pane,
                 fence,
                 written_seq: None,
+                lazy_reset: new.lazy_reset,
                 expected_reset_trip: false,
                 reset_candidate: None,
                 launched_seq: None,
+                resume_agent: new.resume_agent,
                 ack_sha256_16: new.ack_sha256_16,
+                own_text_sha256_16: new.own_text_sha256_16,
                 pending_ack_ms: None,
                 order: self.entries.len(),
                 #[cfg(debug_assertions)]
@@ -491,6 +552,18 @@ impl SubmitLedger {
         // Only a `written` receipt can be confirmed.
         entry.pending_ack_ms = None;
         unverify_unwritten_reset(r);
+    }
+
+    /// Only the completion event that newly wrote a lazy reset can replace the
+    /// conversation. A clear already observed before completion has its own bump.
+    pub(super) fn newly_written_lazy_reset(&self, submit_id: &str, seq: u64) -> Option<PaneId> {
+        let entry = self.entries.get(submit_id)?;
+        (entry.lazy_reset
+            && entry.receipt.kind == SubmitKind::Reset
+            && entry.receipt.state == SubmitState::Written
+            && entry.receipt.reset == Some(ResetEvidence::Pending)
+            && entry.written_seq == Some(seq))
+        .then_some(entry.pane)
     }
 
     /// A prompt-submit hook of `pane` reported `hash` (`prompt_ack_sha256_16`) at registry
@@ -647,6 +720,7 @@ impl SubmitLedger {
     pub fn note_resume_session(
         &mut self,
         pane: PaneId,
+        reported_agent: Agent,
         session: &AgentSessionRef,
         start_source: Option<&str>,
         generation: u64,
@@ -655,6 +729,7 @@ impl SubmitLedger {
         for entry in self.entries.values_mut().filter(|e| {
             e.pane == pane
                 && e.receipt.kind == SubmitKind::Resume
+                && e.resume_agent == Some(reported_agent)
                 && matches!(
                     e.receipt.state,
                     SubmitState::Launched | SubmitState::Indeterminate
@@ -726,8 +801,46 @@ impl SubmitLedger {
         new_generation: u64,
         seq: u64,
     ) {
+        self.note_clear_session_if(pane, new_session, new_generation, seq, true, true);
+    }
+
+    /// A lazy reset's session report arrives after its generation bump. Only
+    /// earlier written resets can be verified; in-flight resets still need their
+    /// own conversation replacement when their writes complete.
+    pub(super) fn note_written_clear_session(
+        &mut self,
+        pane: PaneId,
+        new_session: &AgentSessionRef,
+        generation: u64,
+        seq: u64,
+    ) {
+        self.note_clear_session_if(pane, new_session, generation, seq, true, false);
+    }
+
+    /// Legacy clear evidence can settle immediate resets without making a lazy
+    /// reset trust an absent, unsupported or unchanged reported session identity.
+    pub(super) fn note_immediate_clear_session(
+        &mut self,
+        pane: PaneId,
+        new_session: &AgentSessionRef,
+        new_generation: u64,
+        seq: u64,
+    ) {
+        self.note_clear_session_if(pane, new_session, new_generation, seq, false, true);
+    }
+
+    fn note_clear_session_if(
+        &mut self,
+        pane: PaneId,
+        new_session: &AgentSessionRef,
+        new_generation: u64,
+        seq: u64,
+        allow_lazy_reset: bool,
+        allow_inflight_reset: bool,
+    ) {
         for entry in self.entries.values_mut().filter(|e| {
             e.pane == pane
+                && (!e.lazy_reset || allow_lazy_reset)
                 && e.receipt.kind == SubmitKind::Reset
                 && e.receipt.reset == Some(ResetEvidence::Pending)
         }) {
@@ -738,7 +851,9 @@ impl SubmitLedger {
                     entry.receipt.new_generation = Some(new_generation);
                 }
                 SubmitState::Accepted
-                    if entry.fence.is_committed() && !entry.fence.is_tripped() =>
+                    if allow_inflight_reset
+                        && entry.fence.is_committed()
+                        && !entry.fence.is_tripped() =>
                 {
                     entry.expected_reset_trip = true;
                     entry.reset_candidate = Some((session_wire(new_session), new_generation));
@@ -751,8 +866,14 @@ impl SubmitLedger {
     /// Any other conversation-replacing generation change (not a pane move and not the
     /// expected clear): a written reset still pending can no longer be verified.
     pub fn note_other_replacement(&mut self, pane: PaneId) {
+        self.note_other_replacement_except(pane, None);
+    }
+
+    /// The reset that caused a lazy-reset bump stays pending; older resets do not.
+    pub(super) fn note_other_replacement_except(&mut self, pane: PaneId, except: Option<&str>) {
         for entry in self.entries.values_mut().filter(|e| {
             e.pane == pane
+                && Some(e.receipt.submit_id.as_str()) != except
                 && e.receipt.kind == SubmitKind::Reset
                 && e.receipt.reset == Some(ResetEvidence::Pending)
                 && e.receipt.state == SubmitState::Written
@@ -817,13 +938,21 @@ mod tests {
     fn new_receipt(kind: SubmitKind, pane: u32, text: &str, handoff: bool) -> NewReceipt {
         NewReceipt {
             kind,
+            lazy_reset: false,
             question_id: None,
             pane: pid(pane),
             target_ref: target(1),
             text_sha256_16: text_sha256_16(text),
-            ack_sha256_16: (kind != SubmitKind::Interrupt).then(|| prompt_ack_sha256_16(text)),
+            ack_sha256_16: matches!(
+                kind,
+                SubmitKind::Submit | SubmitKind::Answer | SubmitKind::Reset
+            )
+            .then(|| prompt_ack_sha256_16(text)),
+            own_text_sha256_16: matches!(kind, SubmitKind::Submit | SubmitKind::Answer)
+                .then(|| text_sha256_16(&text.split_whitespace().collect::<Vec<_>>().join(" "))),
             handoff,
             session_id: None,
+            resume_agent: None,
         }
     }
 
@@ -855,6 +984,7 @@ mod tests {
             target_ref,
             text_sha256_16: hash,
             session_id: None,
+            resume_agent: None,
         }
     }
 
@@ -1263,16 +1393,19 @@ mod tests {
         assert!(other.try_commit());
     }
 
-    fn accept_resume(ledger: &mut SubmitLedger, id: &str, pane: u32, session: &str) {
+    fn accept_resume(ledger: &mut SubmitLedger, id: &str, pane: u32, session: &str, agent: Agent) {
         let new = NewReceipt {
             kind: SubmitKind::Resume,
+            lazy_reset: false,
             question_id: None,
             pane: pid(pane),
             target_ref: target(1),
             text_sha256_16: text_sha256_16(session),
             ack_sha256_16: None,
+            own_text_sha256_16: None,
             handoff: false,
             session_id: Some(session.into()),
+            resume_agent: Some(agent),
         };
         ledger
             .insert_accepted(id, new, SubmitFence::new(), 10)
@@ -1283,6 +1416,7 @@ mod tests {
         target_ref: &'a TargetRef,
         hash: &'a str,
         session: &'a str,
+        agent: Agent,
     ) -> RequestKey<'a> {
         RequestKey {
             kind: SubmitKind::Resume,
@@ -1290,6 +1424,7 @@ mod tests {
             target_ref,
             text_sha256_16: hash,
             session_id: Some(session),
+            resume_agent: Some(agent),
         }
     }
 
@@ -1327,23 +1462,26 @@ mod tests {
     #[test]
     fn resume_repeat_ignores_generation_and_conflicts_on_session_or_kind() {
         let mut l = SubmitLedger::default();
-        accept_resume(&mut l, "r", 1, "sess-a");
+        accept_resume(&mut l, "r", 1, "sess-a", Agent::Claude);
         let hash = text_sha256_16("sess-a");
         // The launch bumps the generation; a retry naming the same pane is the same request.
         let bumped = target(5);
         assert!(matches!(
-            l.repeat("r", resume_key(&bumped, &hash, "sess-a")),
+            l.repeat("r", resume_key(&bumped, &hash, "sess-a", Agent::Claude)),
             Repeat::Same(_)
         ));
         let other_hash = text_sha256_16("sess-b");
         assert_eq!(
-            l.repeat("r", resume_key(&bumped, &other_hash, "sess-b")),
+            l.repeat(
+                "r",
+                resume_key(&bumped, &other_hash, "sess-b", Agent::Claude)
+            ),
             Repeat::Conflict
         );
         let mut other_pane = target(1);
         other_pane.pane_id = "p2".into();
         assert_eq!(
-            l.repeat("r", resume_key(&other_pane, &hash, "sess-a")),
+            l.repeat("r", resume_key(&other_pane, &hash, "sess-a", Agent::Claude)),
             Repeat::Conflict
         );
         // Cross-kind: a submit with the resume's id conflicts, and the other way round.
@@ -1351,13 +1489,16 @@ mod tests {
         assert_eq!(l.repeat("r", key(&t, &hash)), Repeat::Conflict);
         accept(&mut l, "s", "x");
         let x = text_sha256_16("x");
-        assert_eq!(l.repeat("s", resume_key(&t, &x, "x")), Repeat::Conflict);
+        assert_eq!(
+            l.repeat("s", resume_key(&t, &x, "x", Agent::Claude)),
+            Repeat::Conflict
+        );
     }
 
     #[test]
     fn resume_launch_and_failure_states() {
         let mut l = SubmitLedger::default();
-        accept_resume(&mut l, "ok", 1, "sess");
+        accept_resume(&mut l, "ok", 1, "sess", Agent::Claude);
         let r = l.get("ok").unwrap();
         assert_eq!(
             (r.state, r.resume, r.session_id.as_deref()),
@@ -1379,7 +1520,7 @@ mod tests {
             SubmitState::Launched
         );
 
-        accept_resume(&mut l, "bad", 1, "sess");
+        accept_resume(&mut l, "bad", 1, "sess", Agent::Claude);
         let r = l
             .mark_start_failed("bad", &"x".repeat(MAX_START_ERROR_CHARS + 10))
             .unwrap();
@@ -1396,7 +1537,14 @@ mod tests {
             Some(MAX_START_ERROR_CHARS)
         );
         // A failed launch is never settled by a session report.
-        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 2, 9);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("sess"),
+            Some("resume"),
+            2,
+            9,
+        );
         assert_eq!(l.get("bad").unwrap().resume, Some(ResumeEvidence::Pending));
         // Fence trips and writer results never touch resume receipts.
         l.trip_pane(pid(1), FenceReason::GenerationChanged);
@@ -1407,7 +1555,7 @@ mod tests {
     #[test]
     fn resume_failure_after_send_is_indeterminate_and_can_still_be_settled() {
         let mut l = SubmitLedger::default();
-        accept_resume(&mut l, "u", 1, "sess");
+        accept_resume(&mut l, "u", 1, "sess", Agent::Claude);
         let r = l
             .mark_start_unconfirmed("u", "agent_pane_unavailable", 2)
             .unwrap();
@@ -1420,16 +1568,30 @@ mod tests {
             )
         );
         assert!(r.launched_at_ms.is_none());
-        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 2, 3);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("sess"),
+            Some("resume"),
+            2,
+            3,
+        );
         assert_eq!(l.get("u").unwrap().resume, Some(ResumeEvidence::Verified));
     }
 
     #[test]
     fn resume_verified_only_by_matching_session_after_launch() {
         let mut l = SubmitLedger::default();
-        accept_resume(&mut l, "r", 1, "sess");
+        accept_resume(&mut l, "r", 1, "sess", Agent::Claude);
         // Before the launch: nothing is recorded.
-        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 1, 1);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("sess"),
+            Some("resume"),
+            1,
+            1,
+        );
         assert_eq!(l.get("r").unwrap().resume, Some(ResumeEvidence::Pending));
         l.mark_launched("r", 2, 20);
         // The launched agent appears: the new generation is known.
@@ -1440,24 +1602,52 @@ mod tests {
             (Some(ResumeEvidence::Pending), Some(2))
         );
         // Other pane, or the same id with a non-verifying source: still pending.
-        l.note_resume_session(pid(2), &session("sess"), Some("resume"), 2, 4);
-        l.note_resume_session(pid(1), &session("sess"), Some("clear"), 2, 5);
-        l.note_resume_session(pid(1), &session("sess"), None, 2, 6);
+        l.note_resume_session(
+            pid(2),
+            Agent::Claude,
+            &session("sess"),
+            Some("resume"),
+            2,
+            4,
+        );
+        l.note_resume_session(pid(1), Agent::Claude, &session("sess"), Some("clear"), 2, 5);
+        l.note_resume_session(pid(1), Agent::Claude, &session("sess"), None, 2, 6);
         assert_eq!(l.get("r").unwrap().resume, Some(ResumeEvidence::Pending));
-        l.note_resume_session(pid(1), &session("sess"), Some("resume"), 2, 7);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("sess"),
+            Some("resume"),
+            2,
+            7,
+        );
         let r = l.get("r").unwrap();
         assert_eq!(r.resume, Some(ResumeEvidence::Verified));
         assert_eq!(r.session_start_source.as_deref(), Some("resume"));
         assert_eq!(r.new_generation, Some(2));
         assert!(r.reported_session.is_none());
         // Later evidence never rewrites a settled receipt.
-        l.note_resume_session(pid(1), &session("other"), Some("resume"), 3, 8);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("other"),
+            Some("resume"),
+            3,
+            8,
+        );
         assert_eq!(l.get("r").unwrap().resume, Some(ResumeEvidence::Verified));
 
         // `startup` with the requested id also verifies, and is recorded.
-        accept_resume(&mut l, "s", 3, "sess-s");
+        accept_resume(&mut l, "s", 3, "sess-s", Agent::Claude);
         l.mark_launched("s", 9, 30);
-        l.note_resume_session(pid(3), &session("sess-s"), Some("startup"), 4, 10);
+        l.note_resume_session(
+            pid(3),
+            Agent::Claude,
+            &session("sess-s"),
+            Some("startup"),
+            4,
+            10,
+        );
         let r = l.get("s").unwrap();
         assert_eq!(
             (r.resume, r.session_start_source.as_deref()),
@@ -1468,19 +1658,33 @@ mod tests {
     #[test]
     fn resume_mismatch_records_the_reported_session_and_stays_pending_without_reports() {
         let mut l = SubmitLedger::default();
-        accept_resume(&mut l, "m", 1, "wanted");
+        accept_resume(&mut l, "m", 1, "wanted", Agent::Claude);
         l.mark_launched("m", 2, 20);
-        l.note_resume_session(pid(1), &session("fresh"), Some("startup"), 2, 3);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("fresh"),
+            Some("startup"),
+            2,
+            3,
+        );
         let r = l.get("m").unwrap();
         assert_eq!(r.resume, Some(ResumeEvidence::Mismatch));
         assert_eq!(r.reported_session.as_ref().unwrap().value, "fresh");
         assert_eq!(r.session_start_source.as_deref(), Some("startup"));
         assert_eq!(r.new_generation, Some(2));
         // The requested id reported afterwards does not turn a mismatch into success.
-        l.note_resume_session(pid(1), &session("wanted"), Some("resume"), 2, 4);
+        l.note_resume_session(
+            pid(1),
+            Agent::Claude,
+            &session("wanted"),
+            Some("resume"),
+            2,
+            4,
+        );
         assert_eq!(l.get("m").unwrap().resume, Some(ResumeEvidence::Mismatch));
 
-        accept_resume(&mut l, "p", 2, "wanted");
+        accept_resume(&mut l, "p", 2, "wanted", Agent::Claude);
         l.mark_launched("p", 5, 21);
         let r = l.get("p").unwrap();
         assert_eq!(r.resume, Some(ResumeEvidence::Pending));
@@ -1531,7 +1735,7 @@ mod tests {
             "prompt": "secret prompt text\n",
         })
         .to_string();
-        let hash = hook_prompt_sha256_16(&payload).unwrap();
+        let hash = hook_prompt_sha256_16(&payload, Agent::Claude).unwrap();
         assert_eq!(hash, prompt_ack_sha256_16("secret prompt text"));
         assert!(valid_prompt_sha256_16(&hash));
         assert!(!hash.contains("secret"));
@@ -1544,11 +1748,119 @@ mod tests {
             serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "x", "agent_id": "a"}),
         ] {
             assert!(
-                hook_prompt_sha256_16(&other.to_string()).is_none(),
+                hook_prompt_sha256_16(&other.to_string(), Agent::Claude).is_none(),
                 "{other}"
             );
         }
-        assert!(hook_prompt_sha256_16("not json").is_none());
+        assert!(hook_prompt_sha256_16("not json", Agent::Claude).is_none());
+    }
+
+    #[test]
+    fn hook_prompt_codex_docs_shaped_unverified() {
+        // UNVERIFIED against a live Codex UserPromptSubmit capture; this is docs-shaped.
+        let payload = serde_json::json!({
+            "session_id": "example-session",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "  line one\r\nline two\r\n",
+        })
+        .to_string();
+        assert_eq!(
+            hook_prompt_sha256_16(&payload, Agent::Codex),
+            Some(prompt_ack_sha256_16("line one\nline two"))
+        );
+    }
+
+    #[test]
+    fn hook_prompt_cursor_captured_payload_with_bom() {
+        let record = include_str!("testdata/agents/cursor_hook_payloads.jsonl")
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("capture JSON"))
+            .find(|record| record["payload"]["hook_event_name"] == "beforeSubmitPrompt")
+            .expect("captured beforeSubmitPrompt record");
+        assert_eq!(record["stdin_had_utf8_bom"].as_bool(), Some(true));
+        let payload = record["payload"]
+            .as_object()
+            .expect("captured payload object");
+        let prompt = payload["prompt"].as_str().expect("captured prompt string");
+        let input = format!(
+            "\u{feff}{}",
+            serde_json::to_string(payload).expect("serialize captured payload")
+        );
+        assert_eq!(
+            hook_prompt_sha256_16(&input, Agent::Cursor),
+            Some(prompt_ack_sha256_16(prompt))
+        );
+    }
+
+    #[test]
+    fn hook_prompt_rejects_cross_agent_and_invalid_payloads() {
+        for agent in Agent::ALL {
+            for event in ["UserPromptSubmit", "beforeSubmitPrompt"] {
+                let payload = serde_json::json!({"hook_event_name": event, "prompt": "x"});
+                let accepted = matches!(
+                    (agent, event),
+                    (Agent::Claude | Agent::Codex, "UserPromptSubmit")
+                        | (Agent::Cursor, "beforeSubmitPrompt")
+                );
+                let expected = accepted.then(|| prompt_ack_sha256_16("x"));
+                let input = payload.to_string();
+                assert_eq!(hook_prompt_sha256_16(&input, agent), expected);
+                assert_eq!(
+                    hook_prompt_sha256_16(&format!("\u{feff}{input}"), agent),
+                    expected
+                );
+                assert!(
+                    hook_prompt_sha256_16(&format!("\u{feff}\u{feff}{input}"), agent).is_none()
+                );
+            }
+        }
+
+        for (agent, event) in [
+            (Agent::Claude, "UserPromptSubmit"),
+            (Agent::Codex, "UserPromptSubmit"),
+            (Agent::Cursor, "beforeSubmitPrompt"),
+        ] {
+            for input in ["not json", "[]", "null", "1", "{}"] {
+                assert!(hook_prompt_sha256_16(input, agent).is_none());
+            }
+            for payload in [
+                serde_json::json!({"hook_event_name": "other", "prompt": "x"}),
+                serde_json::json!({"hook_event_name": 1, "prompt": "x"}),
+                serde_json::json!({"prompt": "x"}),
+                serde_json::json!({"hook_event_name": event}),
+                serde_json::json!({"hook_event_name": event, "prompt": ""}),
+                serde_json::json!({"hook_event_name": event, "prompt": " \r\n"}),
+                serde_json::json!({"hook_event_name": event, "prompt": 1}),
+                serde_json::json!({"hook_event_name": event, "prompt": null}),
+            ] {
+                assert!(hook_prompt_sha256_16(&payload.to_string(), agent).is_none());
+            }
+        }
+
+        for agent in [Agent::Claude, Agent::Codex] {
+            let mut payload = serde_json::json!({
+                "hook_event_name": "UserPromptSubmit", "prompt": "x", "agent_id": "subagent"
+            });
+            assert!(hook_prompt_sha256_16(&payload.to_string(), agent).is_none());
+            for agent_id in [
+                serde_json::json!(""),
+                serde_json::json!(1),
+                serde_json::Value::Null,
+            ] {
+                payload["agent_id"] = agent_id;
+                assert_eq!(
+                    hook_prompt_sha256_16(&payload.to_string(), agent),
+                    Some(prompt_ack_sha256_16("x"))
+                );
+            }
+        }
+
+        for cursor_version in [serde_json::json!("1"), serde_json::Value::Null] {
+            let payload = serde_json::json!({
+                "hook_event_name": "UserPromptSubmit", "prompt": "x", "cursor_version": cursor_version
+            });
+            assert!(hook_prompt_sha256_16(&payload.to_string(), Agent::Claude).is_none());
+        }
     }
 
     #[test]
@@ -1775,7 +2087,7 @@ mod tests {
         let f = accept_kind(&mut l, "esc", SubmitKind::Interrupt);
         assert!(f.try_commit());
         l.complete("esc", &Ok(()), f.close(), 5, 20);
-        accept_resume(&mut l, "resume", 1, "x");
+        accept_resume(&mut l, "resume", 1, "x", Agent::Claude);
         for text in ["x", INTERRUPT_HASH_TEXT] {
             assert_eq!(
                 l.note_prompt_submitted(pid(1), &prompt_ack_sha256_16(text), 1, 6, 30),
@@ -1784,5 +2096,152 @@ mod tests {
         }
         assert_eq!(ack(&l, "esc"), (SubmitAcknowledged::Unsupported, None));
         assert_eq!(ack(&l, "resume"), (SubmitAcknowledged::Unsupported, None));
+    }
+
+    #[test]
+    fn clear_draft_ownership_requires_adjacent_written_receipts() {
+        fn pair() -> SubmitLedger {
+            let mut ledger = SubmitLedger::default();
+            written(&mut ledger, "prompt", "own text", 10);
+            let fence = accept_kind(&mut ledger, "interrupt", SubmitKind::Interrupt);
+            assert!(fence.try_commit());
+            ledger.complete("interrupt", &Ok(()), fence.close(), 11, 101);
+            ledger
+        }
+        let hash = Some(text_sha256_16("own text"));
+        assert_eq!(pair().own_restored_text_hash(pid(1), 1), hash);
+        let kinds = [
+            SubmitKind::Submit,
+            SubmitKind::Answer,
+            SubmitKind::Interrupt,
+            SubmitKind::Reset,
+            SubmitKind::Resume,
+            SubmitKind::ClearDraft,
+            SubmitKind::Unknown,
+        ];
+        let states = [
+            SubmitState::Accepted,
+            SubmitState::Written,
+            SubmitState::Fenced,
+            SubmitState::Indeterminate,
+            SubmitState::Launched,
+            SubmitState::Failed,
+            SubmitState::Unknown,
+        ];
+        for which in ["prompt", "interrupt"] {
+            for kind in kinds {
+                for state in states {
+                    let mut ledger = pair();
+                    let entry = ledger.entries.get_mut(which).unwrap();
+                    entry.receipt.kind = kind;
+                    entry.receipt.state = state;
+                    let expected = state == SubmitState::Written
+                        && if which == "prompt" {
+                            matches!(kind, SubmitKind::Submit | SubmitKind::Answer)
+                        } else {
+                            kind == SubmitKind::Interrupt
+                        };
+                    assert_eq!(
+                        ledger.own_restored_text_hash(pid(1), 1).is_some(),
+                        expected,
+                        "{which} {kind:?} {state:?}"
+                    );
+                }
+            }
+        }
+        for kind in kinds {
+            for state in states {
+                let mut ledger = pair();
+                accept_kind(&mut ledger, "intervening", kind);
+                ledger.entries.get_mut("intervening").unwrap().receipt.state = state;
+                assert!(
+                    ledger.own_restored_text_hash(pid(1), 1).is_none(),
+                    "{kind:?} {state:?}"
+                );
+            }
+        }
+        let mut ledger = pair();
+        ledger.entries.get_mut("prompt").unwrap().own_text_sha256_16 = None;
+        assert!(ledger.own_restored_text_hash(pid(1), 1).is_none());
+        for which in ["prompt", "interrupt"] {
+            for seq in [None, Some(10), Some(11), Some(12)] {
+                let mut ledger = pair();
+                ledger.entries.get_mut(which).unwrap().written_seq = seq;
+                let expected = if which == "prompt" {
+                    seq.is_some_and(|s| s < 11)
+                } else {
+                    seq.is_some_and(|s| s > 10)
+                };
+                assert_eq!(ledger.own_restored_text_hash(pid(1), 1).is_some(), expected);
+            }
+            let mut ledger = pair();
+            ledger
+                .entries
+                .get_mut(which)
+                .unwrap()
+                .receipt
+                .target_ref
+                .generation = 0;
+            assert!(ledger.own_restored_text_hash(pid(1), 1).is_none());
+        }
+        let mut ledger = pair();
+        assert!(ledger.own_restored_text_hash(pid(1), 2).is_none());
+        accept_kind(&mut ledger, "other-pane", SubmitKind::ClearDraft);
+        ledger.entries.get_mut("other-pane").unwrap().pane = pid(2);
+        // Put the other pane between the pair, then after them: neither can interfere.
+        ledger.entries.get_mut("other-pane").unwrap().order = 1;
+        ledger.entries.get_mut("interrupt").unwrap().order = 2;
+        assert_eq!(ledger.own_restored_text_hash(pid(1), 1), hash);
+        ledger.entries.get_mut("other-pane").unwrap().order = 3;
+        assert_eq!(ledger.own_restored_text_hash(pid(1), 1), hash);
+        accept_kind(&mut ledger, "old-generation", SubmitKind::ClearDraft);
+        ledger
+            .entries
+            .get_mut("old-generation")
+            .unwrap()
+            .receipt
+            .target_ref
+            .generation = 0;
+        assert_eq!(ledger.own_restored_text_hash(pid(1), 1), hash);
+    }
+
+    #[test]
+    fn clear_draft_own_hash_preserves_existing_hash_contracts() {
+        let text = "  first\tline\r\n second\u{2003}line  ";
+        for kind in [
+            SubmitKind::Submit,
+            SubmitKind::Answer,
+            SubmitKind::Reset,
+            SubmitKind::Interrupt,
+            SubmitKind::Resume,
+            SubmitKind::ClearDraft,
+            SubmitKind::Unknown,
+        ] {
+            let new = new_receipt(kind, 1, text, false);
+            assert_eq!(new.text_sha256_16, text_sha256_16(text));
+            assert_ne!(new.text_sha256_16, text_sha256_16("first line second line"));
+            assert_eq!(
+                new.ack_sha256_16,
+                matches!(
+                    kind,
+                    SubmitKind::Submit | SubmitKind::Answer | SubmitKind::Reset
+                )
+                .then(|| prompt_ack_sha256_16(text))
+            );
+            let own = matches!(kind, SubmitKind::Submit | SubmitKind::Answer)
+                .then(|| text_sha256_16("first line second line"));
+            assert_eq!(new.own_text_sha256_16, own);
+            let mut ledger = SubmitLedger::default();
+            let r = ledger
+                .insert_accepted("id", new, SubmitFence::new(), 1)
+                .unwrap();
+            assert_eq!(ledger.entries["id"].own_text_sha256_16, own);
+            assert_eq!(r.text_sha256_16, text_sha256_16(text));
+            assert!(!serde_json::to_string(&r).unwrap().contains("own_text"));
+        }
+        assert_ne!(
+            text_sha256_16(CLEAR_DRAFT_HASH_TEXT),
+            text_sha256_16(INTERRUPT_HASH_TEXT)
+        );
     }
 }
