@@ -100,7 +100,22 @@ pub(crate) fn render_tab_bar(
             break;
         }
         let rect = Rect::new(x, area.y, width, 1);
-        let style = if tab.focused {
+        // Fork: a tab holding a delegated pane is tinted violet.
+        let now_ms = crate::supervisor::now_ms();
+        let delegated = snapshot.panes.iter().any(|pane| {
+            pane.tab_id == tab.tab_id
+                && pane
+                    .delegation
+                    .is_some_and(|d| d.expires_at_ms.is_none_or(|expires| expires > now_ms))
+        });
+        let style = if delegated && tab.focused {
+            Style::default()
+                .fg(panel_contrast_fg(palette))
+                .bg(palette.mauve)
+                .add_modifier(Modifier::BOLD)
+        } else if delegated {
+            Style::default().fg(palette.mauve).bg(palette.surface0)
+        } else if tab.focused {
             let base = Style::default()
                 .fg(panel_contrast_fg(palette))
                 .bg(palette.accent);

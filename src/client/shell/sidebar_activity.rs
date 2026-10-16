@@ -206,6 +206,115 @@ pub(super) fn next_label_change_ms(
         .min()
 }
 
+/// Fork: a timed delegation pulses its badge for its last five minutes.
+pub(super) const DELEGATION_WARN_MS: u64 = 5 * MINUTE_MS;
+
+/// Remaining time of a delegation: `1h42m`, `4m`, `45s`, or `∞` when permanent.
+pub(crate) fn delegation_remaining_label(
+    delegation: crate::protocol::ClientShellDelegation,
+    now_ms: u64,
+) -> String {
+    match delegation.expires_at_ms {
+        None => "∞".into(),
+        Some(expires) => format_idle(expires.saturating_sub(now_ms)),
+    }
+}
+
+/// Combines pane delegations for a row: the shortest remaining time wins and `∞` shows only
+/// when every delegated pane is permanent.
+fn combine_delegations(
+    current: Option<crate::protocol::ClientShellDelegation>,
+    next: crate::protocol::ClientShellDelegation,
+) -> crate::protocol::ClientShellDelegation {
+    match (current, next.expires_at_ms) {
+        (None, _) => next,
+        (Some(current), None) => current,
+        (Some(current), Some(next_expires)) => match current.expires_at_ms {
+            Some(current_expires) if current_expires <= next_expires => current,
+            _ => next,
+        },
+    }
+}
+
+/// Delegation shown on a workspace row (any delegated pane in it), if any.
+pub(super) fn workspace_delegation(
+    snapshot: &ClientShellSnapshot,
+    workspace_id: &str,
+    now_ms: u64,
+) -> Option<crate::protocol::ClientShellDelegation> {
+    snapshot
+        .panes
+        .iter()
+        .filter(|pane| pane.workspace_id == workspace_id)
+        .filter_map(|pane| pane.delegation)
+        .filter(|delegation| {
+            delegation
+                .expires_at_ms
+                .is_none_or(|expires| expires > now_ms)
+        })
+        .fold(None, |current, next| {
+            Some(combine_delegations(current, next))
+        })
+}
+
+/// Violet delegation style; pulses (1 Hz) during the last five minutes when allowed.
+pub(super) fn delegation_style(
+    palette: &Palette,
+    delegation: crate::protocol::ClientShellDelegation,
+    now_ms: u64,
+    pulses: bool,
+) -> Style {
+    let steady = Style::default()
+        .fg(palette.mauve)
+        .add_modifier(Modifier::BOLD);
+    let warning = delegation
+        .expires_at_ms
+        .is_some_and(|expires| expires.saturating_sub(now_ms) <= DELEGATION_WARN_MS);
+    let phase_on = (now_ms / PULSE_HALF_PERIOD.as_millis() as u64).is_multiple_of(2);
+    if warning && pulses && phase_on {
+        if sixteen_colour(palette) {
+            steady.add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+                .fg(palette.panel_bg)
+                .bg(palette.mauve)
+                .add_modifier(Modifier::BOLD)
+        }
+    } else {
+        steady
+    }
+}
+
+/// Milliseconds until a delegation label changes or a warning pulse flips; None when no
+/// pane is on a timer.
+pub(super) fn next_delegation_change_ms(
+    snapshot: &ClientShellSnapshot,
+    now_ms: u64,
+    pulses: bool,
+) -> Option<u64> {
+    let half = PULSE_HALF_PERIOD.as_millis() as u64;
+    snapshot
+        .panes
+        .iter()
+        .filter_map(|pane| pane.delegation?.expires_at_ms)
+        .filter(|expires| *expires > now_ms)
+        .map(|expires| {
+            let remaining = expires - now_ms;
+            let step = if remaining < MINUTE_MS {
+                1000
+            } else {
+                MINUTE_MS
+            };
+            let label = remaining % step + 1;
+            if pulses && remaining <= DELEGATION_WARN_MS {
+                label.min(half - now_ms % half)
+            } else {
+                label
+            }
+        })
+        .min()
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AttentionEntry {
     armed_at: Instant,
@@ -325,6 +434,9 @@ pub(crate) struct WorkspaceBadge {
     pub(super) short: &'static str,
     pub(super) style: Style,
     pub(super) stale: bool,
+    /// Fork: a delegated workspace that is also waiting keeps `!! waiting` and draws a
+    /// violet `◈` in this style just before it.
+    pub(super) lead: Option<Style>,
 }
 
 /// 16-colour themes have no distinct dark red, so the pulse toggles REVERSED instead.
@@ -355,6 +467,7 @@ pub(super) fn workspace_badge(
     ctx: &SidebarActivityContext<'_>,
     palette: &Palette,
 ) -> Option<WorkspaceBadge> {
+    let delegation = workspace_delegation(snapshot, &workspace.workspace_id, ctx.now_ms);
     if workspace_waiting(snapshot, workspace, status) {
         let phase = ctx.attention.and_then(|attention| {
             attention.pulse_phase(ctx.endpoint, &workspace.workspace_id, ctx.now, ctx.pulses)
@@ -364,6 +477,21 @@ pub(super) fn workspace_badge(
             short: "!!",
             style: attention_style(palette, phase),
             stale: false,
+            lead: delegation
+                .map(|delegation| delegation_style(palette, delegation, ctx.now_ms, ctx.pulses)),
+        });
+    }
+    // A delegated workspace shows who is driving it, working or not.
+    if let Some(delegation) = delegation {
+        return Some(WorkspaceBadge {
+            text: format!(
+                "◈ bot {}",
+                delegation_remaining_label(delegation, ctx.now_ms)
+            ),
+            short: "◈",
+            style: delegation_style(palette, delegation, ctx.now_ms, ctx.pulses),
+            stale: false,
+            lead: None,
         });
     }
     if workspace_working(snapshot, workspace, status) {
@@ -376,6 +504,7 @@ pub(super) fn workspace_badge(
             short: "stale",
             style: Style::default().fg(palette.peach),
             stale: true,
+            lead: None,
         });
     }
     Some(WorkspaceBadge {
@@ -383,6 +512,7 @@ pub(super) fn workspace_badge(
         short: "",
         style: Style::default().fg(palette.overlay0),
         stale: false,
+        lead: None,
     })
 }
 
@@ -421,9 +551,14 @@ impl ClientShellState {
         if self.sidebar_label_deadline.is_none() {
             if let Some(snapshot) = self.snapshot.as_deref() {
                 let (_, now_ms) = self.sidebar_clock();
-                self.sidebar_label_deadline =
-                    next_label_change_ms(snapshot, now_ms, self.config.stale_after_ms)
-                        .map(|ms| now + Duration::from_millis(ms));
+                let idle = next_label_change_ms(snapshot, now_ms, self.config.stale_after_ms);
+                let delegation =
+                    next_delegation_change_ms(snapshot, now_ms, self.attention_pulses_allowed());
+                self.sidebar_label_deadline = [idle, delegation]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .map(|ms| now + Duration::from_millis(ms));
             }
         }
         repaint

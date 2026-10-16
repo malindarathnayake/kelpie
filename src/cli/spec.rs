@@ -526,6 +526,15 @@ fn agent_command() -> Command {
                 .about("Show the receipt for a submit_id")
                 .arg(required("submit_id", "SUBMIT_ID")),
         )
+        .subcommand(
+            Command::new("undelegate")
+                .about("Give a delegated pane back to its owner")
+                .override_usage("kelpie agent undelegate --pane <PANE_ID>")
+                .arg(option("pane", "PANE_ID").required(true))
+                .after_help(
+                    "Ends the owner-granted delegation of the pane, so owner input blocks supervised writes again until the owner hands it over. Only the owner can delegate a pane, from an attached Kelpie window (ctrl+b shift+a); no command or API method grants one.",
+                ),
+        )
         .subcommand(id_command("get", "target", "Show an agent"))
         .subcommand(
             Command::new("read")

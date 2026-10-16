@@ -135,6 +135,8 @@ pub struct AgentFactInputs {
     pub draft: DraftState,
     /// A valid one-shot operator handoff is armed on the pane (read-only).
     pub handoff_armed: bool,
+    /// Owner-granted delegation of the pane (read-only).
+    pub delegation: crate::api::schema::supervisor::DelegationFacts,
     pub now_ms: u64,
 }
 
@@ -159,6 +161,7 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
         unresolved_overflow,
         draft,
         handoff_armed,
+        delegation,
         now_ms,
     } = inputs;
 
@@ -217,6 +220,7 @@ pub fn build_agent_facts(inputs: AgentFactInputs) -> AgentFacts {
             last_owner_input_at_ms: last_owner_input_ms,
             draft,
             handoff_armed,
+            delegation,
         },
         view: View::Unknown,
         last_activity_at_ms: last_activity_ms(
@@ -437,6 +441,7 @@ mod tests {
             unresolved_overflow: 0,
             draft: DraftState::Unknown,
             handoff_armed: false,
+            delegation: Default::default(),
             now_ms: 100,
         }
     }

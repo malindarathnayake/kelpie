@@ -775,6 +775,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
 ) {
     let last_row = rows.len().saturating_sub(1);
     let mut badge_slot = None;
+    let mut lead_slot = None;
     for (row_index, row) in rows.iter().enumerate() {
         let y = area.y + row_index as u16;
         if y >= area.bottom() {
@@ -831,6 +832,14 @@ pub(in crate::client::shell) fn render_workspace_rows(
             if let Some((text, width)) = badge.and_then(|badge| fit_badge(badge, text_right, x)) {
                 text_right = text_right.saturating_sub(width + 1);
                 badge_slot = Some((text, text_right + 1, y));
+                // Fork: a delegated row that is also waiting keeps `!! waiting` and gets a
+                // violet `◈` just before it when the row still has room.
+                if badge.is_some_and(|badge| badge.lead.is_some())
+                    && text_right.saturating_sub(x) >= 6
+                {
+                    text_right = text_right.saturating_sub(2);
+                    lead_slot = Some((text_right + 1, y));
+                }
             }
         }
         let spans = crate::ui::resolved_token_spans(
@@ -869,6 +878,9 @@ pub(in crate::client::shell) fn render_workspace_rows(
     // Drawn after the row background so a pulsing badge keeps its own background.
     if let (Some(badge), Some((text, x, y))) = (badge, badge_slot) {
         put_text(buffer, x, y, display_width(text), text, badge.style);
+    }
+    if let (Some(style), Some((x, y))) = (badge.and_then(|badge| badge.lead), lead_slot) {
+        put_text(buffer, x, y, 1, "◈", style);
     }
 }
 

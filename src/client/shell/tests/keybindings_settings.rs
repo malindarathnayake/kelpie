@@ -966,29 +966,121 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
     assert_eq!(state.mode, ClientShellMode::Terminal);
 }
 
+fn open_delegate_menu(state: &mut ClientShellState) -> ClientShellInput {
+    state.handle_raw_events(vec![
+        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+    ])
+}
+
+fn single_control(outcome: &ClientShellInput) -> Option<(&str, &str)> {
+    match &outcome.requests[..] {
+        [crate::protocol::ClientMessage::EndpointControl { kind, data }] => {
+            Some((kind.as_str(), data.as_str()))
+        }
+        _ => None,
+    }
+}
+
 #[test]
-fn supervisor_handoff_binding_sends_only_a_control_message_for_the_focused_pane() {
+fn supervisor_handoff_binding_opens_the_delegate_menu_and_sends_nothing_yet() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
-    let outcome = state.handle_raw_events(vec![
-        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
-        RawInputEvent::Key(TerminalKey::new(KeyCode::Char('A'), KeyModifiers::SHIFT)),
-    ]);
+    let outcome = open_delegate_menu(&mut state);
     assert!(outcome.actions.is_empty(), "{:?}", outcome.actions);
     assert!(
-        matches!(
-            &outcome.requests[..],
-            [crate::protocol::ClientMessage::EndpointControl { kind, data }]
-                if kind == crate::supervisor::HANDOFF_CONTROL_KIND && data == "pane_1"
-        ),
+        outcome.requests.is_empty(),
         "the key is consumed, never forwarded as pane input: {:?}",
         outcome.requests
     );
+    let Some(ClientShellOverlay::Delegate(menu)) = state.overlay.as_ref() else {
+        panic!("delegate menu should be open");
+    };
+    assert_eq!(menu.pane_id, "pane_1");
+    assert_eq!(
+        menu.choices[menu.cursor],
+        crate::supervisor::delegation::DelegationChoice::Hours2,
+        "2h is preselected"
+    );
+    let frame = state.compose(106, 40).unwrap();
+    let text = frame_rows(&frame).join("\n");
+    for label in [
+        "Hand pane_1 to the supervisor",
+        "hand over once",
+        "delegate 30m",
+        "› delegate 2h",
+        "delegate 8h",
+        "delegate permanently",
+    ] {
+        assert!(text.contains(label), "missing {label:?}:\n{text}");
+    }
+    assert!(!text.contains("revoke delegation"), "{text}");
+
+    // Esc closes without sending anything.
+    let outcome = state.handle_input_bytes(b"\x1b");
+    assert!(outcome.requests.is_empty());
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn delegate_menu_enter_sends_the_selected_control() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    open_delegate_menu(&mut state);
+    let outcome = state.handle_input_bytes(b"\r");
+    assert_eq!(
+        single_control(&outcome),
+        Some((crate::supervisor::DELEGATE_CONTROL_KIND, "2h pane_1"))
+    );
+    assert!(state.overlay.is_none());
     assert!(state
         .copy_feedback
         .as_ref()
         .is_some_and(|feedback| feedback.message.contains("pane_1")));
+
+    // "hand over once" keeps the one-shot handoff control (older servers accept it).
+    open_delegate_menu(&mut state);
+    state.handle_input_bytes(b"k");
+    state.handle_input_bytes(b"k");
+    let outcome = state.handle_input_bytes(b"\r");
+    assert_eq!(
+        single_control(&outcome),
+        Some((crate::supervisor::HANDOFF_CONTROL_KIND, "pane_1"))
+    );
+
+    open_delegate_menu(&mut state);
+    for _ in 0..5 {
+        state.handle_input_bytes(b"j");
+    }
+    let outcome = state.handle_input_bytes(b"\r");
+    assert_eq!(
+        single_control(&outcome),
+        Some((crate::supervisor::DELEGATE_CONTROL_KIND, "permanent pane_1")),
+        "the cursor stops at the last entry"
+    );
+}
+
+#[test]
+fn delegated_pane_menu_offers_revoke_preselected() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let mut snap = snapshot();
+    snap.panes[0].delegation = Some(crate::protocol::ClientShellDelegation {
+        expires_at_ms: None,
+    });
+    state.set_snapshot(Box::new(snap));
+    state.set_pane_surface(surface());
+    open_delegate_menu(&mut state);
+    let frame = state.compose(106, 40).unwrap();
+    let text = frame_rows(&frame).join("\n");
+    assert!(text.contains("◈ delegated · ∞"), "{text}");
+    assert!(text.contains("› revoke delegation"), "{text}");
+    let outcome = state.handle_input_bytes(b"\r");
+    assert_eq!(
+        single_control(&outcome),
+        Some((crate::supervisor::DELEGATE_CONTROL_KIND, "revoke pane_1"))
+    );
 }
 
 fn theme_picker_state() -> ClientShellState {

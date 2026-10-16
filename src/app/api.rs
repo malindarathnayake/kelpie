@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 mod agent_view;
 mod agents;
+mod delegation;
 mod env;
 mod integrations;
 mod layouts;
@@ -1156,6 +1157,9 @@ impl App {
             Method::AgentResume(params) => return self.handle_agent_resume(request.id, params),
             Method::AgentSubmitStatus(params) => {
                 return self.handle_agent_submit_status(request.id, params);
+            }
+            Method::AgentUndelegate(params) => {
+                return self.handle_agent_undelegate(request.id, params);
             }
             Method::PaneReportPromptSubmitted(params) => {
                 return self.handle_pane_report_prompt_submitted(request.id, params);

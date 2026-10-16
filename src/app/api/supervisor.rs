@@ -235,6 +235,18 @@ impl App {
                 }
                 None => (false, None, None, false, false),
             };
+        let delegation = self
+            .state
+            .supervisor
+            .delegations
+            .active(pane_id, now)
+            .map_or_else(Default::default, |delegation| {
+                crate::api::schema::supervisor::DelegationFacts {
+                    active: true,
+                    permanent: delegation.permanent(),
+                    expires_at_ms: delegation.expires_at_ms,
+                }
+            });
         // Read-time TTL check on the pane's attached terminal; never sweeps or mutates.
         let background_validity = self
             .state
@@ -281,11 +293,13 @@ impl App {
                 ws_idx,
                 pane_id,
                 info.agent.as_deref(),
-                draft_latched,
+                // A delegated pane reports the box as the writes will see it.
+                draft_latched && !delegation.active,
                 last_owner_input_ms,
                 last_output_ms,
             ),
             handoff_armed,
+            delegation,
             now_ms: now,
         }
     }

@@ -2389,6 +2389,39 @@ impl HeadlessServer {
                 );
                 false
             }
+            ServerEvent::ClientShellSupervisorDelegate {
+                client_id,
+                pane_id,
+                choice,
+            } => {
+                // Fork: owner-only, same gate as the handoff: an active attached shell client
+                // currently viewing the pane.
+                if self.handoff_in_progress
+                    || !self
+                        .clients
+                        .get(&client_id)
+                        .is_some_and(ClientConnection::is_active_shell_client)
+                {
+                    return false;
+                }
+                let Some((workspace_index, runtime_pane_id)) = self.app.parse_pane_id(&pane_id)
+                else {
+                    return false;
+                };
+                if !self.shell_client_views_pane(client_id, workspace_index, runtime_pane_id) {
+                    return false;
+                }
+                // A grant or revoke changes the pane's indicator: rebuild the snapshot.
+                self.app
+                    .apply_supervisor_delegation(
+                        workspace_index,
+                        runtime_pane_id,
+                        &pane_id,
+                        choice,
+                        crate::supervisor::now_ms(),
+                    )
+                    .is_ok()
+            }
             ServerEvent::ClientShellPresentationSync { client_id, token } => {
                 let Some(client) = self.clients.get_mut(&client_id) else {
                     return false;
@@ -3430,6 +3463,10 @@ impl HeadlessServer {
         }
 
         changed |= self.app.handle_tab_bar_status_tasks(now);
+
+        changed |= self
+            .app
+            .expire_supervisor_delegations(crate::supervisor::now_ms());
 
         if latest_shell_client(&self.clients).is_some() {
             let app = &self.app;

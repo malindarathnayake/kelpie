@@ -141,6 +141,14 @@ pub(super) fn snapshot_with_completions(
                         .pane_state(pane_id)
                 })
                 .is_some_and(|pane| pane.right_click_passthrough);
+            let delegation = app
+                .parse_pane_id(&pane_id)
+                .and_then(|(_, runtime_pane_id)| {
+                    app.delegation_view(runtime_pane_id, crate::supervisor::now_ms())
+                })
+                .map(|view| protocol::ClientShellDelegation {
+                    expires_at_ms: view.expires_at_ms,
+                });
             protocol::ClientShellPane {
                 pane_id,
                 workspace_id: pane.workspace_id,
@@ -150,6 +158,7 @@ pub(super) fn snapshot_with_completions(
                 foreground_cwd: pane.foreground_cwd,
                 focused,
                 right_click_passthrough,
+                delegation,
             }
         })
         .collect();

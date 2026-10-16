@@ -79,6 +79,8 @@ pub struct SupervisorState {
     /// applying right now; None for every other mutation. `agent.resume` evidence is
     /// settled only from this reported ref, never from the terminal's resolved identity.
     mutation_reported_session: Option<(String, Option<AgentSessionRef>)>,
+    /// Fork: owner-granted delegations; survive generation bumps, end on pane close.
+    pub delegations: crate::supervisor::delegation::Delegations,
 }
 
 #[derive(Debug, Clone)]
@@ -326,6 +328,9 @@ impl SupervisorState {
     ) -> bool {
         if before.is_none() && after.is_none() && !self.panes.contains_key(&pane) {
             return false;
+        }
+        if let Some(session) = after.as_ref() {
+            self.delegations.note_session(pane, &session.value);
         }
         let state = self.pane_mut(pane);
         let last_known = state.last_session_ref.take().or(before);
@@ -649,6 +654,7 @@ impl SupervisorState {
         self.submits
             .trip_pane(pane, crate::supervisor::fence::FenceReason::PaneClosed);
         self.panes.remove(&pane);
+        self.delegations.remove_pane(pane);
     }
 
     /// Registry order and current generation for an operator handoff armed now.
@@ -1401,6 +1407,25 @@ mod tests {
             kind: crate::agent_resume::AgentSessionRefKind::Id,
             value: value.to_string(),
         })
+    }
+
+    #[test]
+    fn restored_delegation_activates_only_for_the_reported_saved_session() {
+        use crate::supervisor::delegation::PendingRestore;
+        let mut s = SupervisorState::new();
+        let restore = PendingRestore {
+            agent_session: "saved".into(),
+            granted_at_ms: 1,
+        };
+        s.delegations.queue_restore(pid(1), restore.clone());
+        s.delegations.queue_restore(pid(2), restore);
+        s.observe_session_ref(pid(1), None, sref("saved"));
+        s.observe_session_ref(pid(2), None, sref("other"));
+        assert!(s.delegations.active(pid(1), u64::MAX).is_some());
+        assert!(s.delegations.active(pid(2), u64::MAX).is_none());
+        // A later matching report does not bring a dropped one back.
+        s.observe_session_ref(pid(2), sref("other"), sref("saved"));
+        assert!(s.delegations.active(pid(2), u64::MAX).is_none());
     }
 
     #[test]

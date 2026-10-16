@@ -155,6 +155,8 @@ pub enum Method {
     AgentResume(supervisor::AgentResumeParams),
     #[serde(rename = "agent.submit_status")]
     AgentSubmitStatus(supervisor::AgentSubmitStatusParams),
+    #[serde(rename = "agent.undelegate")]
+    AgentUndelegate(supervisor::AgentUndelegateParams),
     #[serde(rename = "pane.report_prompt_submitted")]
     PaneReportPromptSubmitted(supervisor::PaneReportPromptSubmittedParams),
     #[serde(rename = "pane.split")]

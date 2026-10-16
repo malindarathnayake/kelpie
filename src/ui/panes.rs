@@ -575,6 +575,7 @@ fn render_pane_borders(
     for info in pane_infos {
         add_pane_border_cells(&mut cells, info);
     }
+    let delegated_ids = delegated_panes(app, pane_infos);
     add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
 
     let buf = frame.buffer_mut();
@@ -590,13 +591,19 @@ fn render_pane_borders(
         let focused = pane_infos
             .iter()
             .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
+        // Fork: a border touching a delegated pane is violet: the supervisor drives it.
+        let delegated = pane_infos.iter().any(|info| {
+            delegated_ids.contains(&info.id) && line_touches_pane(x, y, info, app.pane_gaps)
+        });
         let symbol = line_cell_symbol(line);
         if symbol.is_empty() {
             continue;
         }
         let cell = &mut buf[(x, y)];
         cell.set_symbol(symbol);
-        let color = if focused {
+        let color = if delegated {
+            app.palette.mauve
+        } else if focused {
             app.palette.accent
         } else {
             app.palette.overlay0
@@ -735,6 +742,7 @@ fn render_pane_border_titles(
     pane_infos: &[PaneInfo],
     frame: &mut Frame,
 ) {
+    let delegated_ids = delegated_panes(app, pane_infos);
     let buf = frame.buffer_mut();
     let area = buf.area;
     for info in pane_infos {
@@ -763,7 +771,9 @@ fn render_pane_border_titles(
         if start_x >= end_x {
             continue;
         }
-        let color = if info.is_focused {
+        let color = if delegated_ids.contains(&info.id) {
+            app.palette.mauve
+        } else if info.is_focused {
             app.palette.accent
         } else {
             app.palette.overlay0
@@ -780,6 +790,19 @@ fn render_pane_border_titles(
             style,
         );
     }
+}
+
+/// Fork: panes of `pane_infos` under an active owner-granted delegation.
+fn delegated_panes(app: &AppState, pane_infos: &[PaneInfo]) -> Vec<crate::layout::PaneId> {
+    if !crate::supervisor::enabled() {
+        return Vec::new();
+    }
+    let now_ms = crate::supervisor::now_ms();
+    pane_infos
+        .iter()
+        .map(|info| info.id)
+        .filter(|id| app.supervisor.delegations.active(*id, now_ms).is_some())
+        .collect()
 }
 
 fn line_cell_symbol(line: LineCell) -> &'static str {
@@ -1304,6 +1327,48 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(1, 1)].style().fg, Some(app.palette.accent));
         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.overlay0));
+    }
+
+    #[test]
+    fn delegated_pane_border_is_violet_even_when_unfocused() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let mut app = AppState::test_new();
+        app.pane_gaps = true;
+        app.view.terminal_area = Rect::new(0, 0, 4, 3);
+        app.view.pane_infos = vec![
+            PaneInfo {
+                id: PaneId::from_raw(1),
+                rect: Rect::new(0, 0, 2, 3),
+                inner_rect: Rect::default(),
+                scrollbar_rect: None,
+                borders: Borders::ALL,
+                is_focused: true,
+            },
+            PaneInfo {
+                id: PaneId::from_raw(2),
+                rect: Rect::new(2, 0, 2, 3),
+                inner_rect: Rect::default(),
+                scrollbar_rect: None,
+                borders: Borders::ALL,
+                is_focused: false,
+            },
+        ];
+        app.supervisor.delegations.grant(
+            PaneId::from_raw(2),
+            crate::supervisor::delegation::DelegationChoice::Hours2,
+            crate::supervisor::now_ms(),
+            None,
+        );
+        let ws = Workspace::test_new("test");
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(4, 3)).unwrap();
+        terminal
+            .draw(|frame| render_view_pane_borders(&app, &ws, &[], frame))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        crate::supervisor::set_enabled_for_test(None);
+        assert_eq!(buffer[(1, 1)].style().fg, Some(app.palette.accent));
+        assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.mauve));
     }
 
     #[tokio::test]

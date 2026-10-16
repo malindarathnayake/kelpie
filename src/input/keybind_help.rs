@@ -191,7 +191,7 @@ pub(crate) fn keybind_help_groups(
                 entry(binding_label(&keybinds.toggle_sidebar), "toggle sidebar"),
                 entry(
                     binding_label(&keybinds.supervisor_handoff),
-                    "supervisor handoff",
+                    "delegate pane to supervisor",
                 ),
                 entry(binding_label(&keybinds.theme_picker), "theme picker"),
                 entry(binding_label(&keybinds.host_facts), "settings: host facts"),

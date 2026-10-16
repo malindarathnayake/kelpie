@@ -300,6 +300,7 @@ pub(super) enum ClientShellOverlayKind {
     GlobalMenu,
     Settings,
     CloseStale,
+    Delegate,
 }
 
 #[derive(Debug)]
@@ -619,6 +620,8 @@ pub(super) enum ClientShellOverlay {
     Settings(ClientSettingsOverlay),
     /// Fork (Q1): review dialog for closing stale workspaces.
     CloseStale(super::close_stale::ClientCloseStaleOverlay),
+    /// Fork: delegate menu for the focused pane.
+    Delegate(super::delegate::ClientDelegateOverlay),
 }
 
 impl ClientShellOverlay {
@@ -638,6 +641,7 @@ impl ClientShellOverlay {
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
             Self::CloseStale(_) => ClientShellOverlayKind::CloseStale,
+            Self::Delegate(_) => ClientShellOverlayKind::Delegate,
         }
     }
 }
@@ -1632,6 +1636,7 @@ impl ClientShellState {
                 Some(_) => {}
             }
         }
+        self.note_expired_delegations(&snapshot);
         self.snapshot = Some(snapshot);
         let (attention_now, _) = self.sidebar_clock();
         self.sync_attention(attention_now);

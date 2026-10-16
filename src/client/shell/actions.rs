@@ -1,26 +1,6 @@
 use super::*;
 
 impl ClientShellState {
-    /// Fork: the operator handed the focused pane's next `agent.submit` to the supervisor.
-    /// Sent only as a client-protocol control message; the key itself never reaches the pane.
-    pub(super) fn request_supervisor_handoff(&mut self, outcome: &mut ClientShellInput) {
-        let Some(pane_id) = self.focused_pane_id() else {
-            return;
-        };
-        self.copy_feedback = Some(crate::app::state::CopyFeedback {
-            message: format!("supervisor handoff sent for {pane_id}"),
-        });
-        self.copy_feedback_deadline =
-            Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
-        outcome
-            .requests
-            .push(crate::protocol::ClientMessage::EndpointControl {
-                kind: crate::supervisor::HANDOFF_CONTROL_KIND.into(),
-                data: pane_id,
-            });
-        outcome.repaint = true;
-    }
-
     pub(super) fn record_binding(
         &mut self,
         binding: crate::input::KeybindMatch,
@@ -64,7 +44,7 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::SupervisorHandoff {
-                    self.request_supervisor_handoff(outcome);
+                    self.open_delegate_overlay(outcome);
                     return;
                 }
                 if action == crate::input::KeybindAction::OpenNavigator {

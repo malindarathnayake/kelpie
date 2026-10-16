@@ -167,6 +167,25 @@ pub struct OwnerInput {
     /// accepted once while `draft` stays the latch result. Read-only.
     #[serde(default)]
     pub handoff_armed: bool,
+    /// The owner delegated this pane: while `active`, supervised writes are not blocked by
+    /// earlier owner input (the draft check and the write fence still apply). Read-only;
+    /// only the owner grants a delegation, from an attached Kelpie window.
+    #[serde(default)]
+    pub delegation: DelegationFacts,
+}
+
+/// Owner-granted delegation of an agent pane.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+pub struct DelegationFacts {
+    pub active: bool,
+    /// Lasts until revoked or the pane closes.
+    #[serde(default)]
+    pub permanent: bool,
+    /// Unix ms when a timed delegation ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
 }
 
 /// Which view the pane is shown in.
@@ -335,6 +354,13 @@ pub struct AgentResumeParams {
     /// Agent label to resume (claude, codex, cursor); default claude.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+}
+
+/// Parameters for `agent.undelegate`: ends the owner-granted delegation of a pane. There is
+/// no method that grants one; only the owner can, from an attached Kelpie window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentUndelegateParams {
+    pub pane_id: String,
 }
 
 /// Parameters for `agent.submit_status`.
@@ -615,6 +641,7 @@ mod tests {
                 last_owner_input_at_ms: None,
                 draft: DraftState::Clean,
                 handoff_armed: false,
+                delegation: Default::default(),
             },
             view: View::Main,
             last_activity_at_ms: None,

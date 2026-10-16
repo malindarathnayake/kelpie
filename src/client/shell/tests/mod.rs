@@ -63,6 +63,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
             foreground_cwd: Some("/repo".into()),
             focused: true,
             right_click_passthrough: false,
+            delegation: None,
         }],
         agents: Vec::new(),
         commands: Vec::new(),
@@ -256,6 +257,7 @@ mod chrome_context;
 mod close_pane;
 mod close_tab;
 mod copy;
+mod delegation;
 mod endpoint_requests;
 mod endpoints;
 mod graphics;

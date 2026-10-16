@@ -1079,6 +1079,19 @@ pub struct ClientShellPane {
     pub foreground_cwd: Option<String>,
     pub focused: bool,
     pub right_click_passthrough: bool,
+    /// Fork: owner-granted supervisor delegation of this pane; None when not delegated or
+    /// sent by an older server. Always serialized: the local wire codec is not
+    /// self-describing, so fields cannot be skipped.
+    #[serde(default)]
+    pub delegation: Option<ClientShellDelegation>,
+}
+
+/// Fork: a pane's active delegation as the client shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellDelegation {
+    /// Unix ms (moved onto the client's clock on receipt); None = permanent.
+    #[serde(default)]
+    pub expires_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2868,6 +2881,7 @@ mod tests {
                 foreground_cwd: Some("/repo".into()),
                 focused: true,
                 right_click_passthrough: false,
+                delegation: None,
             }],
             agents: Vec::new(),
             commands: vec![ClientShellCommand {

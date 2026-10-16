@@ -1439,6 +1439,18 @@
           ],
           "type": "object"
         },
+        "AgentUndelegateParams": {
+          "description": "Parameters for `agent.undelegate`: ends the owner-granted delegation of a pane. There is\nno method that grants one; only the owner can, from an attached Kelpie window.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "AgentViewBuiltinField": {
           "enum": [
             "status",
@@ -5694,6 +5706,22 @@
         {
           "properties": {
             "method": {
+              "const": "agent.undelegate",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentUndelegateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "pane.report_prompt_submitted",
               "type": "string"
             },
@@ -6966,6 +6994,17 @@
                 "null"
               ]
             },
+            "delegation": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/DelegationFacts"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fork: owner-granted supervisor delegation of the pane; absent when not delegated."
+            },
             "display_agent": {
               "type": [
                 "string",
@@ -7286,6 +7325,32 @@
             "unknown"
           ],
           "type": "string"
+        },
+        "DelegationFacts": {
+          "description": "Owner-granted delegation of an agent pane.",
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "expires_at_ms": {
+              "description": "Unix ms when a timed delegation ends.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "permanent": {
+              "default": false,
+              "description": "Lasts until revoked or the pane closes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "active"
+          ],
+          "type": "object"
         },
         "DigestTruncation": {
           "description": "Flags showing which digest sections were truncated.",
@@ -8907,6 +8972,14 @@
         "OwnerInput": {
           "description": "Owner input activity for an agent pane.",
           "properties": {
+            "delegation": {
+              "$ref": "#/schemas/success_response/$defs/DelegationFacts",
+              "default": {
+                "active": false,
+                "permanent": false
+              },
+              "description": "The owner delegated this pane: while `active`, supervised writes are not blocked by\nearlier owner input (the draft check and the write fence still apply). Read-only;\nonly the owner grants a delegation, from an attached Kelpie window."
+            },
             "draft": {
               "$ref": "#/schemas/success_response/$defs/DraftState"
             },

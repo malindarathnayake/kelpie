@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::api::schema::supervisor::{
     AgentAnswerParams, AgentControlParams, AgentResumeParams, AgentSubmitParams,
-    AgentSubmitStatusParams, AgentsDigestParams, DigestFilter, TargetRef,
+    AgentSubmitStatusParams, AgentUndelegateParams, AgentsDigestParams, DigestFilter, TargetRef,
 };
 use crate::api::schema::{
     AgentReadParams, AgentRenameParams, AgentStartParams, AgentTarget, AgentWaitParams,
@@ -32,6 +32,7 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         "clear-draft" => agent_clear_draft(&args[1..]),
         "resume" => agent_resume(&args[1..]),
         "submit-status" => agent_submit_status(&args[1..]),
+        "undelegate" => agent_undelegate(&args[1..]),
         "get" => agent_get(&args[1..]),
         "read" => agent_read(&args[1..]),
         "rename" => agent_rename(&args[1..]),
@@ -623,6 +624,16 @@ fn watch_view(agent: &serde_json::Value) -> serde_json::Value {
         "open_question_ids": open_question_ids,
         "draft": agent["owner_input"]["draft"],
         "handoff_armed": agent["owner_input"]["handoff_armed"].as_bool().unwrap_or(false),
+        "delegation": watch_delegation(&agent["owner_input"]["delegation"]),
+    })
+}
+
+/// Bounded delegation view: whether the owner delegated the pane, and until when.
+fn watch_delegation(delegation: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "active": delegation["active"].as_bool().unwrap_or(false),
+        "permanent": delegation["permanent"].as_bool().unwrap_or(false),
+        "expires_at_ms": delegation["expires_at_ms"].as_u64(),
     })
 }
 
@@ -1049,6 +1060,27 @@ fn agent_submit_status(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 
+const UNDELEGATE_USAGE: &str = "kelpie agent undelegate --pane <PANE_ID>";
+
+/// Gives a delegated pane back to its owner. There is no command that delegates: only the
+/// owner can, from an attached Kelpie window (ctrl+b shift+a).
+fn agent_undelegate(args: &[String]) -> std::io::Result<i32> {
+    let [flag, pane_id] = args else {
+        eprintln!("usage: {UNDELEGATE_USAGE}");
+        return Ok(2);
+    };
+    if flag != "--pane" || pane_id.starts_with('-') {
+        eprintln!("usage: {UNDELEGATE_USAGE}");
+        return Ok(2);
+    }
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:undelegate".into(),
+        method: Method::AgentUndelegate(AgentUndelegateParams {
+            pane_id: pane_id.clone(),
+        }),
+    })?)
+}
+
 fn agent_get(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
         eprintln!("usage: kelpie agent get <target>");
@@ -1454,6 +1486,7 @@ fn print_agent_help() {
     eprintln!("  {CLEAR_DRAFT_USAGE}");
     eprintln!("  {RESUME_USAGE}");
     eprintln!("  {SUBMIT_STATUS_USAGE}");
+    eprintln!("  {UNDELEGATE_USAGE}");
     eprintln!("  kelpie agent get <target>");
     eprintln!("  kelpie agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
     eprintln!("  kelpie agent rename <target> <name>|--clear");

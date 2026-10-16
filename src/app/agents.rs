@@ -404,6 +404,13 @@ impl App {
             cwd: pane.cwd,
             foreground_cwd: pane.foreground_cwd,
             revision: pane.revision,
+            delegation: self
+                .delegation_view(pane_id, crate::supervisor::now_ms())
+                .map(|view| crate::api::schema::supervisor::DelegationFacts {
+                    active: true,
+                    permanent: view.expires_at_ms.is_none(),
+                    expires_at_ms: view.expires_at_ms,
+                }),
         })
     }
 

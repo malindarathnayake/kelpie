@@ -2664,6 +2664,70 @@ async fn supervisor_handoff_control_arms_without_input_or_latch() {
     shutdown_test_runtimes(&mut server);
 }
 
+#[tokio::test]
+async fn supervisor_delegate_control_is_owner_only_and_survives_owner_keys() {
+    use crate::supervisor::delegation::DelegationChoice;
+    let _reset = SupervisorOverrideReset;
+    let (mut server, pane, pane_id, mut input) = supervisor_shell_server("supervisor-delegate");
+    let delegate = |server: &mut HeadlessServer, client_id: u64, choice: DelegationChoice| {
+        server.handle_server_event(ServerEvent::ClientShellSupervisorDelegate {
+            client_id,
+            pane_id: pane_id.clone(),
+            choice,
+        })
+    };
+    let active = |server: &HeadlessServer| {
+        server
+            .app
+            .state
+            .supervisor
+            .delegations
+            .active(pane, crate::supervisor::now_ms())
+            .cloned()
+    };
+
+    // A client that is not an attached shell viewing the pane cannot grant one.
+    assert!(!delegate(&mut server, 4242, DelegationChoice::Permanent));
+    assert!(active(&server).is_none());
+
+    assert!(
+        delegate(&mut server, 91, DelegationChoice::Hours2),
+        "a grant changes the snapshot"
+    );
+    let granted = active(&server).expect("delegated");
+    assert!(granted.expires_at_ms.is_some());
+    assert!(
+        input.try_recv().is_err(),
+        "the menu never writes to the pane"
+    );
+    // What the client snapshot and the pane borders read.
+    let shown = server
+        .app
+        .delegation_view(pane, crate::supervisor::now_ms())
+        .expect("delegation view");
+    assert_eq!(shown.expires_at_ms, granted.expires_at_ms);
+
+    // Owner keys latch but never revoke.
+    server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 91,
+        pane_id: pane_id.clone(),
+        events: vec![crate::protocol::ClientPaneInputEvent::TextCommit(
+            "k".into(),
+        )],
+    });
+    assert!(
+        active(&server).is_some(),
+        "owner typing keeps the delegation"
+    );
+
+    // An unknown client cannot revoke through the control either; the owner can.
+    delegate(&mut server, 4242, DelegationChoice::Revoke);
+    assert!(active(&server).is_some());
+    delegate(&mut server, 91, DelegationChoice::Revoke);
+    assert!(active(&server).is_none());
+    shutdown_test_runtimes(&mut server);
+}
+
 fn supervisor_key(
     code: crate::protocol::ClientKeyCode,
     kind: crate::protocol::ClientKeyKind,

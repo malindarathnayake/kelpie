@@ -16,6 +16,8 @@ pub(super) struct AgentRow {
     pub(super) agent: Option<String>,
     pub(super) focused: bool,
     pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
+    /// Fork: the pane's owner-granted delegation, if any.
+    pub(super) delegation: Option<crate::protocol::ClientShellDelegation>,
 }
 
 pub(super) fn ordered_agent_pane_ids(
@@ -317,6 +319,7 @@ pub(super) fn agent_row(
         agent: agent.agent.clone(),
         focused: agent.focused,
         rows,
+        delegation: pane.and_then(|pane| pane.delegation),
     })
 }
 
@@ -371,6 +374,38 @@ pub(super) fn render_agent_row(
         Paragraph::new(Line::from(spans)).style(row_style).render(
             Rect::new(rect.x, rect.y + index as u16, rect.width, 1),
             buffer,
+        );
+    }
+    // Fork: who is driving this pane, on the first line's right edge.
+    let now_ms = crate::supervisor::now_ms();
+    if let Some(delegation) = row.delegation.filter(|delegation| {
+        delegation
+            .expires_at_ms
+            .is_none_or(|expires| expires > now_ms)
+    }) {
+        let full = format!(
+            "◈ bot {}",
+            super::sidebar_activity::delegation_remaining_label(delegation, now_ms)
+        );
+        let text = if display_width(&full) + 8 <= rect.width as usize {
+            full
+        } else {
+            "◈".to_owned()
+        };
+        let width = display_width(&text) as u16;
+        let style = super::sidebar_activity::delegation_style(
+            palette,
+            delegation,
+            now_ms,
+            config.animations.allows_pulse(),
+        );
+        put_text(
+            buffer,
+            rect.right().saturating_sub(width + 1),
+            rect.y,
+            width,
+            &text,
+            style.patch(row_style),
         );
     }
 }

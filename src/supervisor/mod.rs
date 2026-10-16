@@ -3,6 +3,7 @@
 
 pub mod activity;
 pub mod background;
+pub mod delegation;
 pub mod digest;
 pub mod draft;
 pub mod fence;
@@ -18,6 +19,11 @@ pub use registry::SupervisorState;
 pub const HANDOFF_CONTROL_KIND: &str = "fork.supervisor.handoff.v1";
 /// Upper bound on the pane id carried by a handoff control message.
 pub const HANDOFF_PANE_ID_MAX_BYTES: usize = 128;
+/// Client-protocol `EndpointControl` kind an attached client sends when the operator picks an
+/// entry in the delegate menu (`supervisor_handoff` keybinding). `data` is
+/// `delegation::encode_control(choice, pane)`. Like the handoff, there is no API method,
+/// CLI command or config path that grants a delegation.
+pub const DELEGATE_CONTROL_KIND: &str = "fork.supervisor.delegate.v1";
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;

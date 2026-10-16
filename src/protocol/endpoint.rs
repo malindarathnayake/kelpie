@@ -150,6 +150,17 @@ pub fn normalize_snapshot_clock(snapshot: &mut ClientShellSnapshot, client_now_m
             workspace.last_activity_ms = u64::try_from(shifted).ok();
         }
     }
+    // Fork: delegation expiry is in the future, so it is shifted but never clamped to now.
+    for pane in &mut snapshot.panes {
+        if let Some(expires) = pane
+            .delegation
+            .as_mut()
+            .and_then(|delegation| delegation.expires_at_ms.as_mut())
+        {
+            let shifted = (i128::from(*expires) + offset).clamp(0, i128::from(u64::MAX));
+            *expires = u64::try_from(shifted).unwrap_or(u64::MAX);
+        }
+    }
 }
 
 pub fn agent_completions_message(

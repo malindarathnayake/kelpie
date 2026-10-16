@@ -138,14 +138,12 @@ pub fn handoff_pane_aliases(
     aliases
 }
 
-#[cfg(unix)]
 fn collect_snapshot_pane_ids(node: &LayoutSnapshot) -> Vec<u32> {
     let mut ids = Vec::new();
     collect_snapshot_ids_inner(node, &mut ids);
     ids
 }
 
-#[cfg(unix)]
 fn collect_snapshot_ids_inner(node: &LayoutSnapshot, ids: &mut Vec<u32>) {
     match node {
         LayoutSnapshot::Pane(id) => ids.push(*id),
@@ -154,6 +152,38 @@ fn collect_snapshot_ids_inner(node: &LayoutSnapshot, ids: &mut Vec<u32>) {
             collect_snapshot_ids_inner(second, ids);
         }
     }
+}
+
+/// Fork: permanent supervisor delegations saved with restored panes, keyed by the new pane
+/// id. Each becomes active only once that pane's agent reports the saved session again,
+/// which also guards against a pane mapped to the wrong slot.
+pub fn restored_pane_delegations(
+    snapshot: &SessionSnapshot,
+    workspaces: &[Workspace],
+) -> Vec<(PaneId, crate::supervisor::delegation::PendingRestore)> {
+    let mut restored = Vec::new();
+    for (ws_snap, workspace) in snapshot.workspaces.iter().zip(workspaces) {
+        for (tab_snap, tab) in ws_snap.tabs.iter().zip(&workspace.tabs) {
+            let old_ids = collect_snapshot_pane_ids(&tab_snap.layout);
+            for (old_id, new_id) in old_ids.into_iter().zip(tab.layout.pane_ids()) {
+                let Some(saved) = tab_snap
+                    .panes
+                    .get(&old_id)
+                    .and_then(|pane| pane.supervisor_delegation.as_ref())
+                else {
+                    continue;
+                };
+                restored.push((
+                    new_id,
+                    crate::supervisor::delegation::PendingRestore {
+                        agent_session: saved.agent_session.clone(),
+                        granted_at_ms: saved.granted_at_ms,
+                    },
+                ));
+            }
+        }
+    }
+    restored
 }
 
 fn migrated_public_pane_numbers_by_old_raw(
@@ -1554,6 +1584,7 @@ mod tests {
                             }),
                             agent_resume: None,
                             launch_argv: None,
+                            supervisor_delegation: None,
                         },
                     )]),
                     zoomed: false,
@@ -1636,6 +1667,7 @@ mod tests {
                                 agent_session: None,
                                 agent_resume: None,
                                 launch_argv: None,
+                                supervisor_delegation: None,
                             },
                         ),
                         (
@@ -1648,6 +1680,7 @@ mod tests {
                                 agent_session: None,
                                 agent_resume: None,
                                 launch_argv: None,
+                                supervisor_delegation: None,
                             },
                         ),
                     ]),
@@ -1702,6 +1735,7 @@ mod tests {
                     agent_session: None,
                     agent_resume: None,
                     launch_argv: None,
+                    supervisor_delegation: None,
                 },
             )
         };
@@ -1718,6 +1752,7 @@ mod tests {
             }),
             agent_resume: None,
             launch_argv: None,
+            supervisor_delegation: None,
         };
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
@@ -1799,6 +1834,46 @@ mod tests {
             .pane_details(&terminals)
             .into_iter()
             .all(|detail| detail.pane_id != agent_pane));
+    }
+
+    #[test]
+    fn only_permanent_delegations_with_a_session_round_trip_through_the_snapshot() {
+        use crate::supervisor::delegation::{DelegationChoice, Delegations};
+        let mut workspace = crate::workspace::Workspace::test_new("delegated");
+        let first = workspace.tabs[0].root_pane;
+        let second = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let third_ws = crate::workspace::Workspace::test_new("timed");
+        let third = third_ws.tabs[0].root_pane;
+        let workspaces = vec![workspace, third_ws];
+
+        let mut delegations = Delegations::default();
+        delegations.grant(
+            first,
+            DelegationChoice::Permanent,
+            7,
+            Some("s-first".into()),
+        );
+        delegations.grant(second, DelegationChoice::Permanent, 8, None);
+        delegations.grant(third, DelegationChoice::Hours8, 9, Some("s-third".into()));
+
+        let runtimes = crate::terminal::TerminalRuntimeRegistry::default();
+        let mut snapshot = crate::persist::capture(
+            &workspaces,
+            &std::collections::HashMap::new(),
+            &runtimes,
+            Some(0),
+            0,
+        );
+        crate::persist::record_delegations(&mut snapshot, &delegations);
+        // JSON round trip, as the session file does.
+        let snapshot: SessionSnapshot =
+            serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+
+        let restored = super::restored_pane_delegations(&snapshot, &workspaces);
+        assert_eq!(restored.len(), 1, "{restored:?}");
+        assert_eq!(restored[0].0, first);
+        assert_eq!(restored[0].1.agent_session, "s-first");
+        assert_eq!(restored[0].1.granted_at_ms, 7);
     }
 
     #[test]
@@ -2176,6 +2251,7 @@ mod tests {
                 agent_session: None,
                 agent_resume: None,
                 launch_argv: None,
+                supervisor_delegation: None,
             },
         );
         let mut history = SessionHistorySnapshot {

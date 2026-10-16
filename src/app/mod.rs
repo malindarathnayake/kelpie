@@ -424,6 +424,7 @@ impl App {
         let session_writer = Arc::new(std::sync::Mutex::new(crate::persist::SessionWriter::new(
             policy.restore_session && snapshot.is_none(),
         )));
+        let mut restored_delegations = Vec::new();
         let (workspaces, active, selected) = if let Some(snap) = snapshot {
             let history = config
                 .experimental
@@ -443,6 +444,7 @@ impl App {
                 render_notify.clone(),
                 render_dirty.clone(),
             );
+            restored_delegations = crate::persist::restored_pane_delegations(&snap, &ws);
             restored_terminals = terminals;
             restored_terminal_runtimes = terminal_runtimes.into();
             if ws.is_empty() {
@@ -577,7 +579,13 @@ impl App {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
-            supervisor: Default::default(),
+            supervisor: {
+                let mut supervisor = crate::supervisor::SupervisorState::default();
+                for (pane, restore) in restored_delegations {
+                    supervisor.delegations.queue_restore(pane, restore);
+                }
+                supervisor
+            },
         };
 
         state.terminals = restored_terminals;

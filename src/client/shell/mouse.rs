@@ -1731,6 +1731,7 @@ impl ClientShellState {
                         self.accept_close_confirmation(outcome);
                     }
                     Some(ClientShellOverlay::CloseStale(_)) => self.accept_close_stale(outcome),
+                    Some(ClientShellOverlay::Delegate(_)) => self.accept_delegate(outcome),
                     _ => {}
                 }
             } else if super::contains(self.hits.overlay_clear, point) {

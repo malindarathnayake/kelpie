@@ -6,6 +6,7 @@ impl ClientShellState {
             return matches!(
                 overlay,
                 ClientShellOverlay::ConfirmClose(_)
+                    | ClientShellOverlay::Delegate(_)
                     | ClientShellOverlay::Help(_)
                     | ClientShellOverlay::Navigator(_)
                     | ClientShellOverlay::WorktreeRemove(_)

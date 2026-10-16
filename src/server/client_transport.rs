@@ -524,6 +524,11 @@ pub(crate) enum ServerEvent {
     ClientShellPresentationSync { client_id: u64, token: String },
     /// Fork: the operator pressed the supervisor handoff keybinding for one pane.
     ClientShellSupervisorHandoff { client_id: u64, pane_id: String },
+    ClientShellSupervisorDelegate {
+        client_id: u64,
+        pane_id: String,
+        choice: crate::supervisor::delegation::DelegationChoice,
+    },
     /// A client-owned shell invoked one endpoint operation through this connection.
     ClientShellEndpointRequest {
         client_id: u64,
@@ -1359,6 +1364,22 @@ fn client_read_loop_with_endpoint_controls(
                 ServerEvent::ClientShellSupervisorHandoff {
                     client_id,
                     pane_id: data,
+                }
+            }
+            ClientMessage::EndpointControl { kind, data }
+                if kind == crate::supervisor::DELEGATE_CONTROL_KIND =>
+            {
+                let parsed = (data.len() <= crate::supervisor::HANDOFF_PANE_ID_MAX_BYTES + 16)
+                    .then(|| crate::supervisor::delegation::decode_control(&data))
+                    .flatten();
+                let Some((choice, pane_id)) = parsed else {
+                    debug!(client_id, "ignoring malformed supervisor delegate control");
+                    continue;
+                };
+                ServerEvent::ClientShellSupervisorDelegate {
+                    client_id,
+                    pane_id: pane_id.to_owned(),
+                    choice,
                 }
             }
             ClientMessage::EndpointControl { kind, data }

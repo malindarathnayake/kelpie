@@ -675,6 +675,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::AgentClearDraft(_) => "agent.clear_draft",
         Method::AgentResume(_) => "agent.resume",
         Method::AgentSubmitStatus(_) => "agent.submit_status",
+        Method::AgentUndelegate(_) => "agent.undelegate",
         Method::PaneReportPromptSubmitted(_) => "pane.report_prompt_submitted",
         Method::PaneSplit(_) => "pane.split",
         Method::PaneSwap(_) => "pane.swap",

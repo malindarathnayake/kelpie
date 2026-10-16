@@ -37,7 +37,7 @@ herdr is one of the few tools that genuinely moved me. The first time I used it,
 
 - **Detach without stopping work.** Terminals keep running in a background server when you close the client or lose your SSH connection. After a restart, Kelpie restores the saved layout and can resume supported agent sessions.
 - **Every agent in view.** Each pane is marked working, waiting, idle or done. The sidebar shows how long a pane has been idle, flags stale workspaces and marks the one waiting for you with `!!`.
-- **A supervisor that asks before it types.** `kelpie agent watch` streams a bounded view of every agent. `kelpie agent submit`, `answer`, `interrupt`, `reset` and `resume` write only into a clean input box, are fenced against your own keystrokes, and leave a receipt you can check with `kelpie agent submit-status`.
+- **A supervisor that asks before it types.** `kelpie agent watch` streams a bounded view of every agent. `kelpie agent submit`, `answer`, `interrupt`, `reset` and `resume` write only into a clean input box, are fenced against your own keystrokes, and leave a receipt you can check with `kelpie agent submit-status`. Hand a pane to the supervisor once, for 30m/2h/8h or permanently with `ctrl+b shift+a`; it shows a violet `◈ bot` badge and you can take it back any time.
 - **Agent profiles.** Claude Code, Codex and Cursor are built in: input box shape, placeholder style, submit, interrupt and clear keys. Claude Code also confirms delivery through its prompt hook.
 - **Runs what you already run.** Claude Code, Codex, Cursor, OpenCode, Grok and more. Kelpie does not wrap or replace them; it owns their terminals.
 - **Keyboard and mouse, both first-class.** tmux-style prefix keys (`ctrl+b`) and click, drag, split.

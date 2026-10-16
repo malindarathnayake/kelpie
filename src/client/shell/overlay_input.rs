@@ -481,6 +481,10 @@ impl ClientShellState {
             self.route_close_stale_key(key, outcome);
             return;
         }
+        if matches!(self.overlay, Some(ClientShellOverlay::Delegate(_))) {
+            self.route_delegate_key(key, outcome);
+            return;
+        }
 
         if matches!(self.overlay, Some(ClientShellOverlay::Onboarding)) {
             if matches!(

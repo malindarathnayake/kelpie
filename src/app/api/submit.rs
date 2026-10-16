@@ -695,8 +695,20 @@ impl App {
         // A valid one-shot operator handoff lifts the sticky owner-input latch for this one
         // write; the screen rule (and the equal-ms rule) still decide the draft. Esc can
         // discard a typed draft, so `interrupt` applies the same rule.
-        let operator_handoff = activity.valid_handoff(req.target_ref.generation, now);
-        let latched = activity.draft_latched() && operator_handoff.is_none();
+        // An owner-granted delegation lifts the latch for every write while it lasts, without
+        // consuming anything; the profile still reads the box, so owner text there rejects.
+        let delegated = self
+            .state
+            .supervisor
+            .delegations
+            .active(pane_id, now)
+            .is_some();
+        let operator_handoff = if delegated {
+            None
+        } else {
+            activity.valid_handoff(req.target_ref.generation, now)
+        };
+        let latched = activity.draft_latched() && operator_handoff.is_none() && !delegated;
         if req.kind == SubmitKind::ClearDraft {
             let last_input = activity.last_owner_input_ms();
             let last_output = activity.last_output_ms();
@@ -2444,6 +2456,214 @@ mod tests {
             assert!(f.handoff_valid(), "a rejected submit keeps the handoff");
             assert_eq!(f.app.state.supervisor.submits.len(), 0);
             f.assert_no_write().await;
+        }
+    }
+
+    // --- Owner-granted delegation ------------------------------------------------------------
+
+    impl Fixture {
+        fn delegate(&mut self, choice: crate::supervisor::delegation::DelegationChoice, now: u64) {
+            let public = self.app.public_pane_id(0, self.pane_id).unwrap();
+            self.app
+                .apply_supervisor_delegation(0, self.pane_id, &public, choice, now)
+                .expect("delegation applied");
+        }
+
+        fn undelegate(&mut self) -> String {
+            let public = self.app.public_pane_id(0, self.pane_id).unwrap();
+            self.app.handle_api_request(Request {
+                id: "ud".into(),
+                method: Method::AgentUndelegate(
+                    crate::api::schema::supervisor::AgentUndelegateParams { pane_id: public },
+                ),
+            })
+        }
+
+        fn digest_owner_input(&mut self) -> serde_json::Value {
+            let raw = self.app.handle_api_request(Request {
+                id: "dg".into(),
+                method: Method::AgentsDigest(crate::api::schema::supervisor::AgentsDigestParams {
+                    filter: None,
+                    page_cursor: None,
+                    trace_id: None,
+                }),
+            });
+            let value: serde_json::Value = serde_json::from_str(&raw).expect(&raw);
+            value["result"]["agents"][0]["owner_input"].clone()
+        }
+
+        async fn assert_written(&mut self, submit_id: &str, text: &str) {
+            let params = self.params(submit_id, text);
+            let raw = self.submit(params);
+            let accepted = receipt(&raw);
+            assert_eq!(accepted.state, SubmitState::Accepted, "{raw}");
+            assert!(!accepted.handoff, "a delegation consumes no handoff");
+            assert_eq!(self.rx.recv().await.unwrap(), Bytes::from(text.to_owned()));
+            assert_eq!(self.rx.recv().await.unwrap(), Bytes::from_static(b"\r"));
+            self.pump_submit_event().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn delegation_lets_every_write_through_after_owner_input() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        f.owner_input_then_output(1_000, 1_002);
+        f.assert_rejected_unknown("dl-before");
+        assert_eq!(f.digest_owner_input()["delegation"]["active"], false);
+
+        let now = crate::supervisor::now_ms();
+        f.delegate(DelegationChoice::Minutes30, now);
+        let owner = f.digest_owner_input();
+        assert_eq!(owner["delegation"]["active"], true, "{owner}");
+        assert_eq!(owner["delegation"]["permanent"], false, "{owner}");
+        assert_eq!(
+            owner["delegation"]["expires_at_ms"],
+            now + 30 * 60_000,
+            "{owner}"
+        );
+        assert_eq!(
+            owner["draft"], "clean",
+            "a delegated pane reports the real box"
+        );
+
+        f.assert_written("dl-1", "first").await;
+        f.assert_written("dl-2", "second").await;
+        assert!(
+            f.activity().draft_latched(),
+            "the latch itself is untouched; the delegation only lifts it"
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_or_revoked_delegation_restores_the_latch() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        f.owner_input_then_output(1_000, 1_002);
+        let now = crate::supervisor::now_ms();
+        // Granted 31 minutes ago for 30 minutes: already expired.
+        f.delegate(DelegationChoice::Minutes30, now - 31 * 60_000);
+        f.assert_rejected_unknown("dl-expired");
+        assert!(
+            f.app.expire_supervisor_delegations(now),
+            "the tick drops it"
+        );
+        assert!(!f.app.expire_supervisor_delegations(now), "only once");
+
+        f.delegate(DelegationChoice::Hours2, now);
+        f.assert_written("dl-live", "hello").await;
+        let raw = f.undelegate();
+        assert!(raw.contains("\"result\""), "{raw}");
+        f.assert_rejected_unknown("dl-revoked");
+        assert_eq!(f.digest_owner_input()["delegation"]["active"], false);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn delegated_pane_still_rejects_owner_text_or_an_unreadable_box() {
+        use crate::supervisor::delegation::DelegationChoice;
+        for (row, draft) in [("❯ owner typed", "dirty"), ("no prompt box", "unknown")] {
+            let mut f = fixture_with(Agent::Claude, AgentState::Idle, row);
+            f.owner_input_then_output(1_000, 1_002);
+            f.delegate(DelegationChoice::Permanent, crate::supervisor::now_ms());
+            let params = f.params("dl-screen", "hello");
+            let raw = f.submit(params);
+            assert_eq!(error_code(&raw), "draft_not_clean", "{raw}");
+            assert!(raw.contains(&format!("draft={draft}")), "{raw}");
+            f.assert_no_write().await;
+        }
+        // The equal-ms rule (owner input with no output after it) still holds.
+        let mut f = fixture();
+        f.owner_input_then_output(1_000, 1_000);
+        f.delegate(DelegationChoice::Permanent, crate::supervisor::now_ms());
+        f.assert_rejected_unknown("dl-equal");
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn owner_keys_during_a_delegated_write_still_fence_it() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        f.owner_input_then_output(1_000, 1_002);
+        f.delegate(DelegationChoice::Hours8, crate::supervisor::now_ms());
+        let params = f.params("dl-held", "hello");
+        let raw = f.app.handle_agent_submit_with_hold(
+            "s".into(),
+            params,
+            Some(Duration::from_millis(30)),
+        );
+        assert_eq!(receipt(&raw).state, SubmitState::Accepted);
+        f.activity().trip_submit_fences();
+        f.pump_submit_event().await;
+        f.pump_submit_event().await;
+        let r = receipt(&f.status("dl-held"));
+        assert_eq!(
+            (r.state, r.reason),
+            (SubmitState::Fenced, Some(SubmitReason::OwnerInput))
+        );
+        f.assert_no_write().await;
+        assert!(
+            f.app
+                .state
+                .supervisor
+                .delegations
+                .active(f.pane_id, crate::supervisor::now_ms())
+                .is_some(),
+            "owner typing never revokes"
+        );
+    }
+
+    #[tokio::test]
+    async fn delegation_survives_generation_bumps_and_ends_with_the_pane() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        f.owner_input_then_output(1_000, 1_002);
+        f.delegate(DelegationChoice::Hours2, crate::supervisor::now_ms());
+        for reason in [
+            crate::api::schema::supervisor::GenerationReason::ResetWritten,
+            crate::api::schema::supervisor::GenerationReason::SessionChanged,
+            crate::api::schema::supervisor::GenerationReason::PaneMoved,
+        ] {
+            f.app
+                .state
+                .supervisor
+                .bump_generation(f.pane_id, reason, 2_000);
+        }
+        f.assert_written("dl-gen", "after bumps").await;
+        f.app.state.supervisor.remove_pane(f.pane_id);
+        assert!(f
+            .app
+            .state
+            .supervisor
+            .delegations
+            .active(f.pane_id, crate::supervisor::now_ms())
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn agent_get_shows_delegation_and_no_api_method_grants_one() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        f.delegate(DelegationChoice::Permanent, crate::supervisor::now_ms());
+        let public = f.app.public_pane_id(0, f.pane_id).unwrap();
+        let raw = f.app.handle_api_request(Request {
+            id: "g".into(),
+            method: Method::AgentGet(crate::api::schema::AgentTarget { target: public }),
+        });
+        let value: serde_json::Value = serde_json::from_str(&raw).expect(&raw);
+        let delegation = &value["result"]["agent"]["delegation"];
+        assert_eq!(delegation["active"], true, "{raw}");
+        assert_eq!(delegation["permanent"], true, "{raw}");
+
+        // The socket API has no grant: a made-up method does not parse.
+        for method in ["agent.delegate", "agent.set_delegation", "pane.delegate"] {
+            let request = serde_json::json!({
+                "id": "x", "method": method, "params": {"pane_id": "w1:p1", "duration": "2h"}
+            });
+            assert!(
+                serde_json::from_value::<Request>(request).is_err(),
+                "{method} must not exist"
+            );
         }
     }
 

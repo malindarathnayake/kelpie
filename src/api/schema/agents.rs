@@ -201,6 +201,9 @@ pub struct AgentInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreground_cwd: Option<String>,
     pub revision: u64,
+    /// Fork: owner-granted supervisor delegation of the pane; absent when not delegated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<super::supervisor::DelegationFacts>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

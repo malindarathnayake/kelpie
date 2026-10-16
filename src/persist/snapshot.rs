@@ -111,6 +111,46 @@ pub struct PaneSnapshot {
     pub agent_resume: Option<PaneAgentResumeSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_argv: Option<Vec<String>>,
+    /// Fork: a permanent supervisor delegation, restored only for the same agent session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supervisor_delegation: Option<PaneDelegationSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneDelegationSnapshot {
+    pub agent_session: String,
+    pub granted_at_ms: u64,
+}
+
+/// Fork: records permanent delegations on the captured panes (timed ones are never saved).
+pub fn record_delegations(
+    snapshot: &mut SessionSnapshot,
+    delegations: &crate::supervisor::delegation::Delegations,
+) {
+    let saved = delegations
+        .persistable()
+        .filter_map(|(pane, delegation)| {
+            Some((
+                pane.raw(),
+                PaneDelegationSnapshot {
+                    agent_session: delegation.agent_session.clone()?,
+                    granted_at_ms: delegation.granted_at_ms,
+                },
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    if saved.is_empty() {
+        return;
+    }
+    for workspace in &mut snapshot.workspaces {
+        for tab in &mut workspace.tabs {
+            for (raw, pane) in &mut tab.panes {
+                if let Some(delegation) = saved.get(raw) {
+                    pane.supervisor_delegation = Some(delegation.clone());
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -388,6 +428,7 @@ fn capture_tab(
                 agent_session,
                 agent_resume,
                 launch_argv,
+                supervisor_delegation: None,
             },
         );
     }
@@ -707,6 +748,7 @@ mod tests {
                 agent_session: None,
                 agent_resume: None,
                 launch_argv: None,
+                supervisor_delegation: None,
             },
         );
         panes.insert(
@@ -719,6 +761,7 @@ mod tests {
                 agent_session: None,
                 agent_resume: None,
                 launch_argv: None,
+                supervisor_delegation: None,
             },
         );
 
@@ -1405,6 +1448,7 @@ mod tests {
                 agent_session: None,
                 agent_resume: None,
                 launch_argv: None,
+                supervisor_delegation: None,
             },
         );
         panes.insert(
@@ -1419,6 +1463,7 @@ mod tests {
                 agent_session: None,
                 agent_resume: None,
                 launch_argv: None,
+                supervisor_delegation: None,
             },
         );
 

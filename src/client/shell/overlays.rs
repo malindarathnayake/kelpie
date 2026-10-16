@@ -1,6 +1,7 @@
 use super::*;
 
 mod close_stale_overlay;
+mod delegate_overlay;
 mod host_facts_overlay;
 mod settings_overlay;
 mod worktree_overlays;
@@ -88,6 +89,9 @@ pub(crate) fn render_client_overlay(
         }
         ClientShellOverlay::CloseStale(v) => {
             close_stale_overlay::render_close_stale_overlay(b, v, p)
+        }
+        ClientShellOverlay::Delegate(v) => {
+            delegate_overlay::render_delegate_overlay(b, v, crate::supervisor::now_ms(), p)
         }
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }

@@ -2454,6 +2454,15 @@ mod owner_wire {
         payload
     }
 
+    /// `EndpointControl { "fork.supervisor.delegate.v1", "<choice> <pane_id>" }`: what the
+    /// attached client sends when the operator picks an entry in the delegate menu.
+    pub fn delegate(choice: &str, pane_id: &str) -> Vec<u8> {
+        let mut payload = varint_u32(CLIENT_ENDPOINT_CONTROL);
+        payload.extend(string("fork.supervisor.delegate.v1"));
+        payload.extend(string(&format!("{choice} {pane_id}")));
+        payload
+    }
+
     /// `ClientShellPaneInput { pane_id, [TextCommit(text), Key(Enter)?] }`.
     pub fn pane_text(pane_id: &str, text: &str, enter: bool) -> Vec<u8> {
         let mut payload = varint_u32(CLIENT_SHELL_PANE_INPUT);
@@ -2512,6 +2521,14 @@ impl OwnerClient {
             .as_ref()
             .unwrap()
             .send(owner_wire::handoff(pane))
+            .expect("owner client worker exited");
+    }
+
+    fn delegate(&self, pane: &str, choice: &str) {
+        self.frames
+            .as_ref()
+            .unwrap()
+            .send(owner_wire::delegate(choice, pane))
             .expect("owner client worker exited");
     }
 
@@ -2876,6 +2893,73 @@ fn s6h_operator_handoff_allows_exactly_one_submit() {
     let _ = watch.wait();
     thread::sleep(Duration::from_millis(SUBMIT_ENTER_DELAY_MS + 1000));
     assert_eq!(fixture.screen_count(&pane, "w2-handoff-second"), 0);
+    drop(owner);
+}
+
+/// Fork: an owner-granted delegation through the real attached-client control lets every
+/// supervisor write through despite earlier owner keys; revoking it from the CLI restores the
+/// latch. No socket method grants one.
+#[test]
+fn s11_delegation_allows_repeated_submits_until_revoked() {
+    let mut fixture = Fixture::start_with_supervisor();
+    let pane = fixture.focused_pane();
+    fixture.launch_stand_in_claude(&pane);
+    fixture.report(&pane, "claude", "idle");
+
+    let owner = OwnerClient::connect(&fixture);
+    owner.type_text(&pane, "echo s11-owner-probe", true);
+    assert!(
+        fixture.wait_output(&pane, "s11-owner-probe"),
+        "attached-client keys never reached {pane}"
+    );
+    fixture.show_prompt_box(&pane, "s11-box-1.txt", "\u{276f} ", "footer-s11-1");
+    let latched = fixture.digest_agent_until(&pane, "an owner input stamp", |agent| {
+        agent["owner_input"]["last_owner_input_at_ms"].is_u64()
+    });
+    assert_eq!(latched["owner_input"]["draft"], "unknown", "{latched}");
+    let before = fixture.submit_error(&target_ref_arg(&latched), "s11-0", &comment_line("s11-0"));
+    assert_eq!(before["error"]["code"], "draft_not_clean", "{before}");
+
+    owner.delegate(&pane, "30m");
+    let delegated = fixture.digest_agent_until(&pane, "an active delegation", |agent| {
+        agent["owner_input"]["delegation"]["active"] == true
+    });
+    assert_eq!(
+        delegated["owner_input"]["delegation"]["permanent"], false,
+        "{delegated}"
+    );
+    assert!(
+        delegated["owner_input"]["delegation"]["expires_at_ms"].is_u64(),
+        "{delegated}"
+    );
+    assert_eq!(delegated["owner_input"]["draft"], "clean", "{delegated}");
+
+    for (index, marker) in ["s11-first", "s11-second"].iter().enumerate() {
+        if index > 0 {
+            fixture.show_prompt_box(&pane, "s11-box-2.txt", "\u{276f} ", "footer-s11-2");
+            fixture.digest_agent_until(&pane, "a clean box again", |agent| {
+                agent["owner_input"]["draft"] == "clean"
+            });
+        }
+        let agent = fixture.digest_agent(&pane);
+        let text = comment_line(marker);
+        let submit_id = format!("s11-{}", index + 1);
+        let accepted = fixture.submit_ok(&target_ref_arg(&agent), &submit_id, &text);
+        assert_eq!(accepted["state"], "accepted", "{accepted}");
+        assert_eq!(accepted["handoff"], false, "{accepted}");
+        fixture.wait_receipt(&submit_id, &text, "written", |receipt| {
+            receipt["state"] == "written"
+        });
+    }
+
+    let revoked = fixture.cli_json(&["agent", "undelegate", "--pane", &pane]);
+    assert!(revoked.get("error").is_none(), "{revoked}");
+    fixture.show_prompt_box(&pane, "s11-box-3.txt", "\u{276f} ", "footer-s11-3");
+    let after = fixture.digest_agent_until(&pane, "the delegation ended", |agent| {
+        agent["owner_input"]["delegation"]["active"] == false
+    });
+    let error = fixture.submit_error(&target_ref_arg(&after), "s11-3", &comment_line("s11-3"));
+    assert_eq!(error["error"]["code"], "draft_not_clean", "{error}");
     drop(owner);
 }
 

@@ -69,13 +69,14 @@ impl HeadlessServer {
             }
         }
 
-        let snapshot = crate::persist::capture(
+        let mut snapshot = crate::persist::capture(
             &self.app.state.workspaces,
             &self.app.state.terminals,
             &self.app.terminal_runtimes,
             self.app.state.active,
             self.app.state.selected,
         );
+        crate::persist::record_delegations(&mut snapshot, &self.app.state.supervisor.delegations);
 
         let mut handoff_entries = Vec::new();
         for (terminal_id, runtime) in self.app.terminal_runtimes.iter() {
