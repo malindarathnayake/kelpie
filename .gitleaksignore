@@ -1,0 +1,19 @@
+# Reviewed gitleaks false positives, by exact fingerprint (commit:file:rule:line).
+# Each entry was read by hand; none is a credential. Add new entries only the
+# same way: one finding, one line, with the reason above it.
+
+# Test constant: a fixed 128-bit notification token used to check URI parsing.
+347f9c99bc95672e5ebcb26753648e85801d3c71:src/platform/windows/notifications.rs:generic-api-key:502
+
+# Vendored libghostty-vt: a struct field assignment (modify_other_keys_2).
+425c86179791cd32e2d4ce0ae7f269940b4b0663:vendor/libghostty-vt/src/terminal/snapshot/terminal.zig:generic-api-key:1035
+
+# Vendored libghostty-vt release workflows: `echo "$APPLE_NOTARIZATION_KEY"`
+# writes a CI secret variable to a file. The value is never in the repository.
+41dd733ca7123c9ac4bfc6c781697a660e95b052:vendor/libghostty-vt/.github/workflows/release-tag.yml:generic-api-key:259
+41dd733ca7123c9ac4bfc6c781697a660e95b052:vendor/libghostty-vt/.github/workflows/release-tip.yml:generic-api-key:408
+41dd733ca7123c9ac4bfc6c781697a660e95b052:vendor/libghostty-vt/.github/workflows/release-tip.yml:generic-api-key:653
+41dd733ca7123c9ac4bfc6c781697a660e95b052:vendor/libghostty-vt/.github/workflows/release-tip.yml:generic-api-key:850
+
+# Vendored libghostty-vt: a keybind example in a doc comment (chain=close_surface).
+41dd733ca7123c9ac4bfc6c781697a660e95b052:vendor/libghostty-vt/src/input/Binding.zig:generic-api-key:4812

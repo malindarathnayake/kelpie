@@ -232,6 +232,10 @@ The release must publish these assets:
 
 - `kelpie-windows-x64.zip`: `kelpie.exe`, its app-local ConPTY runtime, `THIRD-PARTY-NOTICES/`, `install.ps1` and `README.txt`. Never publish a bare executable for Windows.
 - `kelpie-macos-arm64.tar.gz`: `kelpie`, `install.sh` and `README.txt`.
+- `kelpie-sbom.cdx.json` and `kelpie-sbom.spdx.json`: SBOMs of `Cargo.lock`, gated by Grype on high or critical.
+- `SHA256SUMS.txt`: hashes of all of the above, also printed in the release notes. Both packages carry a build-provenance attestation.
+
+Security controls and how they are verified are described in `SECURITY.md`. Keep it accurate when changing a workflow, a pin or a scanner.
 
 In-app updates stay off (`RELEASE_FEED_ENABLED` in `src/update.rs`) until Kelpie publishes its own update manifest; see `distribution/PLACEHOLDERS.md`.
 
