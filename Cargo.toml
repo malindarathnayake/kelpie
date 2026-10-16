@@ -22,6 +22,9 @@ include = [
 
 [workspace]
 members = ["crates/ghostty-vt"]
+# The vendored crate is used through [patch.crates-io], not as a member; excluding
+# it lets tools such as CodeQL load its manifest on its own.
+exclude = ["vendor/portable-pty"]
 default-members = [".", "crates/ghostty-vt"]
 
 [dependencies]
