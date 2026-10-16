@@ -31,3 +31,8 @@ __pycache__/
 
 /.wrangler/
 **/.wrangler/
+
+# Local tool state
+/.claude/
+/.codex/
+/Microsoft/
