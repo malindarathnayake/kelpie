@@ -1945,6 +1945,7 @@ mod tests {
                             }),
                             agent_resume: None,
                             launch_argv: None,
+                            supervisor_delegation: None,
                         },
                     )]),
                     zoomed: false,

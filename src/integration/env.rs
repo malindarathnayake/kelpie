@@ -1,7 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 #[cfg(test)]
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::MutexGuard;
 
 use portable_pty::CommandBuilder;
 
@@ -255,8 +255,12 @@ impl Drop for IntegrationEnvLock {
 
 #[cfg(test)]
 pub(crate) fn integration_env_lock() -> IntegrationEnvLock {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    // Integration tests change HOME and XDG_STATE_HOME, which the config and
+    // manifest tests also read, so both share the config env lock. A panic in one
+    // test must not poison every later test, so a poisoned lock is reused.
+    let guard = crate::config::test_config_env_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     IntegrationEnvLock {
         _guard: guard,
         #[cfg(windows)]
