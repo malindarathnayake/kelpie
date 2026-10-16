@@ -318,7 +318,7 @@ fn write_plugin_manifest(root: &Path, plugin_id: &str) {
             r#"id = "{plugin_id}"
 name = "Live handoff test"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 "#
         ),

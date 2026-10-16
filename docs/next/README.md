@@ -47,12 +47,26 @@ herdr is one of the few tools that genuinely moved me. The first time I used it,
 
 ## Install
 
-Kelpie has no release feed yet, so build it from source. Self-update is switched off until it does.
+Download the latest release for your platform from [kelpie.multicastbits.com](https://kelpie.multicastbits.com) or [GitHub Releases](https://github.com/malindarathnayake/kelpie/releases/latest), unpack it, and run the installer inside:
+
+```powershell
+# Windows x64, in the unzipped folder
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Integrations claude,codex,cursor
+```
+
+```sh
+# Mac (Apple Silicon), in the extracted folder
+sh install.sh claude codex cursor
+```
+
+Then open a new terminal and run `kelpie`. Self-update is off for now; to update, install the newer release the same way.
+
+### Build from source
 
 Requirements: Rust (the version in `rust-toolchain.toml`) and Zig 0.16.0.
 
 ```powershell
-git clone <kelpie repository>
+git clone https://github.com/malindarathnayake/kelpie
 cd kelpie
 cargo build --release
 .\target\release\kelpie.exe

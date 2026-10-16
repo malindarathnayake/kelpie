@@ -1,12 +1,12 @@
 [package]
 name = "kelpie"
-version = "0.9.3"
+version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
 license = "Apache-2.0"
-repository = "https://kelpie.example/source"
-homepage = "https://kelpie.example"
+repository = "https://github.com/malindarathnayake/kelpie"
+homepage = "https://kelpie.multicastbits.com"
 keywords = ["terminal", "tui", "ai", "agents", "multiplexer"]
 categories = ["command-line-utilities"]
 include = [

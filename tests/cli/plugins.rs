@@ -125,7 +125,7 @@ fn plugin_link_works_offline_and_is_global() {
 id = "example.offline"
 name = "Offline Plugin"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 "#,
     )
@@ -184,7 +184,7 @@ fn plugin_install_through_named_server_is_global() {
 id = "example.global-plugin"
 name = "Global Plugin"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 "#,
     )
@@ -626,7 +626,7 @@ fn plugin_updates_preserve_running_consumers_and_failed_activation() {
 id = "example.live"
 name = "Live"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 [[actions]]
 id = "read"
 title = "Read"
@@ -849,7 +849,7 @@ fn plugin_link_list_unlink_cli_smoke_test() {
 id = "example.layout"
 name = "Layout"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 description = "Apply a preferred Kelpie layout"
 
 [[actions]]
@@ -1020,7 +1020,7 @@ fn plugin_install_list_uninstall_offline_cli_smoke_test() {
 id = "example.worktree-bootstrap"
 name = "Worktree Bootstrap"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
@@ -1156,7 +1156,7 @@ fn plugin_install_build_failure_does_not_register_or_create_checkout() {
 id = "example.build-fail"
 name = "Build Fail"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
@@ -1252,7 +1252,7 @@ fn plugin_install_build_spawn_failure_prints_clean_error() {
 id = "example.missing-tool"
 name = "Missing Tool"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
@@ -1341,7 +1341,7 @@ fn plugin_install_rejects_manifest_changed_by_build() {
 id = "example.manifest-mutator"
 name = "Manifest Mutator"
 version = "0.1.0"
-min_kelpie_version = "0.6.10"
+min_kelpie_version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
