@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/hero.svg" alt="A kelpie sitting on a rock at dusk, watching a flock of sheep below" width="560" />
+  <img src="assets/hero-readme.svg" alt="A kelpie sitting on a rock at dusk, watching a flock of sheep below" width="100%" />
 </p>
 
 ---
