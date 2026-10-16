@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Feature requests and ideas
-    url: https://kelpie.example/source/discussions
+    url: https://github.com/malindarathnayake/kelpie/discussions
     about: Start a discussion for feature requests, ideas, behavior changes, and product direction.
   - name: Questions and contribution proposals
-    url: https://kelpie.example/source/discussions
+    url: https://github.com/malindarathnayake/kelpie/discussions
     about: Use discussions for questions, contribution proposals, and anything that is not a reproducible bug.
