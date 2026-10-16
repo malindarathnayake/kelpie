@@ -337,6 +337,44 @@ fn inactive_auto_named_tab_label_does_not_stack_terminal_faint() {
 }
 
 #[test]
+fn prefix_bar_lists_key_hints_and_keeps_all_keys_when_narrow() {
+    let render = |width: u16| {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        state.handle_input_bytes(&[0x02]);
+        let frame = state.compose(width, 20).expect("prefix frame");
+        frame
+            .cells
+            .chunks(frame.width as usize)
+            .map(|row| {
+                row.iter()
+                    .map(|cell| cell.symbol.as_str())
+                    .collect::<String>()
+            })
+            .find(|row| row.contains("PREFIX"))
+            .expect("prefix bar row")
+    };
+
+    let wide = render(220);
+    for hint in [
+        "s settings",
+        "shift+a delegate",
+        "t themes",
+        "q detach",
+        "ctrl+b send prefix",
+        "? all keys",
+    ] {
+        assert!(wide.contains(hint), "missing {hint:?} in {wide:?}");
+    }
+
+    let narrow = render(70);
+    assert!(narrow.contains("? all keys"), "bar: {narrow:?}");
+    assert!(narrow.contains("s settings"), "bar: {narrow:?}");
+    assert!(!narrow.contains("q detach"), "bar: {narrow:?}");
+}
+
+#[test]
 fn configured_prefix_is_client_owned_and_renders_its_bar() {
     let config = toml::from_str::<Config>(
         r#"
@@ -360,7 +398,7 @@ detach = "prefix+x"
     let prefix = state.handle_input_bytes(&[0x01]);
     assert!(prefix.requests.is_empty());
     assert!(prefix.repaint);
-    let frame = state.compose(106, 20).expect("prefix frame");
+    let frame = state.compose(200, 20).expect("prefix frame");
     let text = frame
         .cells
         .chunks(frame.width as usize)

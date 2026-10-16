@@ -89,13 +89,48 @@ pub(super) fn render_mode_bar(
                     (" ".to_owned(), base),
                     ("esc".to_owned(), key),
                     (" cancel  ".to_owned(), base),
-                    (prefix, key),
-                    (" send prefix  ".to_owned(), base),
-                    (prefix_rhs(&keybinds.keybinds.workspace_picker), key),
-                    (" workspace nav  ".to_owned(), base),
-                    (prefix_rhs(&keybinds.keybinds.help), key),
-                    (" keybinds".to_owned(), base),
                 ]);
+                // Fork: show the most useful prefix keys, in priority order, as many as fit.
+                // "? all keys" is always kept at the end so the full list stays discoverable.
+                let bindings = &keybinds.keybinds;
+                let hints = [
+                    (&bindings.settings, "settings"),
+                    (&bindings.supervisor_handoff, "delegate"),
+                    (&bindings.theme_picker, "themes"),
+                    (&bindings.split_vertical, "split"),
+                    (&bindings.new_tab, "new tab"),
+                    (&bindings.workspace_picker, "workspaces"),
+                    (&bindings.detach, "detach"),
+                ];
+                let tail_key = prefix_rhs(&bindings.help);
+                let tail_text = " all keys";
+                let width_of = |text: &str| UnicodeWidthStr::width(text);
+                let used: usize = segments.iter().map(|(text, _)| width_of(text)).sum();
+                let mut room = usize::from(bar.width)
+                    .saturating_sub(used + width_of(&tail_key) + width_of(tail_text));
+                let mut fits = |label: &str, text: &str| {
+                    let need = width_of(label) + width_of(text);
+                    if need <= room {
+                        room -= need;
+                        true
+                    } else {
+                        false
+                    }
+                };
+                for (binding, label) in hints {
+                    let Some(rhs) = binding.prefix_rhs_label() else {
+                        continue;
+                    };
+                    let text = format!(" {label}  ");
+                    if fits(&rhs, &text) {
+                        segments.extend([(rhs, key), (text, base)]);
+                    }
+                }
+                let send_text = " send prefix  ";
+                if fits(&prefix, send_text) {
+                    segments.extend([(prefix, key), (send_text.to_owned(), base)]);
+                }
+                segments.extend([(tail_key, key), (tail_text.to_owned(), base)]);
             }
             ClientShellMode::Navigate => {
                 segments.extend([
