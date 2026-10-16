@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+- The Windows installer now installs every agent in `-Integrations claude,codex,cursor`; `powershell -File` had passed the list as one name, so no hooks were installed.
+
+### Security
+- The SBOMs now also list the vendored terminal engine (libghostty-vt), the libraries it compiles in (uucode, simdutf, highway, wuffs) and the bundled Windows ConPTY.
+
 ## [0.1.1] - 2026-10-16
 
 ### Security

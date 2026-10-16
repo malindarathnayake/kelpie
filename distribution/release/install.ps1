@@ -5,6 +5,8 @@ param(
     [string[]]$Integrations = @()
 )
 $ErrorActionPreference = 'Stop'
+# `powershell -File` passes "claude,codex,cursor" as one string; split it.
+$Integrations = @($Integrations | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
 $source = Join-Path $PSScriptRoot 'kelpie.exe'
 if (-not (Test-Path $source)) { throw "kelpie.exe not found next to this script." }

@@ -170,13 +170,15 @@ jobs:
             "3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b  grype.tar.gz" | sha256sum -c -
           tar -xzf syft.tar.gz syft
           tar -xzf grype.tar.gz grype
-      # Cargo.lock is the full Rust dependency tree compiled into the binary.
+      # Cargo.lock is the full Rust dependency tree compiled into the binary;
+      # the vendored Zig engine and Windows ConPTY are added from their pins.
       - name: Generate SBOMs and gate on high or critical
         run: |
           mkdir sbom
           ./syft scan file:Cargo.lock \
             -o cyclonedx-json=sbom/kelpie-sbom.cdx.json \
             -o spdx-json=sbom/kelpie-sbom.spdx.json
+          python3 -I scripts/sbom_add_vendored.py . sbom/kelpie-sbom.cdx.json sbom/kelpie-sbom.spdx.json
           ./grype sbom:sbom/kelpie-sbom.cdx.json --fail-on high
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

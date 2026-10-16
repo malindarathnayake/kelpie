@@ -77,14 +77,14 @@ An attestation proves where and how a file was built. It does not prove the code
 | CodeQL (`security-extended`) | Rust source and the workflow files | Code scanning alerts |
 | gitleaks 8.30.1 | Secrets in the tree and the full git history, including herdr's | Any finding |
 | zizmor 1.30.1 (`pedantic`) | Workflow injection, permissions, credential persistence, unpinned or impostor actions | Any finding |
-| Syft 1.52.0 + Grype 0.119.0 | SBOM of every Rust dependency in `Cargo.lock`, checked for known vulnerabilities | High or critical (also gates every release) |
+| Syft 1.52.0 + Grype 0.119.0 | SBOM of every Rust dependency in `Cargo.lock`, plus the vendored terminal engine, the libraries it compiles in and the bundled Windows ConPTY (`scripts/sbom_add_vendored.py`), checked for known vulnerabilities | High or critical (also gates every release) |
 
 Reviewed false positives are listed one by one in `.gitleaksignore`, each with the reason.
 
 ## Not yet in place
 
 - **Code signing.** Windows SmartScreen and macOS Gatekeeper will warn until the binaries are signed and notarized. This is planned.
-- **The vendored terminal engine** (`vendor/libghostty-vt`, Zig) is not covered by CodeQL or the SBOM; its upstream changes are reviewed when it is updated (`vendor/libghostty-vt.patches.md`).
+- **The vendored terminal engine** (`vendor/libghostty-vt`, Zig) is listed in the SBOM but not analysed by CodeQL; its upstream changes are reviewed when it is updated (`vendor/libghostty-vt.patches.md`).
 
 ## Scope
 
