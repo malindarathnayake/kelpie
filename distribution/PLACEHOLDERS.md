@@ -32,5 +32,4 @@ only after the manifest URLs point at a feed Kelpie publishes.
 - `ogulcancelik/herdr-plugin-examples`: a real third-party repository; the
   examples target herdr's plugin API and may need porting.
 - `github.com/herdrdev/herdr` in the README credits.
-- `SPONSORS.md`: herdr's sponsors, unchanged.
 - `docs/Brand/`: the brand guide, which says "built on herdr" deliberately.

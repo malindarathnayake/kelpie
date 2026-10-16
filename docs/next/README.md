@@ -91,8 +91,6 @@ If you are an AI agent working in this repository, read [`AGENTS.md`](./AGENTS.m
 
 Kelpie is a community fork built on [herdr](https://github.com/herdrdev/herdr) by Ogulcan Celik and its contributors. The runtime, the terminal engine, the agent detection and most of what makes Kelpie work started there. Thank you.
 
-herdr's past sponsors and backers are listed in [SPONSORS.md](./SPONSORS.md).
-
 ## License
 
 Kelpie is licensed under the [Apache License 2.0](LICENSE), the same license as herdr.

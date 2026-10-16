@@ -16,18 +16,9 @@ __pycache__/
 !/docs/themes/
 !/docs/next/
 !/docs/next/**
-!/docs/preview/
-!/docs/preview/**
-!/docs/versions/
-!/docs/versions/**
 /.local/
 /backlog
 
-/.pi/todos
-/.pi/issues
-/.pi/cache
-/result
-/result-*
 
 /.wrangler/
 **/.wrangler/

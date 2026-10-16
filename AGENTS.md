@@ -111,9 +111,9 @@ Do all code edits, tests, and validation inside the task worktree.
 
 Commit on the task branch in that worktree.
 
-For substantive feature and bug-fix work, default to opening a pull request instead of pushing `master` directly. Small, low-risk changes and documentation-only updates can use a lighter workflow when the maintainer prefers it.
+For substantive feature and bug-fix work, default to opening a pull request instead of pushing `main` directly. Small, low-risk changes and documentation-only updates can use a lighter workflow when the maintainer prefers it.
 
-Immediately before opening a pull request, fetch `origin` and make sure the task branch is based on the current `origin/master`; rebase it when behind, then rerun relevant validation before pushing. If `master` advances while the pull request is under review and GitHub marks it behind, update the branch and repeat checks and bot review on the new head.
+Immediately before opening a pull request, fetch `origin` and make sure the task branch is based on the current `origin/main`; rebase it when behind, then rerun relevant validation before pushing. If `main` advances while the pull request is under review and GitHub marks it behind, update the branch and repeat checks and bot review on the new head.
 
 After opening or updating a pull request, monitor all checks to completion with `gh pr checks --watch` or an equivalent command. Treat Greptile and CodeRabbit as part of CI: wait for both to review the latest pushed commit, not only for the build and test jobs to pass. Evaluate every actionable finding. Fix findings you agree with and reply with the fix; reply inline with a concise technical reason when you disagree. After any fix, wait for CI and both review bots again on the new head.
 
@@ -183,25 +183,19 @@ When updating libghostty-vt, check every active patch in `vendor/libghostty-vt.p
 
 ## Docs
 
-`skills/kelpie/SKILL.md` tracks the latest stable Kelpie release because the unversioned `npx skills add malindarathnayake/kelpie --skill kelpie -g` command installs it from `master`. Do not update this file in feature or preview work. Review and update it only during stable release preparation, and include the change in the release commit with the `Cargo.toml` version bump. Preview builds keep the latest stable skill.
+`skills/kelpie/SKILL.md` tracks the latest Kelpie release because the unversioned `npx skills add malindarathnayake/kelpie --skill kelpie -g` command installs it from `main`. Do not update this file in feature work. Review and update it when preparing a release, and include the change in the release commit with the `Cargo.toml` version bump.
 
-Unreleased docs live in `docs/next/website/src/content/docs/`. Update those when a user-facing change needs docs before the next release. They are committed drafts but are never production website input. `docs/next/README.md` stages root README changes. `docs/next/CHANGELOG.md` is curated during stable release preparation, not maintained by normal feature and fix work.
+Unreleased docs live in `docs/next/website/src/content/docs/`. Update those when a user-facing change needs docs before the next release. They are committed drafts but are never production website input. `docs/next/README.md` stages root README changes. `docs/next/CHANGELOG.md` is curated when preparing a release, not maintained by normal feature and fix work.
 
-The active preview release docs live in `docs/preview/website/`. Preview CI owns this mutable snapshot and commits it atomically with `distribution/preview.json`; never edit it manually. Validate it with `node scripts/docs/preview.mjs check`.
+Normal feature and fix work must not edit `docs/next/CHANGELOG.md`; this keeps long-lived branches from conflicting over one shared release file. When refreshing an older pull request, remove its changelog-only diff. Keep user-facing commit subjects descriptive and include required `refs #<issue-number>` lines so release preparation can inventory the full range. When preparing a release, use that inventory to human-write and curate the user-facing entries in `docs/next/CHANGELOG.md`; generated commit lists are source material, not final release prose. Do not add changelog entries for website-only, documentation-only, CI, build-pipeline, or repository-maintenance changes.
 
-Published stable-release documentation lives in `docs/versions/`. Release CI seeds each version from the tagged `docs/next` tree, and maintainers may make corrections and improvements that apply to that version afterward, without another Kelpie release. Do not document unreleased behavior in a published version. Apply each change separately to `docs/next` when it also applies to future releases; never replace a published tree with the current draft. The private website renders `/docs/preview/` from the active preview snapshot, `/docs/<version>/` from the maintained version directories, and `/docs/` from the version selected by `docs/versions/manifest.json`. Kelpie remains the source of truth for the public snapshots.
-
-During release review, finalize `docs/next` and run `just release-docs-check`. Do not copy draft docs into preview or published versions manually. Preview CI snapshots the selected commit. After a stable GitHub Release succeeds, release CI seeds a new version from the exact tag and updates `distribution/latest.json`. The resulting master commit triggers the private website deployment.
-
-Normal feature and fix work must not edit `docs/next/CHANGELOG.md`; this keeps long-lived branches from conflicting over one shared release file. When refreshing an older pull request, remove its changelog-only diff. Keep user-facing commit subjects descriptive and include required `refs #<issue-number>` lines so stable release preparation can inventory the full range. During the pre-release audit, use that inventory to human-write and curate the user-facing entries in `docs/next/CHANGELOG.md`; generated commit lists are source material, not final release prose. Do not add changelog entries for website-only, documentation-only, CI, build-pipeline, or repository-maintenance changes.
-
-Normal feature/fix work should not edit root `README.md`, root `CHANGELOG.md`, published version docs, or `distribution/latest.json` unless it is a focused correction to already-published documentation or explicitly requested.
+Normal feature/fix work should not edit root `README.md` or root `CHANGELOG.md` unless it is a focused correction or explicitly requested.
 
 Put local PRDs, planning notes, and exploratory specs under `.local/prd/`; `.local/` is ignored and locally controlled.
 
 ## Commit Style
 
-Use lowercase conventional commits, no emojis, and no AI co-author lines. Commit subjects feed preview release notes, so keep them descriptive.
+Use lowercase conventional commits, no emojis, and no AI co-author lines. Commit subjects feed generated release notes, so keep them descriptive.
 
 Before committing, propose the commit message and get alignment.
 
@@ -213,75 +207,33 @@ fix: handle pane focus
 refs #82
 ```
 
-Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits. `master` contains unreleased work; release CI closes referenced issues after the GitHub Release is created.
+Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits. `main` contains unreleased work; close referenced issues when the release that contains the fix is published.
 
 ## Code Conventions
 
 - Rust: no `unwrap()` in production code. Use `tracing` for logging. Use `#[allow]` only with a comment explaining why.
 - Rust platform-specific code must be compile-gated. Put OS APIs and substantial OS behavior in `src/platform/`; when platform checks are needed elsewhere, use `#[cfg(windows)]`, `#[cfg(unix)]`, or target-specific `#[cfg(...)]` on imports, fields, functions, impls, and match arms so Windows-only code does not compile into Unix builds and Unix-only code does not compile into Windows builds. Use `cfg!(...)` only for pure cross-platform policy constants whose branches both compile on every target.
 - Don't add dependencies without a reason. Check whether existing dependencies cover the need first.
-- Integration asset versions (`KELPIE_INTEGRATION_VERSION` markers and matching `*_INTEGRATION_VERSION` constants) are migration versions relative to the latest released tag, not per-commit counters on `master`. If an integration asset changes multiple times between releases, bump it once from the version in the latest release.
-- When changing the server/client wire protocol, compare `src/protocol/wire.rs::PROTOCOL_VERSION` against protocols published in both stable and preview releases. Bump it when the current source protocol has already been published in either channel and the wire format changes incompatibly. Do not bump it again for multiple incompatible changes before that protocol is published. Update hardcoded protocol expectations and manual protocol fixtures in tests.
+- Integration asset versions (`KELPIE_INTEGRATION_VERSION` markers and matching `*_INTEGRATION_VERSION` constants) are migration versions relative to the latest released tag, not per-commit counters on `main`. If an integration asset changes multiple times between releases, bump it once from the version in the latest release.
+- When changing the server/client wire protocol, compare `src/protocol/wire.rs::PROTOCOL_VERSION` against the protocol in the latest published release. Bump it when the current source protocol has already been published and the wire format changes incompatibly. Do not bump it again for multiple incompatible changes before that protocol is published. Update hardcoded protocol expectations and manual protocol fixtures in tests.
 
-## Release Channels
+## Releases
 
-This section is maintainer-only for release actions. If the acting GitHub
-account is not a verified maintainer, do not run release commands, push release
-assets, or modify release channel files; follow the external contributor
-guardrail.
+This section is maintainer-only. If the acting GitHub account is not a
+maintainer, do not run release commands, push tags, or publish assets.
 
-Kelpie has one main branch and two update channels. Normal previews select a commit from `master`. Stable promotes a published preview, never the latest `master`. There is no long-lived release or preview branch.
+Kelpie has one branch, `main`, and one release line. Each release is a `v<version>` tag on `main`:
 
-Normal users default to stable. Stable docs are `/docs/`, stable updates use `distribution/latest.json`, and Homebrew/Nix stay stable-only.
+1. Update `CHANGELOG.md` (and `docs/next/CHANGELOG.md`) with the release notes, bump `version` in `Cargo.toml`, run `cargo update -p kelpie --offline`, and commit as `release: v<version>`.
+2. Run `just check`, then `just release <version>`. It checks that the tag matches `Cargo.toml` and pushes the annotated tag.
+3. `.github/workflows/release.yml` builds Windows x64 and macOS Apple Silicon, then publishes a GitHub Release with `SHA256SUMS.txt`. It is marked latest, so `releases/latest/download/...` links follow it.
 
-Preview is opt-in for direct Kelpie installs:
+The release must publish these assets:
 
-```bash
-kelpie channel set preview
-kelpie update
-```
+- `kelpie-windows-x64.zip`: `kelpie.exe`, its app-local ConPTY runtime, `THIRD-PARTY-NOTICES/`, `install.ps1` and `README.txt`. Never publish a bare executable for Windows.
+- `kelpie-macos-arm64.tar.gz`: `kelpie`, `install.sh` and `README.txt`.
 
-Switch back with:
-
-```bash
-kelpie channel set stable
-kelpie update
-```
-
-Preview releases are GitHub prereleases produced by `.github/workflows/preview.yml` only on `preview-*` tag pushes. Use `just preview <commit-or-ref>` (default: HEAD) to validate the source, create the annotated `preview-<commit-date>-<short-sha>` tag, and push it. Normal source commits must be reachable from master and contain the tag-triggered preview workflow; older dispatch-only revisions cannot be previewed by tagging them. For an isolated hotfix, create a temporary `release/<name>` branch from the current stable tag, apply only the reviewed fix, push that branch, then run `just preview` at its tip. CI validates the tagged commit, not a moving branch. Branch naming and ancestry prevent selection mistakes; they do not replace reviewing the hotfix diff. Ensure the fix also reaches master. Preview is required even for hotfixes. A hotfix based on a legacy stable release must include the promotion tooling update before previewing; CI rejects candidates that still carry the old ungated stable workflow.
-
-All tags are protected by the repository's `release-tags` ruleset: only repository admins may create, update, or delete them. Do not grant GitHub Actions or writer bots a tag bypass. Both publishing workflows require tag-push events and check the original actor's and rerun actor's current repository admin permission before publication. Normal PR test workflows remain automatic and unchanged. Immutable releases protect published binaries.
-
-Preview notes contain only the build identifier (date and source SHA) and a comparison link. Do not generate a categorized commit summary for previews; curated release notes belong to stable releases.
-
-The workflow updates `distribution/preview.json`, which the private website publishes as `/preview.json`. Do not hand-edit `distribution/preview.json`; fix the workflow or `scripts/preview.py` and rerun Preview. Published preview releases and tags are retained; CI must not delete protected tags or leave old preview tags without their releases.
-
-Stable releases start in an isolated checkout at the selected published preview tag, not current master. Commit curated release docs there, then use:
-
-```bash
-just check
-just release 0.x.y preview-<build-id>
-```
-
-Before stable release, run `/pre-release-audit` against the currently published stable tag, finalize `docs/next`, and run `just pre-release-check` to validate the staged docs, distribution contract, and render scaling. `just release` prepares the changelog and release commit, validates the preview-to-release diff, and pushes only an annotated stable tag. Its `Preview` and `Previous-Stable` trailers are required provenance, not optional notes. `just release-prepare` and `just release-publish` also require the preview tag argument. Do not merge or rebase newer master commits into the candidate.
-
-Only the Kelpie package version in Cargo.toml/Cargo.lock, changelogs, staged READMEs, staged website prose, product announcement, and stable skill may differ from the preview. Code, dependencies, API schemas, build configuration, and other files must match. These checks run locally and in CI before stable builds. Old previews without this promotion tooling require a new preview first. Stable rebuilds the selected source with stable version identity; it does not reuse preview binaries.
-
-GitHub Actions builds binaries, creates the GitHub release, closes issues using the recorded previous stable boundary, snapshots the tagged docs, and updates `distribution/latest.json`. It applies only the release-preparation diff back to master with a three-way merge, preserving newer development. A conflict stops distribution publication and needs manual resolution; do not resolve it by copying the whole release tree over master. Remove temporary release/hotfix branches after publication and metadata reconciliation. The private website repository owns rendering and deployment.
-
-Before the first stable Windows release, publish and verify a preview containing stable-channel support. Existing Windows preview users need that preview before `kelpie channel set stable` can migrate them.
-
-The release workflows must publish these five assets:
-
-- `kelpie-linux-x86_64`
-- `kelpie-linux-aarch64`
-- `kelpie-macos-x86_64`
-- `kelpie-macos-aarch64`
-- `kelpie-windows-x86_64.zip`
-
-The Windows archive must contain `kelpie.exe` and its app-local ConPTY runtime. Do not publish a bare executable as the stable Windows asset.
-
-`nix/package.nix` imports `Cargo.lock` directly with `cargoLock.lockFile`, so release version bumps do not require a separate Nix cargo hash update. If Cargo git dependencies are added later, add the required `cargoLock.outputHashes` entries as part of that dependency change.
+In-app updates stay off (`RELEASE_FEED_ENABLED` in `src/update.rs`) until Kelpie publishes its own update manifest; see `distribution/PLACEHOLDERS.md`.
 
 ## External contributors
 
