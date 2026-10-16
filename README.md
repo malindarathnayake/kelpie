@@ -17,13 +17,9 @@
   <img src="https://img.shields.io/badge/built%20on-herdr-d9a066?labelColor=1a1a24" alt="Built on herdr" />
 </p>
 
-```
-▗▖ ▗▖
-▐▙▄▟▌     Kelpie
-███▘███▄  agent workspace
-███████▘  built on herdr
-▐██▌
-```
+<p align="center">
+  <img src="assets/hero.svg" alt="A kelpie sitting on a rock at dusk, watching a flock of sheep below" width="560" />
+</p>
 
 ---
 
