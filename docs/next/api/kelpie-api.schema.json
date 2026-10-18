@@ -1237,13 +1237,16 @@
             },
             "submit_id": {
               "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$",
               "type": "string"
             },
             "target_ref": {
               "$ref": "#/schemas/request/$defs/TargetRef"
             },
             "text": {
-              "description": "Answer text, 1-8192 bytes.",
+              "description": "Answer text, 1-8192 bytes of UTF-8. The schema bound counts characters, so it is looser\nthan the byte limit the server enforces.",
+              "maxLength": 8192,
+              "minLength": 1,
               "type": "string"
             }
           },
@@ -1260,6 +1263,7 @@
           "properties": {
             "submit_id": {
               "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$",
               "type": "string"
             },
             "target_ref": {
@@ -1335,11 +1339,13 @@
               "type": "string"
             },
             "session_id": {
-              "description": "Agent session id to resume, 1-256 characters, no control characters.",
+              "description": "Agent session id to resume: 1-256 chars of `[A-Za-z0-9_-]`, not starting with `-`.",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$",
               "type": "string"
             },
             "submit_id": {
               "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$",
               "type": "string"
             }
           },
@@ -1399,13 +1405,16 @@
           "properties": {
             "submit_id": {
               "description": "Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$",
               "type": "string"
             },
             "target_ref": {
               "$ref": "#/schemas/request/$defs/TargetRef"
             },
             "text": {
-              "description": "Prompt text, 1-8192 bytes.",
+              "description": "Prompt text, 1-8192 bytes of UTF-8. The schema bound counts characters, so it is looser\nthan the byte limit the server enforces.",
+              "maxLength": 8192,
+              "minLength": 1,
               "type": "string"
             }
           },
@@ -1420,6 +1429,7 @@
           "description": "Parameters for `agent.submit_status`.",
           "properties": {
             "submit_id": {
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$",
               "type": "string"
             }
           },
@@ -12106,6 +12116,7 @@
             },
             "session_id": {
               "description": "`resume` only: the requested session id.",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$",
               "type": [
                 "string",
                 "null"
@@ -12129,6 +12140,7 @@
               "$ref": "#/schemas/success_response/$defs/SubmitState"
             },
             "submit_id": {
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$",
               "type": "string"
             },
             "target_ref": {

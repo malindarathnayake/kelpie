@@ -44,6 +44,10 @@ pub const PROMPT_ACK_WINDOW_MS: u64 = 120_000;
 /// whose own report is still on its way.
 pub const PROMPT_ACK_REORDER_SLACK_MS: u64 = 10_000;
 
+/// JSON Schema `pattern` equivalent of [`valid_resume_session_id`]. Anchored, because a
+/// JSON Schema pattern otherwise matches anywhere in the string.
+pub const RESUME_SESSION_ID_PATTERN: &str = "^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$";
+
 /// `[A-Za-z0-9_-]{1,256}`, not starting with `-`: the id becomes a `claude` argument, so
 /// it can never read as an option (CWE-88).
 pub fn valid_resume_session_id(id: &str) -> bool {
@@ -54,6 +58,10 @@ pub fn valid_resume_session_id(id: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
 }
+
+/// JSON Schema `pattern` equivalent of [`valid_submit_id`]. Anchored, because a JSON
+/// Schema pattern otherwise matches anywhere in the string.
+pub const SUBMIT_ID_PATTERN: &str = "^[A-Za-z0-9._:-]{1,64}$";
 
 /// `[A-Za-z0-9._:-]{1,64}`.
 pub fn valid_submit_id(id: &str) -> bool {
@@ -1014,6 +1022,56 @@ mod tests {
         assert!(valid_submit_text(&"x".repeat(MAX_SUBMIT_TEXT_BYTES)));
         assert!(!valid_submit_text(""));
         assert!(!valid_submit_text(&"x".repeat(MAX_SUBMIT_TEXT_BYTES + 1)));
+    }
+
+    /// The schema patterns must accept exactly what the validators accept.
+    #[test]
+    fn schema_patterns_match_validators() {
+        let submit = regex::Regex::new(SUBMIT_ID_PATTERN).unwrap();
+        let session = regex::Regex::new(RESUME_SESSION_ID_PATTERN).unwrap();
+        let mut cases: Vec<String> = [
+            "",
+            "a",
+            "run-1.step_2:x",
+            "has space",
+            "emoji\u{1F600}",
+            "0b9c-41d2_aa",
+            "a\nb",
+            "a\u{1b}b",
+            "x\n",
+            "--dangerously-skip-permissions",
+            "-p",
+            "-",
+            "-x",
+            "a b",
+            "a'b",
+            "a\"b",
+            "a/b",
+            "a\\b",
+            "a=b",
+            "a.b",
+            "a:b",
+            "_a",
+            "\u{e9}",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        for n in [63, 64, 65, 255, 256, 257] {
+            cases.push("x".repeat(n));
+        }
+        for case in &cases {
+            assert_eq!(
+                submit.is_match(case),
+                valid_submit_id(case),
+                "submit_id {case:?}"
+            );
+            assert_eq!(
+                session.is_match(case),
+                valid_resume_session_id(case),
+                "session_id {case:?}"
+            );
+        }
     }
 
     #[test]

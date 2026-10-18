@@ -303,9 +303,12 @@ pub struct AgentsDigest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentSubmitParams {
     pub target_ref: TargetRef,
-    /// Prompt text, 1-8192 bytes.
+    /// Prompt text, 1-8192 bytes of UTF-8. The schema bound counts characters, so it is looser
+    /// than the byte limit the server enforces.
+    #[schemars(length(min = 1, max = 8192))]
     pub text: String,
     /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    #[schemars(pattern(crate::supervisor::submit::SUBMIT_ID_PATTERN))]
     pub submit_id: String,
 }
 
@@ -327,9 +330,12 @@ pub struct AgentAnswerParams {
     pub target_ref: TargetRef,
     /// The newest open `prose_question` of the pane, still shown on screen.
     pub question_id: String,
-    /// Answer text, 1-8192 bytes.
+    /// Answer text, 1-8192 bytes of UTF-8. The schema bound counts characters, so it is looser
+    /// than the byte limit the server enforces.
+    #[schemars(length(min = 1, max = 8192))]
     pub text: String,
     /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    #[schemars(pattern(crate::supervisor::submit::SUBMIT_ID_PATTERN))]
     pub submit_id: String,
 }
 
@@ -338,6 +344,7 @@ pub struct AgentAnswerParams {
 pub struct AgentControlParams {
     pub target_ref: TargetRef,
     /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    #[schemars(pattern(crate::supervisor::submit::SUBMIT_ID_PATTERN))]
     pub submit_id: String,
 }
 
@@ -347,9 +354,11 @@ pub struct AgentControlParams {
 pub struct AgentResumeParams {
     /// Pane to launch in; it must host no running or known agent and no pending launch.
     pub pane_id: String,
-    /// Agent session id to resume, 1-256 characters, no control characters.
+    /// Agent session id to resume: 1-256 chars of `[A-Za-z0-9_-]`, not starting with `-`.
+    #[schemars(pattern(crate::supervisor::submit::RESUME_SESSION_ID_PATTERN))]
     pub session_id: String,
     /// Caller-chosen idempotency key, 1-64 chars of `[A-Za-z0-9._:-]`.
+    #[schemars(pattern(crate::supervisor::submit::SUBMIT_ID_PATTERN))]
     pub submit_id: String,
     /// Agent label to resume (claude, codex, cursor); default claude.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -366,6 +375,7 @@ pub struct AgentUndelegateParams {
 /// Parameters for `agent.submit_status`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentSubmitStatusParams {
+    #[schemars(pattern(crate::supervisor::submit::SUBMIT_ID_PATTERN))]
     pub submit_id: String,
 }
 
@@ -484,6 +494,7 @@ pub enum SubmitAcknowledged {
 /// `agent.resume`. Never contains the submitted text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SubmitReceipt {
+    #[schemars(pattern(crate::supervisor::submit::SUBMIT_ID_PATTERN))]
     pub submit_id: String,
     pub target_ref: TargetRef,
     pub state: SubmitState,
@@ -527,6 +538,7 @@ pub struct SubmitReceipt {
     pub new_generation: Option<u64>,
     /// `resume` only: the requested session id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(pattern(crate::supervisor::submit::RESUME_SESSION_ID_PATTERN))]
     pub session_id: Option<String>,
     /// `resume` only: evidence state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
