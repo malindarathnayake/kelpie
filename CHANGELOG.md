@@ -10,6 +10,18 @@
 - On Windows, agent hooks work when the user folder name contains non-ASCII characters, such as Korean. Reinstall your integrations to update. (herdr #5270)
 - On Windows, plugin panes start even when a folder on `PATH` has the same name as the plugin's program. (herdr #5269)
 - Prefix shortcuts work when the terminal sends the next key as plain text, as macOS input methods and Ghostty `text:` keybinds do. Workspace navigation had the same problem. (herdr #5277)
+- Codex panes show as blocked while Codex asks whether to update at startup, instead of idle. (herdr #5174)
+- Clicking `! auth`, `! error` or a reconnecting status on a machine retries the connection at once; a notice shows the error only if the retry fails. (herdr #5232)
+- A remote server that accepts the connection but never answers the handshake no longer leaves the client waiting forever. (herdr #5242)
+- A remote server that is still starting or busy gets up to a minute to send its first snapshot before the connection is marked failed. (herdr #5241)
+- A connection attempt that is replaced or abandoned is now cancelled and its SSH bridge cleaned up. (herdr #5247)
+- After the computer wakes from sleep, machines reconnect right away instead of waiting out the retry delay. (herdr #5249)
+- When a shared SSH connection can no longer open channels but a fresh one works, Kelpie drops the stale connection and reconnects. (herdr #5252)
+- Adding a Windows machine or using `--remote` with one no longer prints raw PowerShell progress records. (herdr #5282)
+- Windows machines whose SSH shell is not a POSIX shell are detected correctly during setup. (herdr #5275)
+- Machines reached through OpenSSH for Windows with a WSL bash login shell no longer fail with `remote binary discovery failed`. (herdr #5308)
+- On macOS, quitting the terminal app that started Kelpie no longer stops the server and every pane. (herdr #5236)
+- Dragging a window no longer ends the session when the terminal briefly reports a zero-sized grid. (herdr #5310)
 
 ### Security
 - The SBOMs now also list the vendored terminal engine (libghostty-vt), the libraries it compiles in (uucode, simdutf, highway, wuffs) and the bundled Windows ConPTY.
