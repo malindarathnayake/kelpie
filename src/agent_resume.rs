@@ -164,6 +164,7 @@ pub fn is_reserved_native_state_source(source: &str, agent: &str) -> bool {
     matches!(
         (source, agent),
         ("kelpie:claude", "claude")
+            | ("kelpie:codex", "codex")
             | ("kelpie:copilot", "copilot")
             | ("kelpie:devin", "devin")
             | ("kelpie:droid", "droid")
@@ -406,7 +407,7 @@ mod tests {
     #[test]
     fn native_state_reservation_excludes_full_lifecycle_sources() {
         assert!(is_reserved_native_state_source("kelpie:claude", "claude"));
-        assert!(!is_reserved_native_state_source("kelpie:codex", "codex"));
+        assert!(is_reserved_native_state_source("kelpie:codex", "codex"));
         assert!(is_reserved_native_state_source("kelpie:devin", "devin"));
         assert!(!is_reserved_native_state_source("kelpie:kimi", "kimi"));
         assert!(!is_reserved_native_state_source(

@@ -60,7 +60,7 @@ const CODEX_HOOK_ASSET: &str = if cfg!(windows) {
 } else {
     include_str!("assets/codex/kelpie-agent-state.sh")
 };
-const CODEX_INTEGRATION_VERSION: u32 = 9;
+const CODEX_INTEGRATION_VERSION: u32 = 10;
 const KIMI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "kelpie-agent-state.ps1"
 } else {

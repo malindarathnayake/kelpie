@@ -192,20 +192,11 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("prompt"))?;
     remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
+    remove_hook_commands(hooks, "Interrupt", &hook_path, Some("idle"))?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, Some("session"))?;
-    ensure_command_hook(
-        hooks,
-        "SessionStart",
-        hook_command(&hook_path, Some("session")),
-        10,
-        None,
-    )?;
-    for (event, action) in [
-        ("UserPromptSubmit", "working"),
-        ("UserPromptSubmit", "prompt"),
-        ("Stop", "idle"),
-        ("Interrupt", "idle"),
-    ] {
+    // Turn status comes from screen detection; Codex warns about the
+    // Interrupt hook timeout, so only session and prompt receipts are hooked.
+    for (event, action) in [("SessionStart", "session"), ("UserPromptSubmit", "prompt")] {
         ensure_command_hook(
             hooks,
             event,
