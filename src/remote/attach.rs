@@ -556,6 +556,11 @@ fn posix_remote_output_command(command: &str) -> String {
 }
 
 fn windows_powershell_script_command(script: &str) -> String {
+    let encoded = windows_powershell_encoded_script(script);
+    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}")
+}
+
+fn windows_powershell_encoded_script(script: &str) -> String {
     // `$ProgressPreference = 'SilentlyContinue'` stops PowerShell from
     // serializing progress records (for example module auto-loading's
     // "Preparing modules for first use.") into the stderr CLIXML stream that
@@ -567,8 +572,7 @@ fn windows_powershell_script_command(script: &str) -> String {
         .encode_utf16()
         .flat_map(u16::to_le_bytes)
         .collect::<Vec<_>>();
-    let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
-    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}")
+    base64::engine::general_purpose::STANDARD.encode(utf16)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1700,6 +1704,18 @@ pub(super) fn discover_remote_api_metadata(
 }
 
 fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<DetectedRemotePlatform> {
+    // Interactive setup forwards SSH stderr to the terminal, so a Windows host
+    // whose default shell is PowerShell would print a raw
+    // `CommandNotFoundException` for the POSIX `/bin/sh` probe below. Probe for
+    // Windows first there so such hosts never receive a `/bin/sh` command.
+    // Background bridges capture stderr instead, so they keep the POSIX-first
+    // probe to avoid an extra round trip on Unix hosts.
+    if !ssh.noninteractive {
+        if let Some(platform) = detect_windows_remote_platform(ssh, true)? {
+            return Ok(platform);
+        }
+    }
+
     let output = ssh.sh_output("uname -s\nuname -m\n")?;
     let mut windows_uname_hint = false;
     let posix_error = if output.status.success() {
@@ -1723,30 +1739,50 @@ fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<DetectedRemotePlatform>
         command_failed("remote platform detection failed", &output)
     };
 
-    if !should_try_windows_probe(
+    // A POSIX-compatible shell on Windows (MINGW/MSYS/Cygwin) reports a Windows
+    // `uname`; retry the direct probe for hosts the first attempt could not
+    // confirm so the hint is not lost.
+    if should_try_windows_probe(
         output.status.success(),
         output.status.code(),
         windows_uname_hint,
+        ssh.noninteractive,
     ) {
-        return Err(posix_error);
+        if let Some(platform) = detect_windows_remote_platform(ssh, !windows_uname_hint)? {
+            return Ok(platform);
+        }
     }
-    let windows_output = match ssh.framed_user_shell_output(&windows_platform_probe_command()) {
-        Ok(output) if output.status.success() => output,
-        _ => return Err(posix_error),
-    };
-    match parse_windows_platform_probe(&String::from_utf8_lossy(&windows_output.stdout)) {
-        Ok(Some(platform)) => Ok(platform),
-        Ok(None) => Err(posix_error),
-        Err(message) => Err(io::Error::other(message)),
+    Err(posix_error)
+}
+
+fn detect_windows_remote_platform(
+    ssh: &RemoteSsh,
+    native_shell_only: bool,
+) -> io::Result<Option<DetectedRemotePlatform>> {
+    // Capture a Unix login shell's expected "command not found" in stdout;
+    // an ordinary failed probe is discarded without printing that diagnostic.
+    let command = format!("{} 2>&1", windows_platform_probe_command(native_shell_only));
+    // Propagate cancellation, spawn failures, and SSH transport failures (exit
+    // 255) rather than retrying them against the POSIX probe, which would repeat
+    // an authentication failure. An ordinary command failure means "not Windows".
+    let output = ssh.framed_user_shell_output(&command)?;
+    if output.status.code() == Some(255) {
+        return Err(command_failed("remote platform detection failed", &output));
     }
+    if !output.status.success() {
+        return Ok(None);
+    }
+    parse_windows_platform_probe(&String::from_utf8_lossy(&output.stdout)).map_err(io::Error::other)
 }
 
 fn should_try_windows_probe(
     success: bool,
     exit_code: Option<i32>,
     windows_uname_hint: bool,
+    noninteractive: bool,
 ) -> bool {
-    (success && windows_uname_hint) || (!success && exit_code.is_some_and(|code| code != 255))
+    (success && windows_uname_hint)
+        || (noninteractive && !success && exit_code.is_some_and(|code| code != 255))
 }
 
 fn looks_like_windows_uname(os: &str) -> bool {
@@ -1756,9 +1792,17 @@ fn looks_like_windows_uname(os: &str) -> bool {
         .any(|prefix| os.starts_with(prefix))
 }
 
-fn windows_platform_probe_command() -> String {
-    windows_powershell_script_command(
-        "$arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; [Console]::Out.WriteLine('kelpie-windows:' + $arch); exit 0",
+fn windows_platform_probe_command(native_shell_only: bool) -> String {
+    let script = "$arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; [Console]::Out.WriteLine('kelpie-windows:' + $arch); exit 0";
+    if !native_shell_only {
+        return windows_powershell_script_command(script);
+    }
+    // Expand in the SSH login shell, before launching Windows PowerShell:
+    // PowerShell yields Windows_NT|%OS%, cmd yields $env:OS|Windows_NT,
+    // and POSIX/fish retain :OS|%OS%, including WSL on Windows-mounted drives.
+    let encoded = windows_powershell_encoded_script(script);
+    format!(
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"if ('$env:OS|%OS%' -ne 'Windows_NT|%OS%' -and '$env:OS|%OS%' -ne ([string][char]36 + 'env:OS|Windows_NT')) {{ exit 1 }}; & ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded}'))))\""
     )
 }
 
@@ -4829,17 +4873,19 @@ mod tests {
     #[test]
     fn windows_probe_preserves_transport_and_unsupported_unix_failures() {
         let cases = [
-            (true, Some(0), false, false),
-            (true, Some(0), true, true),
-            (false, Some(255), false, false),
-            (false, None, false, false),
-            (false, Some(1), false, true),
+            (true, Some(0), false, false, false),
+            (true, Some(0), true, false, true),
+            (false, Some(255), false, false, false),
+            (false, Some(255), false, true, false),
+            (false, None, false, true, false),
+            (false, Some(1), false, false, false),
+            (false, Some(1), false, true, true),
         ];
-        for (success, exit_code, windows_uname_hint, expected) in cases {
+        for (success, exit_code, windows_uname_hint, noninteractive, expected) in cases {
             assert_eq!(
-                should_try_windows_probe(success, exit_code, windows_uname_hint),
+                should_try_windows_probe(success, exit_code, windows_uname_hint, noninteractive),
                 expected,
-                "success={success}, exit_code={exit_code:?}, windows_uname_hint={windows_uname_hint}"
+                "success={success}, exit_code={exit_code:?}, windows_uname_hint={windows_uname_hint}, noninteractive={noninteractive}"
             );
         }
 
@@ -4984,7 +5030,7 @@ mod tests {
         let commands = [
             (
                 "platform probe",
-                windows_platform_probe_command(),
+                windows_platform_probe_command(false),
                 "$arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; [Console]::Out.WriteLine('kelpie-windows:' + $arch); exit 0",
             ),
             (
@@ -5038,6 +5084,59 @@ mod tests {
                 .strip_prefix(&preamble)
                 .unwrap_or_else(|| panic!("{label} lacks shared output marker: {script}"));
             assert_eq!(script, expected, "{label}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_platform_probe_distinguishes_native_and_posix_login_shells() {
+        use std::os::windows::process::CommandExt;
+
+        let probe = format!("{} 2>&1", windows_platform_probe_command(true));
+        let mut powershell = Command::new("powershell.exe");
+        powershell.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &probe,
+        ]);
+        let mut cmd = Command::new("cmd.exe");
+        cmd.args(["/d", "/s", "/c"]).raw_arg(format!("\"{probe}\""));
+        for mut command in [powershell, cmd] {
+            crate::platform::configure_background_command(&mut command);
+            let output = normalize_remote_output(command.output().unwrap()).unwrap();
+            assert!(output.status.success(), "{output:?}");
+            assert!(output.stderr.is_empty(), "{output:?}");
+            assert!(
+                parse_windows_platform_probe(&String::from_utf8_lossy(&output.stdout))
+                    .unwrap()
+                    .is_some(),
+                "{output:?}"
+            );
+        }
+
+        // Git's real POSIX shell launches the same Windows PowerShell executable
+        // from a Windows directory, reproducing WSL's mounted-drive ambiguity.
+        let git = Command::new("git").arg("--exec-path").output().unwrap();
+        assert!(git.status.success(), "{git:?}");
+        let exec_path = String::from_utf8(git.stdout).unwrap();
+        let shell = Path::new(exec_path.trim())
+            .ancestors()
+            .nth(3)
+            .unwrap()
+            .join("usr/bin/sh.exe");
+        for env in ["", "Windows_NT", "$env"] {
+            let mut command = Command::new(&shell);
+            command.args(["-c", &probe]).env("env", env);
+            crate::platform::configure_background_command(&mut command);
+            let output = command.output().unwrap();
+            assert_eq!(output.status.code(), Some(1), "{env}: {output:?}");
+            assert!(output.stderr.is_empty(), "{env}: {output:?}");
+            assert!(
+                !String::from_utf8_lossy(&output.stdout).contains("kelpie-windows:"),
+                "{env}: {output:?}"
+            );
         }
     }
 
