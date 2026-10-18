@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.2] - 2026-10-18
+
 ### Fixed
 - The Windows installer now installs every agent in `-Integrations claude,codex,cursor`; `powershell -File` had passed the list as one name, so no hooks were installed.
 - The server no longer crashes when a cursor move carries a link onto a full page. (herdr #5303)
@@ -22,8 +24,14 @@
 - Machines reached through OpenSSH for Windows with a WSL bash login shell no longer fail with `remote binary discovery failed`. (herdr #5308)
 - On macOS, quitting the terminal app that started Kelpie no longer stops the server and every pane. (herdr #5236)
 - Dragging a window no longer ends the session when the terminal briefly reports a zero-sized grid. (herdr #5310)
+- `kelpie agent digest` accepts `--page-cursor=VALUE` and `--trace-id=VALUE`, and `kelpie agent undelegate` accepts `--pane=ID`, like the other agent commands.
+- The delegation border and badge clear as soon as `kelpie agent undelegate` revokes a pane.
+
+### Changed
+- The API schema now gives the exact format of the supervisor `submit_id` and resume `session_id`, and says that submitted `text` is limited to 8192 bytes, not characters.
 
 ### Security
+- Revoking a pane delegation is saved at once. Before, a permanent delegation revoked with no other change could come back after a crash or restart.
 - The SBOMs now also list the vendored terminal engine (libghostty-vt), the libraries it compiles in (uucode, simdutf, highway, wuffs) and the bundled Windows ConPTY.
 
 ## [0.1.1] - 2026-10-16
