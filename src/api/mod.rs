@@ -96,3 +96,6 @@ pub type ApiRequestSender = mpsc::UnboundedSender<ApiRequestMessage>;
 pub fn socket_path() -> PathBuf {
     crate::session::active_api_socket_path()
 }
+
+#[cfg(test)]
+mod method_catalog_tests;
