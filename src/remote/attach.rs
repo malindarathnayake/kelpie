@@ -1,5 +1,7 @@
 //! Remote thin-client launcher over SSH command stdio.
 
+#[cfg(unix)]
+use super::process::wait_with_output_limit;
 use super::{
     args::*,
     process::{wait_with_output_timeout, CancellablePipe, OwnedSshChild, PipeControl},
@@ -30,6 +32,12 @@ const BRIDGE_IO_POLL: Duration = Duration::from_millis(1);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const NONINTERACTIVE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(unix)]
+const SSH_CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
+#[cfg(unix)]
+// Diagnostic commands may print remote-controlled banners; drain them with a
+// fixed memory budget. An oversized local configuration is never parsed.
+const SSH_DIAGNOSTIC_OUTPUT_LIMIT: usize = 256 * 1024;
 const NONINTERACTIVE_SSH_STDERR_LIMIT: usize = 16 * 1024;
 const BRIDGE_FAILURE_REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -104,29 +112,35 @@ pub(crate) fn check_saved_ssh(target: &str, session: &str) -> io::Result<()> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let mut ssh = RemoteSsh::new_noninteractive(target.to_owned());
     ssh.session_name = session.to_owned();
-    let remote = find_installed_remote_kelpie(&ssh)?;
-    match remote_server_status(&ssh, &remote, false)? {
-        RemoteServerStatus::Running {
-            endpoint_protocol_generation,
-            surface_interest,
-            health_check,
-            detached_server_daemon,
-            ..
-        } if remote_server_restart_reason(
-            endpoint_protocol_generation,
-            detached_server_daemon,
-            true,
-            surface_interest,
-            health_check,
-        )
-        .is_none() =>
-        {
-            Ok(())
+    let check = || {
+        let remote = find_installed_remote_kelpie(&ssh)?;
+        match remote_server_status(&ssh, &remote, false)? {
+            RemoteServerStatus::Running {
+                endpoint_protocol_generation,
+                surface_interest,
+                health_check,
+                detached_server_daemon,
+                ..
+            } if remote_server_restart_reason(
+                endpoint_protocol_generation,
+                detached_server_daemon,
+                true,
+                surface_interest,
+                health_check,
+            )
+            .is_none() =>
+            {
+                Ok(())
+            }
+            _ => Err(io::Error::other(format!(
+                "remote Kelpie server is stopped or incompatible; run `{}`",
+                super::saved_ssh_bootstrap_command(target, session),
+            ))),
         }
-        _ => Err(io::Error::other(format!(
-            "remote Kelpie server is stopped or incompatible; run `{}`",
-            super::saved_ssh_bootstrap_command(target, session),
-        ))),
+    };
+    match check() {
+        Err(_) if ssh.prepare_shared_transport().unwrap_or(false) => check(),
+        result => result,
     }
 }
 
@@ -826,6 +840,148 @@ impl RemoteSsh {
 
     pub(super) fn options(&self) -> Option<&ManagedSshOptions> {
         self.managed_config.as_ref().map(|config| &config.options)
+    }
+
+    #[cfg(not(unix))]
+    pub(super) fn prepare_shared_transport(&self) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    #[cfg(unix)]
+    // True permits one new connection after retirement, disappearance, or
+    // another helper's replacement. It does not prove the old TCP link died.
+    pub(super) fn prepare_shared_transport(&self) -> io::Result<bool> {
+        let Some(options) = self.options() else {
+            return Ok(false);
+        };
+        let Some(control_path) = &options.control_path else {
+            return Ok(false);
+        };
+        let mut configuration = self.base_command();
+        configuration.arg("-G").arg(&self.target);
+        let output = self.bounded_control_output(configuration, SSH_CONTROL_TIMEOUT)?;
+        if output.stdout.len() > SSH_DIAGNOSTIC_OUTPUT_LIMIT {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "SSH configuration output is too large",
+            ));
+        }
+        if !output.status.success() {
+            return Err(command_failed(
+                "could not resolve managed SSH configuration",
+                &output,
+            ));
+        }
+        let configuration = String::from_utf8_lossy(&output.stdout);
+        let Some(path) = configuration
+            .lines()
+            .find_map(|line| line.strip_prefix("controlpath "))
+        else {
+            return Ok(false);
+        };
+        let path = Path::new(path);
+        if path.parent() != control_path.parent() {
+            return Ok(false);
+        }
+        let pinned = match crate::platform::PinnedSshControlSocket::new(path) {
+            Ok(pinned) => pinned,
+            Err(error) => {
+                if error.kind() == io::ErrorKind::NotFound {
+                    return Ok(true);
+                }
+                tracing::debug!(%error, "could not pin managed SSH transport; using normal connection");
+                return Ok(false);
+            }
+        };
+        let probe = |control: &Path, mux_only: bool| {
+            let mut command = self.shared_control_command(options, control);
+            if mux_only {
+                // A refused mux session otherwise silently falls back to a
+                // fresh connection, which cannot prove that reuse worked.
+                command.arg("-o").arg("ProxyCommand=false");
+            }
+            command.arg("-T").arg(&self.target).arg("exit");
+            let output =
+                self.bounded_control_output(command, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(command_failed("remote SSH connection failed", &output))
+            }
+        };
+        if probe(&pinned.alias, true).is_ok() {
+            return Ok(false);
+        }
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(super::process::cancelled());
+        }
+        if !pinned.is_current()? {
+            return Ok(true);
+        }
+        // Identical allowances keep slow shell startup from proving failed reuse.
+        let fresh = probe(Path::new("none"), false);
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(super::process::cancelled());
+        }
+        if !pinned.is_current()? {
+            return Ok(true);
+        }
+        fresh?;
+        let mut command = self.shared_control_command(options, &pinned.alias);
+        command.arg("-O").arg("stop").arg(&self.target);
+        let output = self.bounded_control_output(command, SSH_CONTROL_TIMEOUT);
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(super::process::cancelled());
+        }
+        if !pinned.is_current()? {
+            return Ok(true);
+        }
+        let output = output?;
+        if !output.status.success() {
+            return Err(command_failed(
+                "could not retire stale managed SSH transport",
+                &output,
+            ));
+        }
+        Ok(true)
+    }
+
+    #[cfg(unix)]
+    fn shared_control_command(&self, options: &ManagedSshOptions, control: &Path) -> Command {
+        let mut command = Command::new("ssh");
+        command
+            .arg("-C")
+            .arg("-F")
+            .arg(&options.config_path)
+            .arg("-S")
+            .arg(control)
+            .arg("-o")
+            .arg("ControlMaster=no")
+            .arg("-o")
+            .arg("ControlPersist=no");
+        apply_noninteractive_ssh_options(&mut command);
+        command
+    }
+
+    #[cfg(unix)]
+    fn bounded_control_output(
+        &self,
+        mut command: Command,
+        timeout: Duration,
+    ) -> io::Result<Output> {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(super::process::cancelled());
+        }
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        wait_with_output_limit(
+            command.spawn()?,
+            timeout,
+            Arc::clone(&self.cancelled),
+            SSH_DIAGNOSTIC_OUTPUT_LIMIT,
+        )
     }
 
     fn command(&self) -> Command {
@@ -3474,6 +3630,51 @@ fn sanitize_path_component(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "requires a private loopback OpenSSH fixture"]
+    fn shared_transport_loopback_fixture() {
+        let config = std::env::var_os("KELPIE_SSH_FIXTURE_CONFIG").expect("fixture SSH config");
+        let control =
+            std::env::var_os("KELPIE_SSH_FIXTURE_CONTROL").expect("fixture control socket");
+        let directory = crate::platform::create_remote_ssh_config_dir("ctl").unwrap();
+        let config_path = directory.join("config");
+        fs::copy(config, &config_path).unwrap();
+        let ssh = RemoteSsh {
+            target: "fixture".into(),
+            session_name: "fixture".into(),
+            managed_config: Some(ManagedSshConfig {
+                options: ManagedSshOptions {
+                    config_path,
+                    control_path: Some(PathBuf::from(control)),
+                    _directory: Arc::new(ManagedSshConfigDirectory(directory)),
+                },
+            }),
+            noninteractive: true,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        };
+        let mode = std::env::var("KELPIE_SSH_FIXTURE_MODE").unwrap_or_default();
+        let outcome = if mode == "baseline" {
+            Ok(false)
+        } else {
+            ssh.prepare_shared_transport()
+        };
+        let expected = std::env::var("KELPIE_SSH_FIXTURE_ERROR").unwrap_or_default();
+        if expected.is_empty() {
+            outcome.unwrap();
+            if !mode.is_empty() {
+                let mut command = ssh.command();
+                command.arg("exit");
+                let output = ssh
+                    .bounded_control_output(command, SSH_CONTROL_TIMEOUT)
+                    .unwrap();
+                assert!(output.status.success());
+            }
+        } else {
+            assert!(outcome.unwrap_err().to_string().contains(&expected));
+        }
+    }
 
     #[test]
     fn bridge_cancellation_releases_stalled_preamble_upload_and_download() {

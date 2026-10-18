@@ -1041,7 +1041,7 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
     let ssh_commands = base.join("ssh-commands");
     let bridge_pid = base.join("bridge-pid");
     fs::write(bin.join("ssh"), format!(
-        "#!/bin/sh\nexport HOME={} XDG_CONFIG_HOME={} XDG_RUNTIME_DIR={} KELPIE_SOCKET_PATH={}\nunset KELPIE_CLIENT_SOCKET_PATH KELPIE_SESSION\nfor arg do last=\"$arg\"; done\nprintf '%s\\n' \"$last\" >> {}\ncase \"$last\" in *remote-client-bridge*) printf '%s\\n' \"$$\" > {};; esac\nexec /bin/sh -c \"$last\"\n",
+        "#!/bin/sh\nexport HOME={} XDG_CONFIG_HOME={} XDG_RUNTIME_DIR={} KELPIE_SOCKET_PATH={}\nunset KELPIE_CLIENT_SOCKET_PATH KELPIE_SESSION\ncontrol=; previous=; configuration=\nfor arg do\n  if [ \"$previous\" = -S ]; then control=$arg; fi\n  if [ \"$arg\" = -G ]; then configuration=yes; fi\n  previous=$arg; last=$arg\ndone\nif [ -n \"$configuration\" ]; then printf 'controlpath %s\\n' \"$control\"; exit 0; fi\nprintf '%s\\n' \"$last\" >> {}\ncase \"$last\" in *remote-client-bridge*) printf '%s\\n' \"$$\" > {};; esac\nexec /bin/sh -c \"$last\"\n",
         quote(&base.join("home")), quote(&remote_config), quote(&remote_runtime), quote(&remote_api), quote(&ssh_commands), quote(&bridge_pid),
     )).unwrap();
     fs::set_permissions(bin.join("ssh"), fs::Permissions::from_mode(0o700)).unwrap();

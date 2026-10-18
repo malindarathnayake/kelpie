@@ -14,10 +14,41 @@ use serde_json::{json, Value};
 const PROFILE_ID: &str = "0123456789abcdef0123456789abcdef";
 const SSH: &str = r#"#!/bin/sh
 printf 'ssh\n' >> "$TEST_ROOT/ssh-calls"
+control=; previous=; operation=; configuration=
 for arg do
     last=$arg
     printf '%s\n' "$arg" >> "$TEST_ROOT/ssh-args"
+    if [ "$previous" = -S ]; then control=$(printf '%s' "$arg" | sed 's/%C/fixture/'); fi
+    if [ "$previous" = -O ]; then operation=$arg; fi
+    if [ "$arg" = -G ]; then configuration=yes; fi
+    previous=$arg
 done
+if [ -n "$configuration" ]; then
+    printf 'controlpath %s\n' "$control"
+    exit 0
+fi
+if [ "$operation" = stop ]; then
+    test -n "$TEST_CONTROL" && test -S "$TEST_CONTROL" || exit 255
+    rm -- "$TEST_CONTROL"
+    exit 0
+fi
+if [ "$last" = exit ]; then
+    if [ "$control" = none ]; then exit 0; fi
+    echo 'test reused transport failed' >&2
+    exit 255
+fi
+printf '%s' "$control" > "$TEST_ROOT/control-path"
+if [ -n "$TEST_CONTROL" ] && [ -S "$TEST_CONTROL" ]; then
+    if [ "$TEST_MODE" = frozen ] && [ "$last" != '/bin/sh -s' ]; then
+        exec sleep 30
+    else
+        echo 'test reused transport failed' >&2
+        exit 255
+    fi
+fi
+if [ "$TEST_MODE" = cold_then_broken ] && [ "$last" != '/bin/sh -s' ]; then
+    case "$last" in *kelpie-machine-metadata-stale-v1*) echo 'test new transport failed' >&2; exit 255;; esac
+fi
 case "$last" in
     '/bin/sh -c '*)
         if [ "$TEST_MODE" = offline ]; then echo 'test remote connection failed' >&2; exit 255; fi
@@ -133,7 +164,7 @@ exec "$TEST_REMOTE_KELPIE" "$@"
     fn serve(&self, result: Value, protocol: u64) -> std::thread::JoinHandle<Value> {
         let listener = self.remote.try_clone().unwrap();
         std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(15);
+            let deadline = Instant::now() + Duration::from_secs(60);
             loop {
                 let (mut stream, _) = match listener.accept() {
                     Ok(connection) => connection,
@@ -190,6 +221,12 @@ exec "$TEST_REMOTE_KELPIE" "$@"
             .unwrap_or_default()
             .lines()
             .count()
+    }
+
+    fn managed_control(&self) -> (PathBuf, UnixListener) {
+        let path = PathBuf::from(fs::read_to_string(self.root.join("control-path")).unwrap());
+        let listener = UnixListener::bind(&path).unwrap();
+        (path, listener)
     }
 
     fn assert_local_untouched(&self) {
@@ -425,8 +462,8 @@ fn machine_api_transient_connection_failure_keeps_working_metadata() {
     assert!(!output.status.success());
     assert_eq!(
         harness.ssh_calls() - before,
-        1,
-        "network failures must not retry"
+        3,
+        "a disappeared managed socket permits only one read-only retry"
     );
     let before = harness.ssh_calls();
     harness.warm_metadata();
@@ -435,6 +472,76 @@ fn machine_api_transient_connection_failure_keeps_working_metadata() {
         1,
         "transient failure must not discard metadata"
     );
+}
+
+#[test]
+fn machine_api_recovers_a_ping_timeout_without_child_exit_before_one_mutation() {
+    let harness = Harness::new();
+    harness.warm_metadata();
+    let metadata = harness
+        .state
+        .join("ssh-metadata")
+        .join(format!("{PROFILE_ID}.json"));
+    let before = fs::read(&metadata).unwrap();
+    let (control, listener) = harness.managed_control();
+    // The first bridge stays alive without forwarding Ping. Recovery may only
+    // recreate that read-only connection; the mutation is sent afterwards.
+    let server = harness.serve(json!({"result":{"type":"ok"}}), harness.protocol);
+    success(
+        harness
+            .command(&["--machine", "mac", "pane", "close", "w4:p1"])
+            .env("TEST_MODE", "frozen")
+            .env("TEST_CONTROL", &control)
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(server.join().unwrap()["method"], "pane.close");
+    assert!(!control.exists());
+    assert_eq!(fs::read(metadata).unwrap(), before);
+    drop(listener);
+    harness.assert_local_untouched();
+}
+
+#[test]
+fn machine_api_cold_discovery_recovery_consumes_the_command_retry() {
+    for mode in ["cold", "cold_then_broken"] {
+        let harness = Harness::new();
+        harness.warm_metadata();
+        let (control, listener) = harness.managed_control();
+        let metadata = harness
+            .state
+            .join("ssh-metadata")
+            .join(format!("{PROFILE_ID}.json"));
+        fs::remove_file(metadata).unwrap();
+        let before = harness.ssh_calls();
+        let server = (mode == "cold")
+            .then(|| harness.serve(json!({"result":{"type":"ok"}}), harness.protocol));
+        let output = harness
+            .command(&["--machine", "mac", "pane", "close", "w4:p1"])
+            .env("TEST_MODE", mode)
+            .env("TEST_CONTROL", &control)
+            .output()
+            .unwrap();
+        if let Some(server) = server {
+            success(output);
+            assert_eq!(server.join().unwrap()["method"], "pane.close");
+        } else {
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("test new transport failed"),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                harness.ssh_calls() - before,
+                8,
+                "cold recovery must leave no second Ping recovery"
+            );
+        }
+        assert!(!control.exists());
+        drop(listener);
+        harness.assert_local_untouched();
+    }
 }
 
 #[test]
