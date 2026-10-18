@@ -24,6 +24,12 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://kelpie.multicastbits.com/assets/video/kelpie-demo-short.mp4"><img src="assets/demo-poster.jpg" alt="Kelpie demo: a pane delegated to a supervisor bot for 30 minutes. Click to play the 42-second video." width="100%" /></a>
+  <br />
+  <sub>▶ 42-second demo. The agents and chat are scripted; Kelpie's UI and delivery are real. <a href="https://kelpie.multicastbits.com/#demo">Longer version</a></sub>
+</p>
+
 ---
 
 Kelpie is a terminal multiplexer and runtime for AI coding agents such as Claude Code, Codex and Cursor. Run ten or more sessions side by side, each with its own native terminal UI, backed by a server-owned runtime with a local JSON API. A supervisor agent can watch every session and nudge it forward. The human always wins. First-class on Windows 11 and PowerShell 7, and at home on Linux and macOS.
