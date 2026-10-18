@@ -1143,7 +1143,7 @@ fn claude_v11_integration_status_is_outdated_until_reinstalled() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(11));
-    assert_eq!(claude.expected_version, 12);
+    assert_eq!(claude.expected_version, 13);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     install_claude().unwrap();
@@ -1152,7 +1152,7 @@ fn claude_v11_integration_status_is_outdated_until_reinstalled() {
         hook_path,
         CLAUDE_INTEGRATION_VERSION,
     );
-    assert_eq!(status.installed_version, Some(12));
+    assert_eq!(status.installed_version, Some(13));
     assert_eq!(status.state, IntegrationStatusKind::Current);
 
     std::env::remove_var("HOME");
@@ -1182,10 +1182,136 @@ fn claude_v2_integration_status_is_outdated() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(2));
-    assert_eq!(claude.expected_version, 12);
+    assert_eq!(claude.expected_version, 13);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn windows_hooks_decode_stdin_as_utf8() {
+    // Windows PowerShell decodes `[Console]::In` with the console input code
+    // page, which corrupts UTF-8 hook payloads on non-UTF-8 locales such as
+    // Korean Windows (CP949) and makes the hook silently drop the session.
+    // Every bundled PowerShell hook must read the raw stdin stream as UTF-8.
+    // See #5253.
+    for (name, asset) in [
+        (
+            "antigravity_cli",
+            include_str!("assets/antigravity_cli/kelpie-agent-state.ps1"),
+        ),
+        (
+            "claude",
+            include_str!("assets/claude/kelpie-agent-state.ps1"),
+        ),
+        ("codex", include_str!("assets/codex/kelpie-agent-state.ps1")),
+        (
+            "copilot",
+            include_str!("assets/copilot/kelpie-agent-state.ps1"),
+        ),
+        (
+            "cursor",
+            include_str!("assets/cursor/kelpie-agent-state.ps1"),
+        ),
+        ("devin", include_str!("assets/devin/kelpie-agent-state.ps1")),
+        ("droid", include_str!("assets/droid/kelpie-agent-state.ps1")),
+        ("grok", include_str!("assets/grok/kelpie-agent-state.ps1")),
+        ("kimi", include_str!("assets/kimi/kelpie-agent-state.ps1")),
+        (
+            "letta",
+            include_str!("assets/letta/kelpie-agent-session.ps1"),
+        ),
+        (
+            "mastracode",
+            include_str!("assets/mastracode/kelpie-agent-state.ps1"),
+        ),
+        (
+            "qodercli",
+            include_str!("assets/qodercli/kelpie-agent-state.ps1"),
+        ),
+        ("qwen", include_str!("assets/qwen/kelpie-agent-session.ps1")),
+    ] {
+        assert!(
+            !asset.contains("[Console]::In.ReadToEnd()"),
+            "{name} hook must not decode stdin with the console input code page"
+        );
+        assert!(
+            asset.contains("[Console]::OpenStandardInput()")
+                && asset.contains("[System.Text.Encoding]::UTF8"),
+            "{name} hook must decode raw stdin as UTF-8"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn claude_windows_hook_reports_utf8_session_path() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    fs::create_dir_all(home.join(".claude")).unwrap();
+    let previous_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", &home);
+    let installed = install_claude().unwrap();
+
+    let capture = base.join("args.txt");
+    let fake_kelpie = base.join("kelpie-capture.ps1");
+    fs::write(
+        &fake_kelpie,
+        "$capture = $env:KELPIE_TEST_CAPTURE\n[System.IO.File]::WriteAllText($capture, ($args -join \"`n\"), [System.Text.UTF8Encoding]::new($false))\n",
+    )
+    .unwrap();
+
+    // A Korean profile path: decoded with a non-UTF-8 console input code page
+    // (CP949 on Korean Windows) it garbles the JSON and the hook exits silently.
+    let transcript = "C:\\Users\\\u{d55c}\u{ae00}\\transcript.jsonl";
+    let payload = format!(
+        r#"{{"hook_event_name":"SessionStart","session_id":"claude-session","transcript_path":{}}}"#,
+        serde_json::to_string(transcript).unwrap()
+    );
+
+    let mut child = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&installed.hook_path)
+        .arg("session")
+        .env("KELPIE_ENV", "1")
+        .env("KELPIE_PANE_ID", "w1:p2")
+        .env("KELPIE_BIN_PATH", &fake_kelpie)
+        .env("KELPIE_TEST_CAPTURE", &capture)
+        .env_remove("CURSOR_VERSION")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "hook failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&capture).unwrap();
+    assert!(args.contains("report-agent-session"), "captured: {args}");
+    assert!(args.contains("--agent-session-id"), "captured: {args}");
+    assert!(args.contains("claude-session"), "captured: {args}");
+    assert!(args.contains(transcript), "captured: {args}");
+
+    if let Some(home) = previous_home {
+        std::env::set_var("HOME", home);
+    } else {
+        std::env::remove_var("HOME");
+    }
     let _ = fs::remove_dir_all(base);
 }
 
@@ -3953,7 +4079,7 @@ fn install_qwen_writes_session_hook_and_preserves_settings() {
     assert!(settings.get("permissions").is_some());
     let hook_asset = fs::read_to_string(&installed.hook_path).unwrap();
     assert!(hook_asset.contains("KELPIE_INTEGRATION_ID=qwen"));
-    assert!(hook_asset.contains("KELPIE_INTEGRATION_VERSION=1"));
+    assert!(hook_asset.contains("KELPIE_INTEGRATION_VERSION=2"));
     assert!(hook_asset.contains("kelpie:qwen"));
 
     install_qwen().unwrap();
@@ -4391,7 +4517,7 @@ fn cursor_v1_integration_status_is_outdated() {
         .expect("cursor integration status");
     assert_eq!(cursor.state, IntegrationStatusKind::Outdated);
     assert_eq!(cursor.installed_version, Some(1));
-    assert_eq!(cursor.expected_version, 2);
+    assert_eq!(cursor.expected_version, 3);
 
     clear_integration_path_env();
     let _ = fs::remove_dir_all(base);
@@ -4892,7 +5018,7 @@ fn antigravity_cli_v2_install_is_outdated_until_reinstalled() {
     fs::write(
         hook_dir.join(ANTIGRAVITY_CLI_HOOK_INSTALL_NAME),
         ANTIGRAVITY_CLI_HOOK_ASSET.replace(
-            "KELPIE_INTEGRATION_VERSION=3",
+            "KELPIE_INTEGRATION_VERSION=4",
             "KELPIE_INTEGRATION_VERSION=2",
         ),
     )
@@ -4908,7 +5034,7 @@ fn antigravity_cli_v2_install_is_outdated_until_reinstalled() {
     let outdated = status();
     assert_eq!(outdated.state, IntegrationStatusKind::Outdated);
     assert_eq!(outdated.installed_version, Some(2));
-    assert_eq!(outdated.expected_version, 3);
+    assert_eq!(outdated.expected_version, 4);
 
     install_antigravity_cli().unwrap();
     assert_eq!(status().state, IntegrationStatusKind::Current);

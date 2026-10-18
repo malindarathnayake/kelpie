@@ -1,7 +1,7 @@
 #!/bin/sh
 # managed by kelpie; reinstalling the integration replaces this file.
 # KELPIE_INTEGRATION_ID=kimi
-# KELPIE_INTEGRATION_VERSION=7
+# KELPIE_INTEGRATION_VERSION=8
 
 action="${1:-}"
 case "$action" in

@@ -1,6 +1,6 @@
 # managed by kelpie; reinstalling the integration replaces this file.
 # KELPIE_INTEGRATION_ID=letta
-# KELPIE_INTEGRATION_VERSION=1
+# KELPIE_INTEGRATION_VERSION=2
 
 param([string]$Action = "")
 
@@ -9,7 +9,10 @@ if ($env:KELPIE_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:KELPIE_PANE_ID)) { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:KELPIE_SOCKET_PATH)) { exit 0 }
 
-$inputText = [Console]::In.ReadToEnd()
+# Read hook input as raw bytes so UTF-8 payloads decode correctly even when the
+# console input code page is not UTF-8 (for example CP949 on Korean Windows).
+$stdinReader = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8)
+$inputText = $stdinReader.ReadToEnd()
 try {
     $payload = if ([string]::IsNullOrWhiteSpace($inputText)) { $null } else { $inputText | ConvertFrom-Json }
 } catch {

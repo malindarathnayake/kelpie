@@ -1,6 +1,6 @@
 # managed by kelpie; reinstalling the integration replaces this file.
 # KELPIE_INTEGRATION_ID=cursor
-# KELPIE_INTEGRATION_VERSION=2
+# KELPIE_INTEGRATION_VERSION=3
 
 param([string]$Action = "")
 
@@ -167,7 +167,10 @@ if ($Action -ne "session") { Exit-Hook }
 if ($env:KELPIE_ENV -ne "1") { Exit-Hook }
 if ([string]::IsNullOrWhiteSpace($env:KELPIE_PANE_ID)) { Exit-Hook }
 
-$inputText = [Console]::In.ReadToEnd()
+# Read hook input as raw bytes so UTF-8 payloads decode correctly even when the
+# console input code page is not UTF-8 (for example CP949 on Korean Windows).
+$stdinReader = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8)
+$inputText = $stdinReader.ReadToEnd()
 $jsonStart = $inputText.IndexOf("{")
 if ($jsonStart -gt 0) {
     $inputText = $inputText.Substring($jsonStart)

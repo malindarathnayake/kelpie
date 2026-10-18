@@ -1,7 +1,7 @@
 #!/bin/sh
 # managed by kelpie; reinstalling the integration replaces this file.
 # KELPIE_INTEGRATION_ID=letta
-# KELPIE_INTEGRATION_VERSION=1
+# KELPIE_INTEGRATION_VERSION=2
 
 [ "${1:-}" = "session" ] || exit 0
 [ "${KELPIE_ENV:-}" = "1" ] || exit 0

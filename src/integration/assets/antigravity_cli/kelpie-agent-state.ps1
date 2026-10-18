@@ -2,7 +2,7 @@
 # managed by kelpie; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # KELPIE_INTEGRATION_ID=antigravity_cli
-# KELPIE_INTEGRATION_VERSION=3
+# KELPIE_INTEGRATION_VERSION=4
 
 # Session-only: this hook reports the Antigravity conversation so Kelpie can
 # resume the pane. Lifecycle state comes from Kelpie's screen detection.
@@ -20,7 +20,10 @@ if ($Action -ne "session") { Exit-Hook }
 if ($env:KELPIE_ENV -ne "1") { Exit-Hook }
 if ([string]::IsNullOrWhiteSpace($env:KELPIE_PANE_ID)) { Exit-Hook }
 
-$inputText = [Console]::In.ReadToEnd()
+# Read hook input as raw bytes so UTF-8 payloads decode correctly even when the
+# console input code page is not UTF-8 (for example CP949 on Korean Windows).
+$stdinReader = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8)
+$inputText = $stdinReader.ReadToEnd()
 try {
     $payload = if ([string]::IsNullOrWhiteSpace($inputText)) { $null } else { $inputText | ConvertFrom-Json }
 } catch {

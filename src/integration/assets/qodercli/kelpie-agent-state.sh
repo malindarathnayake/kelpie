@@ -1,7 +1,7 @@
 #!/bin/sh
 # managed by kelpie; reinstalling the integration replaces this file.
 # KELPIE_INTEGRATION_ID=qodercli
-# KELPIE_INTEGRATION_VERSION=3
+# KELPIE_INTEGRATION_VERSION=4
 
 [ "${1:-}" = "session" ] || exit 0
 [ "${KELPIE_ENV:-}" = "1" ] || exit 0

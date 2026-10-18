@@ -1,7 +1,7 @@
 #!/bin/sh
 # managed by kelpie; reinstalling the integration replaces this file.
 # KELPIE_INTEGRATION_ID=cursor
-# KELPIE_INTEGRATION_VERSION=2
+# KELPIE_INTEGRATION_VERSION=3
 
 if [ "${1:-}" = "prompt" ]; then
     # Cursor must receive its allow response even when reporting is unavailable.

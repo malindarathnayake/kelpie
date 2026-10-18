@@ -3,7 +3,7 @@
 # managed by kelpie; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # KELPIE_INTEGRATION_ID=antigravity_cli
-# KELPIE_INTEGRATION_VERSION=3
+# KELPIE_INTEGRATION_VERSION=4
 
 # Session-only: this hook reports the Antigravity conversation so Kelpie can
 # resume the pane. Lifecycle state comes from Kelpie's screen detection.
