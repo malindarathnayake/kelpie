@@ -556,8 +556,12 @@ fn posix_remote_output_command(command: &str) -> String {
 }
 
 fn windows_powershell_script_command(script: &str) -> String {
+    // `$ProgressPreference = 'SilentlyContinue'` stops PowerShell from
+    // serializing progress records (for example module auto-loading's
+    // "Preparing modules for first use.") into the stderr CLIXML stream that
+    // Kelpie forwards to the terminal.
     let script = format!(
-        "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{REMOTE_OUTPUT_READY_MARKER}'); [Console]::Out.Flush(); {script}"
+        "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{REMOTE_OUTPUT_READY_MARKER}'); [Console]::Out.Flush(); $ProgressPreference = 'SilentlyContinue'; {script}"
     );
     let utf16 = script
         .encode_utf16()
@@ -5026,7 +5030,7 @@ mod tests {
         ];
 
         let preamble = format!(
-            "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{REMOTE_OUTPUT_READY_MARKER}'); [Console]::Out.Flush(); "
+            "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{REMOTE_OUTPUT_READY_MARKER}'); [Console]::Out.Flush(); $ProgressPreference = 'SilentlyContinue'; "
         );
         for (label, command, expected) in commands {
             let script = decode_windows_command(&command);
@@ -5035,6 +5039,21 @@ mod tests {
                 .unwrap_or_else(|| panic!("{label} lacks shared output marker: {script}"));
             assert_eq!(script, expected, "{label}");
         }
+    }
+
+    #[test]
+    fn windows_remote_commands_suppress_powershell_progress_records() {
+        // PowerShell serializes progress records (such as module auto-loading's
+        // "Preparing modules for first use.") to the stderr CLIXML stream when
+        // stderr is redirected under `-EncodedCommand`. Kelpie forwards that
+        // stderr, so the shared preamble must silence progress.
+        let script = decode_windows_command(&windows_powershell_script_command("exit 0"));
+        let preference = "$ProgressPreference = 'SilentlyContinue'; ";
+        assert!(script.contains(preference), "{script}");
+        assert!(
+            script.find(preference).unwrap() < script.find("exit 0").unwrap(),
+            "{script}"
+        );
     }
 
     #[test]
