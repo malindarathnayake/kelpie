@@ -1515,6 +1515,17 @@ fn agents_digest_method_name_and_read_only() {
 }
 
 #[test]
+fn agent_undelegate_changes_ui() {
+    let request = Request {
+        id: "ud".into(),
+        method: Method::AgentUndelegate(super::supervisor::AgentUndelegateParams {
+            pane_id: "w1:p1".into(),
+        }),
+    };
+    assert!(crate::api::request_changes_ui(&request));
+}
+
+#[test]
 fn clear_draft_request_contract() {
     use super::supervisor::{AgentControlParams, TargetRef};
 

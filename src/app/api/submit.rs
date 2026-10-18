@@ -2560,6 +2560,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delegation_changes_mark_the_session_dirty() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        let now = crate::supervisor::now_ms();
+        f.app.state.session_dirty = false;
+        f.delegate(DelegationChoice::Permanent, now);
+        assert!(f.app.state.session_dirty, "grant");
+
+        f.app.state.session_dirty = false;
+        f.delegate(DelegationChoice::Revoke, now);
+        assert!(f.app.state.session_dirty, "owner-menu revoke");
+
+        f.delegate(DelegationChoice::Permanent, now);
+        f.app.state.session_dirty = false;
+        let raw = f.undelegate();
+        assert!(raw.contains("\"result\""), "{raw}");
+        assert!(f.app.state.session_dirty, "api undelegate");
+
+        f.app.state.session_dirty = false;
+        let raw = f.undelegate();
+        assert!(raw.contains("\"result\""), "{raw}");
+        f.delegate(DelegationChoice::Revoke, now);
+        assert!(!f.app.state.session_dirty, "nothing to revoke");
+    }
+
+    #[tokio::test]
+    async fn undelegated_pane_is_not_in_the_next_session_save() {
+        use crate::supervisor::delegation::DelegationChoice;
+        let mut f = fixture();
+        f.app.state.supervisor.delegations.grant(
+            f.pane_id,
+            DelegationChoice::Permanent,
+            7,
+            Some("s-1".into()),
+        );
+        let saved = |app: &App| {
+            let mut snapshot = crate::persist::capture(
+                &app.state.workspaces,
+                &app.state.terminals,
+                &app.terminal_runtimes,
+                app.state.active,
+                app.state.selected,
+            );
+            crate::persist::record_delegations(&mut snapshot, &app.state.supervisor.delegations);
+            crate::persist::restored_pane_delegations(&snapshot, &app.state.workspaces)
+        };
+        assert_eq!(saved(&f.app).len(), 1, "the permanent grant is saved");
+
+        f.undelegate();
+        assert!(f.app.state.session_dirty);
+        assert!(
+            saved(&f.app).is_empty(),
+            "the revoked grant is not restored"
+        );
+    }
+
+    #[tokio::test]
     async fn delegated_pane_still_rejects_owner_text_or_an_unreadable_box() {
         use crate::supervisor::delegation::DelegationChoice;
         for (row, draft) in [("❯ owner typed", "dirty"), ("no prompt box", "unknown")] {

@@ -36,6 +36,11 @@ impl App {
             }
             DelegationChoice::Revoke => {
                 let revoked = self.state.supervisor.delegations.revoke(pane_id);
+                if revoked {
+                    // The session save records permanent delegations; save again so a
+                    // revoked one does not come back on restore.
+                    self.state.mark_session_dirty();
+                }
                 tracing::debug!(
                     event = "supervisor.delegation",
                     subsystem = "supervisor",
@@ -67,6 +72,11 @@ impl App {
             .delegations
             .grant(pane_id, choice, now_ms, session)
             .is_some();
+        if granted {
+            // A permanent grant must reach the session save; marking any grant is simpler
+            // and harmless, since timed ones are filtered out when the snapshot is built.
+            self.state.mark_session_dirty();
+        }
         tracing::debug!(
             event = "supervisor.delegation",
             subsystem = "supervisor",
@@ -128,6 +138,10 @@ impl App {
             return response;
         };
         let revoked = self.state.supervisor.delegations.revoke(pane_id);
+        if revoked {
+            // Same as the owner-menu revoke: drop the delegation from the next session save.
+            self.state.mark_session_dirty();
+        }
         tracing::debug!(
             event = "supervisor.delegation",
             subsystem = "supervisor",
@@ -140,7 +154,8 @@ impl App {
         response
     }
 
-    /// Drops expired delegations; true when any ended (the snapshot changed).
+    /// Drops expired delegations; true when any ended (the snapshot changed). Only timed
+    /// delegations expire and those are never saved, so this does not mark the session dirty.
     pub(crate) fn expire_supervisor_delegations(&mut self, now_ms: u64) -> bool {
         let expired = self.state.supervisor.delegations.expire_due(now_ms);
         for pane in &expired {

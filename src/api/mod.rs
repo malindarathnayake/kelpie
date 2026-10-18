@@ -56,6 +56,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::AgentReset(_)
             | Method::AgentClearDraft(_)
             | Method::AgentResume(_)
+            | Method::AgentUndelegate(_)
             | Method::PaneSplit(_)
             | Method::PaneSwap(_)
             | Method::PaneMove(_)
