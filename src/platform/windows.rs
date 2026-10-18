@@ -19,10 +19,12 @@ mod config_backup;
 pub(crate) mod host_probe;
 mod notifications;
 pub(crate) use app_exec_link::app_exec_link_target;
+mod power;
 pub(crate) use notifications::{
     foreground_desktop_notification_host, maybe_activate_desktop_notification,
     show_actionable_desktop_notification, show_desktop_notification,
 };
+pub(crate) use power::monitor_host_power;
 
 static ALLOW_UNELEVATED_CLIENTS: OnceLock<bool> = OnceLock::new();
 static ALLOW_LOW_INTEGRITY_CLIENTS: OnceLock<bool> = OnceLock::new();
