@@ -4,6 +4,12 @@
 
 ### Fixed
 - The Windows installer now installs every agent in `-Integrations claude,codex,cursor`; `powershell -File` had passed the list as one name, so no hooks were installed.
+- The server no longer crashes when a cursor move carries a link onto a full page. (herdr #5303)
+- Claude Code questions show as blocked in named sessions. (herdr #5192)
+- Codex sessions no longer start with a "clamping Interrupt hook timeout" warning. Kelpie no longer installs Codex turn hooks; Codex status comes from screen detection, and prompt receipts still work. Run `kelpie integration install codex` to update. (herdr #5278)
+- On Windows, agent hooks work when the user folder name contains non-ASCII characters, such as Korean. Reinstall your integrations to update. (herdr #5270)
+- On Windows, plugin panes start even when a folder on `PATH` has the same name as the plugin's program. (herdr #5269)
+- Prefix shortcuts work when the terminal sends the next key as plain text, as macOS input methods and Ghostty `text:` keybinds do. Workspace navigation had the same problem. (herdr #5277)
 
 ### Security
 - The SBOMs now also list the vendored terminal engine (libghostty-vt), the libraries it compiles in (uucode, simdutf, highway, wuffs) and the bundled Windows ConPTY.
