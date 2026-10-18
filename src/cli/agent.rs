@@ -463,6 +463,7 @@ fn agent_list(args: &[String]) -> std::io::Result<i32> {
 
 fn parse_agent_digest_args(args: &[String]) -> Result<AgentsDigestParams, String> {
     const USAGE: &str = "usage: kelpie agent digest [--page-cursor C] [--trace-id T]";
+    let args = super::expand_equals_args(args, &["--page-cursor", "--trace-id"]);
     let mut page_cursor: Option<String> = None;
     let mut trace_id: Option<String> = None;
     let mut index = 0;
@@ -1065,20 +1066,26 @@ const UNDELEGATE_USAGE: &str = "kelpie agent undelegate --pane <PANE_ID>";
 /// Gives a delegated pane back to its owner. There is no command that delegates: only the
 /// owner can, from an attached Kelpie window (ctrl+b shift+a).
 fn agent_undelegate(args: &[String]) -> std::io::Result<i32> {
-    let [flag, pane_id] = args else {
+    let Some(pane_id) = parse_agent_undelegate_args(args) else {
         eprintln!("usage: {UNDELEGATE_USAGE}");
         return Ok(2);
     };
-    if flag != "--pane" || pane_id.starts_with('-') {
-        eprintln!("usage: {UNDELEGATE_USAGE}");
-        return Ok(2);
-    }
     super::print_response(&super::send_request(&Request {
         id: "cli:agent:undelegate".into(),
-        method: Method::AgentUndelegate(AgentUndelegateParams {
-            pane_id: pane_id.clone(),
-        }),
+        method: Method::AgentUndelegate(AgentUndelegateParams { pane_id }),
     })?)
+}
+
+/// `agent undelegate`: exactly `--pane ID` (or `--pane=ID`); returns the pane ID.
+fn parse_agent_undelegate_args(args: &[String]) -> Option<String> {
+    let args = super::expand_equals_args(args, &["--pane"]);
+    let [flag, pane_id] = args.as_slice() else {
+        return None;
+    };
+    if flag != "--pane" || pane_id.starts_with('-') {
+        return None;
+    }
+    Some(pane_id.clone())
 }
 
 fn agent_get(args: &[String]) -> std::io::Result<i32> {
@@ -1515,8 +1522,9 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
 mod tests {
     use super::{
         parse_agent_answer_args, parse_agent_control_args, parse_agent_digest_args,
-        parse_agent_resume_args, parse_agent_submit_args, parse_agent_watch_args, parse_target_ref,
-        watch_view, watch_view_changed, CLEAR_DRAFT_USAGE, INTERRUPT_USAGE, RESET_USAGE,
+        parse_agent_resume_args, parse_agent_submit_args, parse_agent_undelegate_args,
+        parse_agent_watch_args, parse_target_ref, watch_view, watch_view_changed,
+        CLEAR_DRAFT_USAGE, INTERRUPT_USAGE, RESET_USAGE,
     };
     use std::time::Duration;
 
@@ -1563,6 +1571,49 @@ mod tests {
             args(&["--page-cursor", "a", "--page-cursor", "b"]),
         ] {
             assert_eq!(parse_agent_digest_args(&bad).unwrap_err(), USAGE);
+        }
+    }
+
+    #[test]
+    fn agent_digest_args_accept_equals_form() {
+        let spaced =
+            parse_agent_digest_args(&args(&["--page-cursor", "abc", "--trace-id", "t1"])).unwrap();
+        let equals =
+            parse_agent_digest_args(&args(&["--page-cursor=abc", "--trace-id=t1"])).unwrap();
+        assert_eq!(equals.page_cursor, spaced.page_cursor);
+        assert_eq!(equals.trace_id, spaced.trace_id);
+        assert_eq!(equals.page_cursor.as_deref(), Some("abc"));
+        assert_eq!(equals.trace_id.as_deref(), Some("t1"));
+
+        // Everything after the first `=` is the value.
+        let params = parse_agent_digest_args(&args(&["--trace-id=a=b"])).unwrap();
+        assert_eq!(params.trace_id.as_deref(), Some("a=b"));
+
+        // A flag repeated across the two forms is still rejected.
+        assert_eq!(
+            parse_agent_digest_args(&args(&["--trace-id=a", "--trace-id", "b"])).unwrap_err(),
+            USAGE
+        );
+    }
+
+    #[test]
+    fn agent_undelegate_args_accept_space_and_equals_forms() {
+        assert_eq!(
+            parse_agent_undelegate_args(&args(&["--pane", "w1:p1"])).as_deref(),
+            Some("w1:p1")
+        );
+        assert_eq!(
+            parse_agent_undelegate_args(&args(&["--pane=w1:p1"])).as_deref(),
+            Some("w1:p1")
+        );
+        for bad in [
+            args(&[]),
+            args(&["--pane"]),
+            args(&["--pane", "-x"]),
+            args(&["--pane=w1:p1", "--pane", "w1:p2"]),
+            args(&["--target", "w1:p1"]),
+        ] {
+            assert!(parse_agent_undelegate_args(&bad).is_none(), "{bad:?}");
         }
     }
 
