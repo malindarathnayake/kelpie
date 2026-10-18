@@ -24,6 +24,8 @@ __pycache__/
 **/.wrangler/
 
 # Local tool state
-/.claude/
+/.claude/*
+# Fork: the herdr port workflow is tracked.
+!/.claude/workflows/
 /.codex/
 /Microsoft/

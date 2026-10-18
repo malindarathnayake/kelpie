@@ -171,6 +171,19 @@ Validate agent-specific detection behavior with live smoke tests through the man
 
 `distribution/agent-detection/` is the remotely published catalog for released clients. Keep changes for already released agents aligned with their bundled manifests unless the validator records an exact compatibility exception. A newly bundled agent that current stable clients cannot identify may remain unpublished behind an exact version-and-digest exception, but it must be added to the catalog and the exception removed before the first stable release that ships it. `just release-docs-check` enforces that no unpublished exceptions remain.
 
+## Porting from herdr
+
+Kelpie is a fork of herdr. Upstream changes are ported by hand, one upstream commit per Kelpie commit, oldest first; never merge or rebase onto herdr. `distribution/upstream-ports.json` records every upstream commit after the fork base as `ported` or `skipped` (with a reason), and `scripts/upstream_port.py` is the only way to stage and commit a port:
+
+- `just upstream-status` fetches herdr and lists pending commits in the order they must be ported.
+- `upstream_port.py apply <sha>` refuses a dirty tree or an out-of-order commit, stages the patch with a 3-way apply, and lists the herdr names it brings in.
+- Resolve conflicts keeping Kelpie's behaviour, rename every herdr identifier (binary, `HERDR_*` env, sockets, config dirs, launchd labels, temp files) to Kelpie's, build, and run the targeted tests.
+- `upstream_port.py audit --staged` fails on herdr names in added lines. Credits such as `herdr#1234` and links to the herdr repository are allowed; a line that must stay herdr carries `upstream-port: keep-herdr: <reason>`.
+- `upstream_port.py commit <sha> --body "<why>"` writes the subject from upstream, adds `Ports herdr #NNNN.` and an `Upstream-Commit:` trailer, and records the ledger entry in the same commit. `skip <sha> --reason` records a commit that is deliberately not ported; anything beyond herdr release metadata or website publishing needs an owner decision.
+- Code under `cfg(target_os = "macos")` must be validated on a Mac before release.
+
+The `port-herdr` Claude workflow in `.claude/workflows/` runs this in two passes with the owner in between. `{mode: 'plan'}` is read-only: it triages every pending commit (is it needed in Kelpie, how to port it, what it depends on), has a second agent argue the opposite, and returns suggested `approve`/`skip` args. `{mode: 'port', approve, skip}` ports approved commits in order, reviews each port through fidelity, regression and rename/install-safety lenses with two refuters per finding, fixes confirmed findings (at most two rounds), then runs the suite against the pre-run baseline, optionally validates on a Mac (`mac: true`), writes CHANGELOG entries and runs a completeness critic. It stops at the first commit that is neither approved nor skipped.
+
 ## Vendored libghostty-vt
 
 `vendor/libghostty-vt.vendor.json` records the upstream source commit currently vendored.

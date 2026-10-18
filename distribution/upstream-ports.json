@@ -1,0 +1,222 @@
+{
+  "upstream": {
+    "url": "https://github.com/herdrdev/herdr.git",
+    "branch": "master",
+    "ref": "refs/upstream-peek/master",
+    "base": "dc6b6e5f42831ea7114f34dcf12900680eb36ae0",
+    "note": "base is the last upstream commit Kelpie contains (merge base); everything after it is ported or skipped one commit at a time."
+  },
+  "commits": [
+    {
+      "sha": "9c38bbc64e3b7a23176afb2451a067a53fb8d2fd",
+      "subject": "fix: detect blocked questions in named claude sessions (#5192)",
+      "status": "ported",
+      "pr": 5192,
+      "kelpie": [
+        "6fa74a1fd92539e4e5dd2895c517f74112645339"
+      ]
+    },
+    {
+      "sha": "00584a279427fb6c1af418c8cb4588376d7df089",
+      "subject": "fix: decode windows agent hook stdin as utf-8 (#5270)",
+      "status": "ported",
+      "pr": 5270,
+      "kelpie": [
+        "17b66d3b83deb8b98863df901f34cf12a0ec7daf"
+      ]
+    },
+    {
+      "sha": "576dd3670dedbfe64463851a4da065bf66f4fa5d",
+      "subject": "fix: skip directories when resolving Windows programs on PATH (#5269)",
+      "status": "ported",
+      "pr": 5269,
+      "kelpie": [
+        "6e9942a99aba2072e51b2c6384f017f89676a932"
+      ]
+    },
+    {
+      "sha": "f53f92dd40d5c21b36b4cca209cffeb91b69cd0e",
+      "subject": "fix: run prefix bindings for plain text from kitty terminals (#5277)",
+      "status": "ported",
+      "pr": 5277,
+      "kelpie": [
+        "40130667ffc5ba08dcf59f0e1fff53dcd9612013"
+      ]
+    },
+    {
+      "sha": "287da8072ff8363f406f5d8c4e52fd3227eea58e",
+      "subject": "fix: drop codex turn status hooks (#5278)",
+      "status": "ported",
+      "pr": 5278,
+      "kelpie": [
+        "7c4c32cdfc31a0d1de097ef51f26d5565c4ac91c"
+      ]
+    },
+    {
+      "sha": "e97c344ae016224e6bb255988ad417e8190da6e2",
+      "subject": "fix: stop server crash when a cursor move carries a link onto a full page (#5303)",
+      "status": "ported",
+      "pr": 5303,
+      "kelpie": [
+        "d9603ced364f22b0f15f8fd9c6ab01a88dd7d33e"
+      ]
+    },
+    {
+      "sha": "6d697e1e75ff1e94ebd5d176fcbf7a36545ac557",
+      "subject": "fix: detect codex startup update chooser (#5174)",
+      "status": "ported",
+      "pr": 5174,
+      "kelpie": [
+        "700e18ca43a87060658ffeb48cb467ea9a9ef8e8"
+      ]
+    },
+    {
+      "sha": "2f3432c6889d7e7cd8a0156a7daefa69d63891b2",
+      "subject": "release: synchronize metadata for v0.9.5",
+      "status": "skipped",
+      "reason": "herdr release metadata; Kelpie versions independently."
+    },
+    {
+      "sha": "1cbd794559fb139f95f1bdb4b2a8998082017d0e",
+      "subject": "release: synchronize metadata for v0.9.4",
+      "status": "skipped",
+      "reason": "herdr release metadata; Kelpie versions independently."
+    },
+    {
+      "sha": "ca790064d6fadb9db5ec0894d78a8096eccd187e",
+      "subject": "docs: publish preview documentation",
+      "status": "skipped",
+      "reason": "herdr website preview docs; Kelpie keeps its own docs."
+    },
+    {
+      "sha": "212b710b929315044a2c049bbe34b091c82df47d",
+      "subject": "docs: publish preview documentation",
+      "status": "skipped",
+      "reason": "herdr website preview docs; Kelpie keeps its own docs."
+    },
+    {
+      "sha": "241b99cd397bb642eaabcfee1647bcecffb26be1",
+      "subject": "refactor: share cli and api command contracts (#5212)",
+      "status": "skipped",
+      "pr": 5212,
+      "reason": "Owner decision 2026-10-18: too large to port (18 files, ~6k conflict lines); Kelpie keeps its hand parsers plus a method catalog test (f2db1378)."
+    },
+    {
+      "sha": "afd7aa94b04c481e79f2f7c9438a6775841f4227",
+      "subject": "fix: retry a reconnecting machine immediately when selected (#5232)",
+      "status": "ported",
+      "pr": 5232,
+      "kelpie": [
+        "e6d2411bf4d039b2dabfd80efcc9b87a90ffd8b1"
+      ]
+    },
+    {
+      "sha": "43f873e179d5d5643f20327a02362c288808d0b4",
+      "subject": "fix: enforce handshake response deadlines (#5242)",
+      "status": "ported",
+      "pr": 5242,
+      "kelpie": [
+        "037a98f8d09f1c2ebddce2b3965068164b8e406b"
+      ]
+    },
+    {
+      "sha": "ee731a221e12d6d2e3358dfd487b2d87171640de",
+      "subject": "fix: allow busy servers time to become ready (#5241)",
+      "status": "ported",
+      "pr": 5241,
+      "kelpie": [
+        "193edd596f5cab5062a40b31756c16cad547874d"
+      ]
+    },
+    {
+      "sha": "87e5c13c6028df72405f63388dde585212ad3019",
+      "subject": "fix: cancel and clean up endpoint connection attempts (#5247)",
+      "status": "ported",
+      "pr": 5247,
+      "kelpie": [
+        "e56288b0ee7fc908a31bd1dc30c8036517451101"
+      ]
+    },
+    {
+      "sha": "dec3156a6f795450d1b1b634f0a0d5cefd056ee3",
+      "subject": "fix: recover endpoint connections promptly after wake (#5249)",
+      "status": "ported",
+      "pr": 5249,
+      "kelpie": [
+        "36bd4192ff6af3f6588a065e7cf81c1067d2ac9e"
+      ]
+    },
+    {
+      "sha": "6521382dbed36f2d001417108149c338aee116ea",
+      "subject": "fix: recover blocked shared ssh connections (#5252)",
+      "status": "ported",
+      "pr": 5252,
+      "kelpie": [
+        "c0c9594947d7efc11d861521094eb3cb6b1e3c55"
+      ]
+    },
+    {
+      "sha": "9ee03e36f4e58fa883d5fdc8cb50d127c560e722",
+      "subject": "test: deflake federated remote restart on loaded CI (#5276)",
+      "status": "ported",
+      "pr": 5276,
+      "kelpie": [
+        "9de2348eb51b12b94e549caf461c4cd3cf8c7a05"
+      ]
+    },
+    {
+      "sha": "8a20d0b7b5fbce8559c6fb916c506176014d3a82",
+      "subject": "fix: silence powershell progress clixml on windows remotes (#5282)",
+      "status": "ported",
+      "pr": 5282,
+      "kelpie": [
+        "a6d861063bcd4fbedf11c0158977cf0c205aa583"
+      ]
+    },
+    {
+      "sha": "3b0c3e9e26b8629b18db660171acb0c6e6e29303",
+      "subject": "test: deflake observer write timeout on loaded runners (#5280)",
+      "status": "ported",
+      "pr": 5280,
+      "kelpie": [
+        "63b4624a92bb9c3952e35b739fec6de90429052e"
+      ]
+    },
+    {
+      "sha": "916fcf8de029c6cac965b50f3cdb9687cd7d1537",
+      "subject": "fix: probe windows remote hosts before /bin/sh (#5275)",
+      "status": "ported",
+      "pr": 5275,
+      "kelpie": [
+        "bf908536f0d16e9eac879bf0feb22a574b5355a7"
+      ]
+    },
+    {
+      "sha": "77a176eb21617c5fb9f32977f10e951c190ce530",
+      "subject": "fix: keep posix machine scripts intact through windows openssh (#5308)",
+      "status": "ported",
+      "pr": 5308,
+      "kelpie": [
+        "bdc6002b9fcadc579d4d31d5fdf46b722c0d5408"
+      ]
+    },
+    {
+      "sha": "b431a063e2cfdbfc3ca41bcd0dcbc329f92d217f",
+      "subject": "fix: keep the macos server running when its terminal quits (#5236)",
+      "status": "ported",
+      "pr": 5236,
+      "kelpie": [
+        "5aa9b81de4a236b87f267a9355e819b58d0d3530"
+      ]
+    },
+    {
+      "sha": "143bf5fd4781d164260c63fe28e7dc08054ad32f",
+      "subject": "fix: keep polling when a resize samples a zero-sized grid (#5310)",
+      "status": "ported",
+      "pr": 5310,
+      "kelpie": [
+        "e38863b01c0dc8f9cdf3876e4a7f5245795bec27"
+      ]
+    }
+  ]
+}
