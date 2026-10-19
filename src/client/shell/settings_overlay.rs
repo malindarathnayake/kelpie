@@ -261,6 +261,33 @@ pub(super) fn render_settings_overlay(
                 palette,
                 &mut choice_hits,
             );
+            // Fork: the supervisor cannot write to a pane the owner typed in until the owner
+            // hands it over; keep the key visible next to the switch.
+            if settings.access.supervisor {
+                let keys = settings
+                    .handover_keys
+                    .as_deref()
+                    .unwrap_or("the supervisor_handoff key");
+                // Below the last choice row, matching `render_choice_section`'s spacing.
+                let step = 1 + u16::from(rows.len() > 2);
+                let y = content
+                    .y
+                    .saturating_add(3)
+                    .saturating_add((rows.len() as u16).saturating_sub(1) * step)
+                    .saturating_add(2);
+                if y < content.bottom() {
+                    put_text(
+                        buffer,
+                        content.x,
+                        y,
+                        content.width,
+                        &format!(
+                            "bots wait on panes you typed in: press {keys} there to hand over"
+                        ),
+                        Style::default().fg(palette.peach).bg(palette.panel_bg),
+                    );
+                }
+            }
         }
         ClientSettingsSection::Host => {}
     }

@@ -109,6 +109,7 @@ mod tests {
             theme_picker: false,
             host: Some(overlay.clone()),
             access: Default::default(),
+            handover_keys: None,
         };
         let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
         let rendered = super::super::settings_overlay::render_settings_overlay(

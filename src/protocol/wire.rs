@@ -1084,6 +1084,10 @@ pub struct ClientShellPane {
     /// self-describing, so fields cannot be skipped.
     #[serde(default)]
     pub delegation: Option<ClientShellDelegation>,
+    /// Fork: a supervised write was refused recently because the owner typed in this pane;
+    /// the client reminds the owner of the delegate key. False from an older server.
+    #[serde(default)]
+    pub handover_wanted: bool,
 }
 
 /// Fork: a pane's active delegation as the client shows it.
@@ -2882,6 +2886,7 @@ mod tests {
                 focused: true,
                 right_click_passthrough: false,
                 delegation: None,
+                handover_wanted: false,
             }],
             agents: Vec::new(),
             commands: vec![ClientShellCommand {

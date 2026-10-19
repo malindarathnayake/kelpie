@@ -2381,13 +2381,18 @@ impl HeadlessServer {
                 if !self.shell_client_views_pane(client_id, workspace_index, runtime_pane_id) {
                     return false;
                 }
-                let _ = self.app.arm_supervisor_handoff(
-                    workspace_index,
-                    runtime_pane_id,
-                    &pane_id,
-                    crate::supervisor::now_ms(),
-                );
-                false
+                let now_ms = crate::supervisor::now_ms();
+                // Arming answers a pane's hand-over reminder: rebuild the snapshot when one
+                // was showing so the reminder goes away.
+                self.app
+                    .arm_supervisor_handoff(workspace_index, runtime_pane_id, &pane_id, now_ms)
+                    .is_ok()
+                    && self
+                        .app
+                        .state
+                        .supervisor
+                        .delegations
+                        .clear_handover_wanted(runtime_pane_id)
             }
             ServerEvent::ClientShellSupervisorDelegate {
                 client_id,

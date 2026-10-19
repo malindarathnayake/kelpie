@@ -444,6 +444,8 @@ pub(super) struct ClientSettingsOverlay {
     pub(super) host: Option<super::host_facts_panel::ClientHostFactsOverlay>,
     /// Fork: access switch values shown in the Access section, refreshed after each save.
     pub(super) access: crate::config::AccessSettings,
+    /// Fork: the delegate key in words for the Access section's reminder; None when unbound.
+    pub(super) handover_keys: Option<String>,
 }
 
 #[derive(Debug)]
@@ -1637,6 +1639,7 @@ impl ClientShellState {
             }
         }
         self.note_expired_delegations(&snapshot);
+        self.note_handover_wanted(&snapshot);
         self.snapshot = Some(snapshot);
         let (attention_now, _) = self.sidebar_clock();
         self.sync_attention(attention_now);

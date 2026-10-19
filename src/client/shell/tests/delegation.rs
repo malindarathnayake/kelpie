@@ -251,3 +251,62 @@ fn expiry_shows_a_notice_but_a_revoke_does_not() {
     state.set_snapshot(Box::new(revoked));
     assert!(state.copy_feedback.is_none());
 }
+
+#[test]
+fn handover_reminder_toasts_once_with_the_live_keys_and_shows_in_the_agent_row() {
+    let now = crate::supervisor::now_ms();
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.sidebar_test_clock = Some((Instant::now(), now));
+    state.set_snapshot(Box::new(snapshot()));
+    state.copy_feedback = None;
+
+    let mut waiting = snapshot();
+    waiting.revision += 1;
+    waiting.panes[0].handover_wanted = true;
+    waiting.agents = vec![ClientShellAgent {
+        pane_id: "pane_1".into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_1".into(),
+        name: None,
+        display_agent: Some("codex".into()),
+        agent: Some("codex".into()),
+        title: None,
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent_status: AgentStatus::Idle,
+        state_change_seq: 1,
+        state_labels: Vec::new(),
+        tokens: Vec::new(),
+        focused: true,
+    }];
+    state.set_snapshot(Box::new(waiting.clone()));
+    let message = state
+        .copy_feedback
+        .take()
+        .map(|feedback| feedback.message)
+        .expect("hand-over toast");
+    assert!(
+        message.starts_with("press ctrl+b, then shift+a to hand") && message.contains("pane_1"),
+        "{message}"
+    );
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 30).unwrap();
+    let text = frame_rows(&frame).join("\n");
+    assert!(text.contains("◇ bot waiting"), "agent row:\n{text}");
+
+    // Still waiting in the next snapshot: no repeat toast.
+    waiting.revision += 1;
+    state.set_snapshot(Box::new(waiting.clone()));
+    assert!(state.copy_feedback.is_none());
+
+    // A delegated pane never reminds.
+    let mut delegated = waiting;
+    delegated.revision += 1;
+    delegated.panes[0].handover_wanted = false;
+    state.set_snapshot(Box::new(delegated.clone()));
+    delegated.revision += 1;
+    delegated.panes[0].handover_wanted = true;
+    delegated.panes[0].delegation = permanent();
+    state.set_snapshot(Box::new(delegated));
+    assert!(state.copy_feedback.is_none());
+}

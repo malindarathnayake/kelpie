@@ -30,9 +30,14 @@ impl App {
         let pane = super::supervisor::sanitize_log_token(Some(public_pane_id), 64);
         match choice {
             DelegationChoice::Once => {
-                return self
-                    .arm_supervisor_handoff(ws_idx, pane_id, public_pane_id, now_ms)
-                    .map(|_| ());
+                self.arm_supervisor_handoff(ws_idx, pane_id, public_pane_id, now_ms)?;
+                // Arming answers the pane's hand-over reminder; the caller rebuilds the
+                // snapshot on success.
+                self.state
+                    .supervisor
+                    .delegations
+                    .clear_handover_wanted(pane_id);
+                return Ok(());
             }
             DelegationChoice::Revoke => {
                 let revoked = self.state.supervisor.delegations.revoke(pane_id);
@@ -154,9 +159,15 @@ impl App {
         response
     }
 
-    /// Drops expired delegations; true when any ended (the snapshot changed). Only timed
-    /// delegations expire and those are never saved, so this does not mark the session dirty.
+    /// Drops expired delegations and lapsed hand-over reminders; true when any ended (the
+    /// snapshot changed). Only timed delegations expire and those are never saved, so this
+    /// does not mark the session dirty.
     pub(crate) fn expire_supervisor_delegations(&mut self, now_ms: u64) -> bool {
+        let reminders = self
+            .state
+            .supervisor
+            .delegations
+            .expire_handover_reminders(now_ms);
         let expired = self.state.supervisor.delegations.expire_due(now_ms);
         for pane in &expired {
             tracing::debug!(
@@ -166,7 +177,18 @@ impl App {
                 pane_raw = pane.raw(),
             );
         }
-        !expired.is_empty()
+        reminders || !expired.is_empty()
+    }
+
+    /// True while the pane should remind the owner to hand it over: a supervised write was
+    /// refused recently only because the owner typed there. For the client snapshot.
+    pub(crate) fn handover_wanted(&self, pane_id: crate::layout::PaneId, now_ms: u64) -> bool {
+        crate::supervisor::enabled()
+            && self
+                .state
+                .supervisor
+                .delegations
+                .handover_wanted(pane_id, now_ms)
     }
 
     /// The pane's active delegation, for the client snapshot and the digest.

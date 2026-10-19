@@ -43,6 +43,10 @@ fn access_section_lists_switches_with_their_current_values() {
 
     assert!(text.contains("supervisor  on"), "{text}");
     assert!(
+        text.contains("bots wait on panes you typed in: press ctrl+b, then shift+a"),
+        "{text}"
+    );
+    assert!(
         text.contains("applies after `kelpie server stop`"),
         "{text}"
     );
@@ -73,6 +77,15 @@ fn enter_toggles_the_selected_switch_and_keeps_the_rest_of_the_file() {
         "{written}"
     );
     assert!(state.config.access.supervisor);
+    let toast = state
+        .copy_feedback
+        .as_ref()
+        .map(|feedback| feedback.message.clone())
+        .unwrap_or_default();
+    assert!(
+        toast.starts_with("press ctrl+b, then shift+a in a pane"),
+        "turning the supervisor on reminds the owner of the key: {toast}"
+    );
     assert!(
         matches!(
             state.overlay,

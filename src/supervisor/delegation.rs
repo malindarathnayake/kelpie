@@ -6,12 +6,19 @@
 //! blocks supervised writes to that pane. Every other guard stays: target_ref checks, the
 //! profile draft check (a dirty or unreadable box still rejects) and the write fence (owner
 //! keys during an in-flight write still trip it). Owner typing never revokes a delegation.
+//!
+//! The same table keeps a short-lived hand-over reminder: when a supervised write is
+//! refused only because the owner typed in the pane, the attached client shows the
+//! delegate key on that pane until the owner hands it over or the reminder lapses.
 
 use std::collections::HashMap;
 
 use crate::layout::PaneId;
 
 const MINUTE_MS: u64 = 60_000;
+
+/// How long a refused write keeps the hand-over reminder on its pane.
+pub const HANDOVER_REMINDER_MS: u64 = 10 * MINUTE_MS;
 
 /// What the owner picked in the delegate menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +115,8 @@ pub struct PendingRestore {
 pub struct Delegations {
     active: HashMap<PaneId, Delegation>,
     pending_restore: HashMap<PaneId, PendingRestore>,
+    /// Time of the newest write refused because the owner typed in the pane.
+    handover_wanted: HashMap<PaneId, u64>,
 }
 
 impl Delegations {
@@ -126,6 +135,7 @@ impl Delegations {
             timed => Some(now_ms.saturating_add(timed.duration_ms()?)),
         };
         self.pending_restore.remove(&pane);
+        self.handover_wanted.remove(&pane);
         self.active.insert(
             pane,
             Delegation {
@@ -164,9 +174,42 @@ impl Delegations {
         expired
     }
 
+    /// A supervised write to `pane` was refused only because the owner typed there.
+    /// Returns true when the pane's reminder was not showing before.
+    pub fn note_handover_wanted(&mut self, pane: PaneId, now_ms: u64) -> bool {
+        let was_showing = self.handover_wanted(pane, now_ms);
+        self.handover_wanted.insert(pane, now_ms);
+        !was_showing
+    }
+
+    /// The owner handed the pane over once; true when a reminder entry was removed. A
+    /// lapsed entry the expiry tick has not dropped yet still counts, so the caller
+    /// rebuilds the snapshot that may still show it.
+    pub fn clear_handover_wanted(&mut self, pane: PaneId) -> bool {
+        self.handover_wanted.remove(&pane).is_some()
+    }
+
+    /// True while the pane shows the hand-over reminder: a refused write within
+    /// `HANDOVER_REMINDER_MS` and no active delegation.
+    pub fn handover_wanted(&self, pane: PaneId, now_ms: u64) -> bool {
+        self.handover_wanted
+            .get(&pane)
+            .is_some_and(|at| now_ms < at.saturating_add(HANDOVER_REMINDER_MS))
+            && self.active(pane, now_ms).is_none()
+    }
+
+    /// Drops lapsed reminders; true when any was dropped.
+    pub fn expire_handover_reminders(&mut self, now_ms: u64) -> bool {
+        let before = self.handover_wanted.len();
+        self.handover_wanted
+            .retain(|_, at| now_ms < at.saturating_add(HANDOVER_REMINDER_MS));
+        self.handover_wanted.len() != before
+    }
+
     pub fn remove_pane(&mut self, pane: PaneId) {
         self.active.remove(&pane);
         self.pending_restore.remove(&pane);
+        self.handover_wanted.remove(&pane);
     }
 
     /// Permanent delegations with a known agent session, for the session save.
@@ -284,6 +327,34 @@ mod tests {
         d.grant(pid(1), DelegationChoice::Hours2, 0, None);
         d.remove_pane(pid(1));
         assert!(d.active(pid(1), 0).is_none());
+    }
+
+    #[test]
+    fn handover_reminder_shows_until_granted_cleared_or_lapsed() {
+        let mut d = Delegations::default();
+        assert!(!d.handover_wanted(pid(1), 0));
+        assert!(d.note_handover_wanted(pid(1), 1_000), "newly showing");
+        assert!(!d.note_handover_wanted(pid(1), 2_000), "already showing");
+        assert!(d.handover_wanted(pid(1), 2_000 + HANDOVER_REMINDER_MS - 1));
+        assert!(!d.handover_wanted(pid(1), 2_000 + HANDOVER_REMINDER_MS));
+        assert!(!d.expire_handover_reminders(2_000));
+        assert!(d.expire_handover_reminders(2_000 + HANDOVER_REMINDER_MS));
+        assert!(d.note_handover_wanted(pid(1), 3_000), "lapsed shows again");
+
+        d.grant(pid(1), DelegationChoice::Hours2, 3_000, None);
+        assert!(!d.handover_wanted(pid(1), 3_000), "a grant clears it");
+        d.revoke(pid(1));
+        assert!(!d.handover_wanted(pid(1), 3_000), "and it stays cleared");
+
+        d.note_handover_wanted(pid(2), 0);
+        assert!(d.clear_handover_wanted(pid(2)));
+        assert!(!d.clear_handover_wanted(pid(2)));
+        // A lapsed entry not yet dropped by the tick still asks for a rebuild.
+        d.note_handover_wanted(pid(2), 0);
+        assert!(d.clear_handover_wanted(pid(2)));
+        d.note_handover_wanted(pid(3), 0);
+        d.remove_pane(pid(3));
+        assert!(!d.handover_wanted(pid(3), 1));
     }
 
     #[test]

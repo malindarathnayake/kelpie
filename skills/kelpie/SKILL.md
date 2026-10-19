@@ -95,7 +95,7 @@ To control a saved SSH machine, use the same global prefix for discovery and eve
 ```bash
 kelpie --machine <label-or-id> agent list
 kelpie --machine <label-or-id> pane list
-kelpie --machine <label-or-id> agent prompt <remote-agent-name> "Reply with your current status." --wait --timeout 120000
+kelpie --machine <label-or-id> agent digest
 ```
 
 The selector must be an enabled saved profile ID or a unique, case-sensitive label, not an arbitrary SSH hostname. Commands use that profile's remote session without an open TUI. Do not combine `--machine` with `--session` or `--remote`. Discover IDs on that machine; inherited local IDs and `--current` do not identify remote panes.
@@ -134,41 +134,40 @@ Use the kind requested by the user. Run `kelpie agent` to inspect the installed 
 kelpie agent start reviewer --kind codex --pane <returned-pane-id> -- <agent-args...>
 ```
 
-A successful `agent start` returns only after Kelpie detects the expected agent in the same pane and considers it ready for interactive input. If the agent is blocked during startup, the command returns `agent_not_ready` immediately but keeps the name available for `agent read` and `agent send-keys`. Wait until the agent becomes idle before prompting it. Startup defaults to a 30-second timeout.
+A successful `agent start` returns only after Kelpie detects the expected agent in the same pane and considers it ready for interactive input. If the agent is blocked during startup, the command returns `agent_not_ready` immediately but keeps the name available for `agent read`. Wait until the agent becomes idle before prompting it. Startup defaults to a 30-second timeout.
 
-Submit work through the agent surface:
+Supervised writes (`agent submit`, `answer`, `interrupt`, `reset`, `clear-draft`, `resume`) need `[supervisor] enabled = true` in the server's config. Each write names an exact target and an idempotency key. Read the target first:
 
 ```bash
-kelpie agent prompt reviewer "Review the current diff and report only actionable findings." --wait --timeout 120000
+kelpie agent digest
 ```
 
-`agent prompt` honors the pane's live bracketed-paste mode and sends text followed by encoded Enter as one ordered submission. It reports successful submission only after both have been written; that alone does not prove the agent started a turn. For Codex on Windows, Kelpie sends a paste boundary before Enter so submission does not depend on prompt size. It rejects an agent already waiting at an approval or question dialog with `agent_blocked` before sending any input. Inspect the blocked UI and ask the user before answering it. For normal agent work, `--wait` is enough: it waits for the first settled `idle`, `done`, or `blocked` state. Do not repeat those defaults with `--until`.
+Copy the agent's complete `target_ref` (`<server_epoch>:<pane_id>:<generation>`) from the digest, pick a fresh submit ID, and submit:
 
-With `--wait`, a prompt sent from a non-working state must produce observed `working` or `blocked` activity. After submission, Kelpie waits up to five seconds for that activity; unrelated `idle`, `done`, or session changes do not satisfy this gate. It returns `agent_prompt_stalled` if no activity is observed, or `timeout` if the caller's timeout expires first. The caller timeout includes submission time. Without a timeout, the settled-state wait is indefinite after activity is observed. This wait tracks lifecycle state, not an individual turn; if the agent is already working, completion of the active turn may satisfy it.
+```bash
+kelpie agent submit --target-ref '<target_ref>' --submit-id review-20261019-01 "Review the current diff and report only actionable findings."
+kelpie agent submit-status review-20261019-01
+kelpie agent wait reviewer --timeout 120000
+```
 
-Use `--until` only for a state-specific workflow, such as waiting for an already-running agent to request input:
+The receipt reports delivery (`written`, `fenced` or `indeterminate`), not that the agent started a turn. Repeating a submit ID returns the same receipt and never writes again, so retry with the same ID after a lost response; use a new ID only for new work. A changed generation or a server restart returns `stale_target`: read the digest again. `agent_blocked` means the agent waits at an approval or question dialog; inspect it and ask the user before answering. Answer an open prose question with `agent answer --question-id` from the digest; stop a working agent with `agent interrupt`.
+
+`draft_not_clean` protects the user's own typing. When the message says the owner typed in this pane, no retry, wait, or agent restart will help: once the user types in a pane, a bot may not write to it until the user hands it over. Ask the user to focus that pane in their Kelpie window and press the delegate key (prefix, then Shift+A; Ctrl+B, then Shift+A by default) and pick "hand over once" or a delegation time. The pane shows "bot waiting" until they do. Never work around this with raw pane input. Any other `draft=dirty` or `draft=unknown` means the input box is not provably empty; read the pane and ask the user.
+
+Without `--until`, `agent wait` matches the first settled `idle`, `done`, or `blocked` state. Use `--until` only for a state-specific workflow, such as waiting for an already-running agent to request input:
 
 ```bash
 kelpie agent wait reviewer --until blocked --timeout 120000
 ```
 
-Without `--until`, standalone `agent wait` uses the same settled-state defaults as `agent prompt --wait`.
-
-Use logical keys for interactive agent UI controls:
-
-```bash
-kelpie agent send-keys reviewer esc
-kelpie agent send-keys reviewer ctrl+c
-```
-
-Kelpie validates all keys before writing any bytes. Read the result through the resolved agent:
+Read the result through the resolved agent:
 
 ```bash
 kelpie agent get reviewer
 kelpie agent read reviewer --source recent-unwrapped --lines 120
 ```
 
-If a wait fails or returns `blocked`, inspect `agent get` and `agent read` before deciding what input to send. A timeout or stalled response does not prove the prompt was never delivered; do not blindly submit it again. Use the pane surface only when raw terminal control is intentional.
+If a wait fails or returns `blocked`, inspect `agent get` and `agent read` before deciding what input to send. A timeout does not prove the prompt was never delivered; check `agent submit-status` instead of submitting new work. Use the pane surface only when raw terminal control is intentional.
 
 ## Run an ordinary command in another pane
 

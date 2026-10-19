@@ -1,6 +1,7 @@
 //! Fork-only `agent.submit`, `agent.answer`, `agent.interrupt`, `agent.reset`,
 //! `agent.resume` and `agent.submit_status` handlers (S2/S3, S7-S10). Disabled unless
-//! `[supervisor] enabled`. Every rejection happens before any PTY call and records nothing.
+//! `[supervisor] enabled`. Every rejection happens before any PTY call and records no
+//! receipt; a rejection caused only by owner input also shows the pane's hand-over reminder.
 
 use std::time::{Duration, Instant};
 
@@ -71,6 +72,18 @@ fn dev_submit_hold() -> Option<Duration> {
 fn dev_submit_hold() -> Option<Duration> {
     None
 }
+
+/// Rejection text when the only reason is the sticky owner-input latch. Keeps the
+/// established `draft=unknown` wording and adds the recovery the caller can ask for.
+const OWNER_TYPED_DRAFT_MESSAGE: &str = concat!(
+    "owner input draft is not clean; draft=unknown; the owner typed in this pane: ",
+    "ask them to hand it over with the delegate key (prefix+shift+a by default) ",
+    "in an attached Kelpie window"
+);
+const OWNER_TYPED_RESUME_MESSAGE: &str = concat!(
+    "owner input was typed in this pane; draft=unknown; ask the owner to hand it over ",
+    "once with the delegate key (prefix+shift+a by default) in an attached Kelpie window"
+);
 
 fn draft_name(draft: DraftState) -> &'static str {
     match draft {
@@ -396,11 +409,20 @@ impl App {
             .then(|| activity.valid_handoff(target_ref.generation, now))
             .flatten();
         if activity.draft_latched() && operator_handoff.is_none() {
-            return reject(
-                id,
-                "draft_not_clean",
-                "owner input was typed in this pane; draft=unknown".into(),
-            );
+            // Resume honours only the one-shot handoff. A delegated pane already shows the
+            // delegation instead of the reminder, so a reminder noted here would stay
+            // hidden and then surface when the delegation ends; the message alone asks
+            // for the one-shot handoff.
+            if self
+                .state
+                .supervisor
+                .delegations
+                .active(pane_id, now)
+                .is_none()
+            {
+                self.note_handover_wanted(pane_id, now);
+            }
+            return reject(id, "draft_not_clean", OWNER_TYPED_RESUME_MESSAGE.into());
         }
         // Consume the handoff before anything is recorded or sent. Owner input cancels it
         // on this same thread, so a failed consume means owner input won.
@@ -712,8 +734,11 @@ impl App {
         if req.kind == SubmitKind::ClearDraft {
             let last_input = activity.last_owner_input_ms();
             let last_output = activity.last_output_ms();
-            if latched
-                || last_output.is_none()
+            if latched {
+                self.note_handover_wanted(pane_id, now);
+                return reject(id, "draft_not_clean", OWNER_TYPED_DRAFT_MESSAGE.into());
+            }
+            if last_output.is_none()
                 || last_input.is_some_and(|input| last_output.is_none_or(|output| input >= output))
             {
                 return reject(
@@ -767,6 +792,12 @@ impl App {
                 activity.last_owner_input_ms(),
                 activity.last_output_ms(),
             );
+            if latched {
+                // The latch alone decides here (the box is not read), so the owner is the
+                // only way forward: remind them on the pane and say so in the error.
+                self.note_handover_wanted(pane_id, now);
+                return reject(id, "draft_not_clean", OWNER_TYPED_DRAFT_MESSAGE.into());
+            }
             if draft != DraftState::Clean {
                 return reject(
                     id,
@@ -1022,6 +1053,24 @@ impl App {
         let response = encode_success(id, ResponseResult::Ok {});
         log.ok(0, &response);
         response
+    }
+
+    /// Shows the hand-over reminder on the pane after a write was refused only because the
+    /// owner typed there. UI state only: no receipt, no PTY call.
+    fn note_handover_wanted(&mut self, pane_id: crate::layout::PaneId, now_ms: u64) {
+        if self
+            .state
+            .supervisor
+            .delegations
+            .note_handover_wanted(pane_id, now_ms)
+        {
+            tracing::debug!(
+                event = "supervisor.handover_reminder",
+                subsystem = "supervisor",
+                outcome = "shown",
+                pane_raw = pane_id.raw(),
+            );
+        }
     }
 
     /// Fork: arms a one-shot operator handoff on a pane's per-PTY activity. Reached only from
@@ -2292,6 +2341,48 @@ mod tests {
         f.activity().set_stamps_for_test(11_000, 1_000);
         f.assert_rejected_unknown("lat-10000");
         assert_eq!(f.app.state.supervisor.submits.len(), 0);
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn latched_rejection_names_the_owner_and_shows_the_handover_reminder() {
+        let mut f = fixture();
+        let now = crate::supervisor::now_ms();
+        assert!(!f.app.handover_wanted(f.pane_id, now));
+        f.owner_input_then_output(1_000, 1_002);
+        let params = f.params("remind-1", "hello");
+        let raw = f.submit(params);
+        assert_eq!(error_code(&raw), "draft_not_clean", "{raw}");
+        assert!(raw.contains("draft=unknown"), "{raw}");
+        assert!(raw.contains("hand it over"), "{raw}");
+        assert!(f
+            .app
+            .handover_wanted(f.pane_id, crate::supervisor::now_ms()));
+        assert_eq!(f.app.state.supervisor.submits.len(), 0);
+
+        // Arming the one-shot handoff answers it (the server clears it on arm).
+        let now = crate::supervisor::now_ms();
+        f.arm_handoff(now);
+        assert!(f
+            .app
+            .state
+            .supervisor
+            .delegations
+            .clear_handover_wanted(f.pane_id));
+        f.assert_no_write().await;
+    }
+
+    #[tokio::test]
+    async fn screen_rejection_without_latch_shows_no_reminder() {
+        let mut f = fixture_with(Agent::Claude, AgentState::Idle, "❯ owner typed");
+        f.activity().set_stamps_for_test(1_000, 0);
+        let params = f.params("remind-2", "hello");
+        let raw = f.submit(params);
+        assert_eq!(error_code(&raw), "draft_not_clean", "{raw}");
+        assert!(!raw.contains("hand it over"), "{raw}");
+        assert!(!f
+            .app
+            .handover_wanted(f.pane_id, crate::supervisor::now_ms()));
         f.assert_no_write().await;
     }
 

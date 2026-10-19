@@ -1849,6 +1849,7 @@ fn copy_mode_survives_mouse_motion_and_parks_across_focus_changes() {
         focused: true,
         right_click_passthrough: false,
         delegation: None,
+        handover_wanted: false,
     });
     state.set_snapshot(Box::new(unfocused.clone()));
     assert_eq!(state.mode, ClientShellMode::Terminal);

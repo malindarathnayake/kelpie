@@ -18,6 +18,8 @@ pub(super) struct AgentRow {
     pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
     /// Fork: the pane's owner-granted delegation, if any.
     pub(super) delegation: Option<crate::protocol::ClientShellDelegation>,
+    /// Fork: the supervisor was refused here because the owner typed; remind them.
+    pub(super) handover_wanted: bool,
 }
 
 pub(super) fn ordered_agent_pane_ids(
@@ -320,6 +322,7 @@ pub(super) fn agent_row(
         focused: agent.focused,
         rows,
         delegation: pane.and_then(|pane| pane.delegation),
+        handover_wanted: pane.is_some_and(|pane| pane.handover_wanted),
     })
 }
 
@@ -406,6 +409,26 @@ pub(super) fn render_agent_row(
             width,
             &text,
             style.patch(row_style),
+        );
+    } else if row.handover_wanted {
+        // Fork: the supervisor is waiting for the owner to hand this pane over.
+        let full = "◇ bot waiting";
+        let text = if display_width(full) + 8 <= rect.width as usize {
+            full
+        } else {
+            "◇"
+        };
+        let width = display_width(text) as u16;
+        put_text(
+            buffer,
+            rect.right().saturating_sub(width + 1),
+            rect.y,
+            width,
+            text,
+            Style::default()
+                .fg(palette.peach)
+                .add_modifier(Modifier::BOLD)
+                .patch(row_style),
         );
     }
 }

@@ -576,6 +576,7 @@ fn render_pane_borders(
         add_pane_border_cells(&mut cells, info);
     }
     let delegated_ids = delegated_panes(app, pane_infos);
+    let waiting_ids = handover_wanted_panes(app, pane_infos);
     add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
 
     let buf = frame.buffer_mut();
@@ -595,6 +596,11 @@ fn render_pane_borders(
         let delegated = pane_infos.iter().any(|info| {
             delegated_ids.contains(&info.id) && line_touches_pane(x, y, info, app.pane_gaps)
         });
+        // Fork: a border touching a pane the supervisor was refused on (the owner typed
+        // there) is peach until the owner hands it over.
+        let waiting = pane_infos.iter().any(|info| {
+            waiting_ids.contains(&info.id) && line_touches_pane(x, y, info, app.pane_gaps)
+        });
         let symbol = line_cell_symbol(line);
         if symbol.is_empty() {
             continue;
@@ -603,6 +609,8 @@ fn render_pane_borders(
         cell.set_symbol(symbol);
         let color = if delegated {
             app.palette.mauve
+        } else if waiting {
+            app.palette.peach
         } else if focused {
             app.palette.accent
         } else {
@@ -743,6 +751,7 @@ fn render_pane_border_titles(
     frame: &mut Frame,
 ) {
     let delegated_ids = delegated_panes(app, pane_infos);
+    let waiting_ids = handover_wanted_panes(app, pane_infos);
     let buf = frame.buffer_mut();
     let area = buf.area;
     for info in pane_infos {
@@ -773,6 +782,8 @@ fn render_pane_border_titles(
         }
         let color = if delegated_ids.contains(&info.id) {
             app.palette.mauve
+        } else if waiting_ids.contains(&info.id) {
+            app.palette.peach
         } else if info.is_focused {
             app.palette.accent
         } else {
@@ -802,6 +813,20 @@ fn delegated_panes(app: &AppState, pane_infos: &[PaneInfo]) -> Vec<crate::layout
         .iter()
         .map(|info| info.id)
         .filter(|id| app.supervisor.delegations.active(*id, now_ms).is_some())
+        .collect()
+}
+
+/// Fork: panes of `pane_infos` showing the hand-over reminder (a supervised write was
+/// refused recently because the owner typed there).
+fn handover_wanted_panes(app: &AppState, pane_infos: &[PaneInfo]) -> Vec<crate::layout::PaneId> {
+    if !crate::supervisor::enabled() {
+        return Vec::new();
+    }
+    let now_ms = crate::supervisor::now_ms();
+    pane_infos
+        .iter()
+        .map(|info| info.id)
+        .filter(|id| app.supervisor.delegations.handover_wanted(*id, now_ms))
         .collect()
 }
 
@@ -1369,6 +1394,49 @@ mod tests {
         crate::supervisor::set_enabled_for_test(None);
         assert_eq!(buffer[(1, 1)].style().fg, Some(app.palette.accent));
         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.mauve));
+    }
+
+    #[test]
+    fn handover_reminder_pane_border_is_peach_until_delegated() {
+        crate::supervisor::set_enabled_for_test(Some(true));
+        let mut app = AppState::test_new();
+        app.pane_gaps = true;
+        app.view.terminal_area = Rect::new(0, 0, 4, 3);
+        app.view.pane_infos = [(1, 0, true), (2, 2, false)]
+            .into_iter()
+            .map(|(id, x, is_focused)| PaneInfo {
+                id: PaneId::from_raw(id),
+                rect: Rect::new(x, 0, 2, 3),
+                inner_rect: Rect::default(),
+                scrollbar_rect: None,
+                borders: Borders::ALL,
+                is_focused,
+            })
+            .collect();
+        let now = crate::supervisor::now_ms();
+        app.supervisor
+            .delegations
+            .note_handover_wanted(PaneId::from_raw(2), now);
+        let ws = Workspace::test_new("test");
+        let draw = |app: &AppState| {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(4, 3)).unwrap();
+            terminal
+                .draw(|frame| render_view_pane_borders(app, &ws, &[], frame))
+                .unwrap();
+            terminal.backend().buffer()[(2, 1)].style().fg
+        };
+        let waiting = draw(&app);
+        app.supervisor.delegations.grant(
+            PaneId::from_raw(2),
+            crate::supervisor::delegation::DelegationChoice::Hours2,
+            now,
+            None,
+        );
+        let delegated = draw(&app);
+        crate::supervisor::set_enabled_for_test(None);
+        assert_eq!(waiting, Some(app.palette.peach));
+        assert_eq!(delegated, Some(app.palette.mauve));
     }
 
     #[tokio::test]

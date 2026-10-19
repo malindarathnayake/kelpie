@@ -321,6 +321,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
             theme_picker: false,
             host: None,
             access: Default::default(),
+            handover_keys: None,
         }),
     ];
     for overlay in overlays {

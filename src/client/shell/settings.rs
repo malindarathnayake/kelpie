@@ -52,6 +52,7 @@ impl ClientShellState {
             theme_picker: false,
             host: None,
             access: self.config.access,
+            handover_keys: super::delegate::handover_keys(&self.config.keybinds),
         }));
     }
 
@@ -285,6 +286,20 @@ impl ClientShellState {
                     let access = self.config.access;
                     if let Some(ClientShellOverlay::Settings(settings)) = self.overlay.as_mut() {
                         settings.access = access;
+                    }
+                    if setting == crate::config::AccessSetting::Supervisor && enabled {
+                        // Fork: bots cannot write to a pane the owner typed in until the
+                        // owner hands it over; say how, once, when the switch goes on.
+                        let keys = super::delegate::handover_keys(&self.config.keybinds)
+                            .unwrap_or_else(|| "the supervisor_handoff key".into());
+                        self.copy_feedback = Some(crate::app::state::CopyFeedback {
+                            // Key first: the toast is one unwrapped line.
+                            message: format!(
+                                "press {keys} in a pane to hand it to bots (after restart)"
+                            ),
+                        });
+                        self.copy_feedback_deadline =
+                            Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
                     }
                 }
             }
