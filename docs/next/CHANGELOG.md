@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.2.0] - 2026-10-19
+
+### Added
+- Kelpie now reminds you when a bot is waiting for a pane. A supervised write refused only because you typed in that pane makes the pane border peach, shows "◇ bot waiting" on its agent row and a toast with the delegate key (Ctrl+B, then Shift+A by default) for 10 minutes, or until you hand the pane over.
+- Turning the supervisor on in Settings -> access shows the delegate key, and the access section keeps a reminder line while the supervisor is on.
+
+### Changed
+- When a supervised write is refused because the owner typed in the pane, the `draft_not_clean` message now says so and asks the caller to have the owner hand the pane over. The error code and the `draft=unknown` wording are unchanged.
+- The bundled Kelpie skill now documents `agent digest`, `agent submit` and `submit-status` and the hand-over step, replacing the removed `agent prompt` and `agent send-keys` commands.
+
 ## [0.1.2] - 2026-10-18
 
 ### Fixed
