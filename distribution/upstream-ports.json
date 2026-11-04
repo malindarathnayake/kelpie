@@ -223,6 +223,12 @@
       "subject": "fix: prevent windows ssh output from delaying typing (#5463)",
       "status": "ported",
       "pr": 5463
+    },
+    {
+      "sha": "a2008661cd4a89ff6df22bf4a6b472bd413018be",
+      "subject": "test: stabilize plugin worker lease test (#5467)",
+      "status": "ported",
+      "pr": 5467
     }
   ]
 }
