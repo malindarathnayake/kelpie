@@ -235,6 +235,12 @@
       "subject": "test: synchronize shell and server startup checks (#5476)",
       "status": "ported",
       "pr": 5476
+    },
+    {
+      "sha": "9168dd332303cfe0d0beedfdc5a3ee6506c9a0e5",
+      "subject": "fix: use newer stable releases on the preview channel",
+      "status": "skipped",
+      "reason": "not-applicable: Kelpie has no release feed or preview builds (RELEASE_FEED_ENABLED is false), so no install can select a release. Revisit when the feed goes live or a preview manifest ships."
     }
   ]
 }
