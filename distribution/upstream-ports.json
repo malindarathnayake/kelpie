@@ -229,6 +229,12 @@
       "subject": "test: stabilize plugin worker lease test (#5467)",
       "status": "ported",
       "pr": 5467
+    },
+    {
+      "sha": "5bd900d88c80d95f5b145397e45bbeea398b8165",
+      "subject": "test: synchronize shell and server startup checks (#5476)",
+      "status": "ported",
+      "pr": 5476
     }
   ]
 }
