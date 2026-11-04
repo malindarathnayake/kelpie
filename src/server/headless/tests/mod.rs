@@ -280,6 +280,50 @@ fn pane_updated_events(event_hub: &api::EventHub) -> usize {
 }
 
 #[test]
+fn only_an_api_stop_releases_a_pane_exit_checkpoint() {
+    let _guard = crate::config::test_config_env_lock().lock().unwrap();
+    let config_home = std::env::temp_dir().join(format!(
+        "kelpie-api-stop-checkpoint-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    ));
+    std::env::set_var("XDG_CONFIG_HOME", &config_home);
+    std::env::remove_var(crate::session::SESSION_ENV_VAR);
+
+    for (reason, expected_panes) in [
+        (ShutdownReason::ApiStop { caller: None }, 1),
+        (ShutdownReason::HostShutdown, 2),
+    ] {
+        let mut server = test_headless_server();
+        server.app.policy.persist_session = true;
+        let mut workspace = crate::workspace::Workspace::test_new("survivor");
+        let dead_pane = workspace.tabs[0].root_pane;
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+
+        server.app.handle_internal_event(AppEvent::PaneDied {
+            pane_id: dead_pane,
+            exit_reason: crate::platform::ChildExitReason::Interrupted,
+        });
+        server.server_stop.request(reason);
+        server.initiate_shutdown();
+        server.app.save_session_on_shutdown();
+
+        let snapshot = crate::persist::load().expect("session should be saved");
+        assert_eq!(snapshot.workspaces[0].tabs[0].panes.len(), expected_panes);
+        shutdown_test_runtimes(&mut server);
+    }
+
+    std::env::remove_var("XDG_CONFIG_HOME");
+    let _ = std::fs::remove_dir_all(config_home);
+}
+
+#[test]
 fn server_stop_interrupts_server_event_backlog() {
     let mut server = test_headless_server();
     for client_id in 1..=64 {

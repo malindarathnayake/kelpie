@@ -148,6 +148,8 @@ pub struct App {
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
     session_writer: Arc<std::sync::Mutex<crate::persist::SessionWriter>>,
     pane_exit_checkpoint_pending: bool,
+    /// Every pane died after the checkpoint and an automatic workspace took over.
+    pane_exit_replaced_session: bool,
     server_hangup_probe: fn() -> bool,
     pub(crate) detached_process_children: Vec<std::process::Child>,
     tab_bar_status_generation: u64,
@@ -671,6 +673,7 @@ impl App {
             session_save_thread: None,
             session_writer,
             pane_exit_checkpoint_pending: false,
+            pane_exit_replaced_session: false,
             #[cfg(not(test))]
             server_hangup_probe: crate::platform::server_hangup_is_recent,
             // Real SIGHUP evidence is process-global; tests opt in per App.
@@ -789,6 +792,7 @@ impl App {
                 if preserve_checkpoint {
                     // Automatic replacement is part of pane removal, not a new user mutation.
                     self.pane_exit_checkpoint_pending = true;
+                    self.pane_exit_replaced_session = true;
                     self.finish_checkpointed_pane_exit();
                 }
                 true
@@ -3415,6 +3419,75 @@ mod tests {
         let snapshot = crate::persist::load().expect("hangup checkpoint must survive autosave");
         assert_eq!(snapshot.workspaces.len(), 1);
         assert_eq!(snapshot.workspaces[0].tabs[0].panes.len(), 2);
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(config_home);
+    }
+
+    #[test]
+    fn api_stop_saves_surviving_panes_over_a_pane_exit_checkpoint() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let config_home = unique_temp_path("api-stop-surviving-panes");
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+
+        for (api_stop, expected_panes) in [(false, 2), (true, 1)] {
+            let mut app = test_app();
+            app.policy.persist_session = true;
+            let mut workspace = Workspace::test_new("survivor");
+            let dead_pane = workspace.tabs[0].root_pane;
+            workspace.test_split(ratatui::layout::Direction::Horizontal);
+            app.state.workspaces = vec![workspace];
+            app.state.active = Some(0);
+            app.state.ensure_test_terminals();
+
+            app.handle_internal_event(AppEvent::PaneDied {
+                pane_id: dead_pane,
+                exit_reason: crate::platform::ChildExitReason::Interrupted,
+            });
+            if api_stop {
+                app.release_pane_exit_checkpoint_for_api_stop();
+            }
+            app.save_session_on_shutdown();
+
+            let snapshot = crate::persist::load().expect("session should be saved");
+            assert_eq!(snapshot.workspaces[0].tabs[0].panes.len(), expected_panes);
+        }
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(config_home);
+    }
+
+    #[tokio::test]
+    async fn api_stop_keeps_the_checkpoint_when_every_pane_died() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let config_home = unique_temp_path("api-stop-no-survivors");
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+
+        let mut app = test_app();
+        app.policy.persist_session = true;
+        let workspace = Workspace::test_new("preserved");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+
+        app.handle_internal_event(AppEvent::PaneDied {
+            pane_id,
+            exit_reason: crate::platform::ChildExitReason::Interrupted,
+        });
+        assert!(app.state.workspaces.is_empty());
+        app.release_pane_exit_checkpoint_for_api_stop();
+        assert!(app.ensure_default_workspace());
+        app.release_pane_exit_checkpoint_for_api_stop();
+        app.save_session_on_shutdown();
+
+        let snapshot = crate::persist::load().expect("checkpoint should survive");
+        assert_eq!(
+            snapshot.workspaces[0].custom_name.as_deref(),
+            Some("preserved")
+        );
 
         std::env::remove_var("XDG_CONFIG_HOME");
         let _ = std::fs::remove_dir_all(config_home);

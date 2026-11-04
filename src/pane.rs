@@ -2690,7 +2690,8 @@ impl PaneRuntime {
             let on_reader_exit = Box::new(move || {
                 cwd_process_exited.store(true, Ordering::Release);
                 // Imported handoff panes have no child wait handle, so their exit cause is
-                // unknowable. Checkpoint conservatively; normal autosave settles clean exits.
+                // unknowable. Checkpoint conservatively; the next durable session change
+                // or an explicit server stop settles clean exits.
                 let _ = rt.block_on(exit_events.send(AppEvent::PaneDied {
                     pane_id,
                     exit_reason: crate::platform::ChildExitReason::Handoff,
