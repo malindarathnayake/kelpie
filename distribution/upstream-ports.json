@@ -241,6 +241,12 @@
       "subject": "fix: use newer stable releases on the preview channel",
       "status": "skipped",
       "reason": "not-applicable: Kelpie has no release feed or preview builds (RELEASE_FEED_ENABLED is false), so no install can select a release. Revisit when the feed goes live or a preview manifest ships."
+    },
+    {
+      "sha": "ff5881ef45086ffef98a907f0009f37f36565681",
+      "subject": "fix: keep a slow server's socket instead of treating a connect timeout as stale (#5511)",
+      "status": "ported",
+      "pr": 5511
     }
   ]
 }
