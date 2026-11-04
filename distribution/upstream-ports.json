@@ -253,6 +253,12 @@
       "subject": "fix: keep the saved layout when panes die during host shutdown (#5510)",
       "status": "ported",
       "pr": 5510
+    },
+    {
+      "sha": "3f5032c963ee6a3e37eae7c8747b8196ef1dc1db",
+      "subject": "fix: send pane appearance changes only after the matching background (#5517)",
+      "status": "ported",
+      "pr": 5517
     }
   ]
 }
