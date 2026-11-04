@@ -271,6 +271,11 @@
       "subject": "chore: remove the claude.md symlink",
       "status": "skipped",
       "reason": "not-applicable: upstream contributor-tooling choice; the CLAUDE.md symlink is not shipped and Kelpie keeps it."
+    },
+    {
+      "sha": "5608de0608918aba2f9d501e7793b984a0ca9cfa",
+      "subject": "test: wait for the hook to exit instead of a fixed timer in hook tests",
+      "status": "ported"
     }
   ]
 }
