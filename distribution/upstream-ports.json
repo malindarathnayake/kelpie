@@ -265,6 +265,12 @@
       "subject": "fix: detect hermes started by the newer installer launcher (#5518)",
       "status": "ported",
       "pr": 5518
+    },
+    {
+      "sha": "b796ca60ff01a15eef280a70e23143eb8150437e",
+      "subject": "chore: remove the claude.md symlink",
+      "status": "skipped",
+      "reason": "not-applicable: upstream contributor-tooling choice; the CLAUDE.md symlink is not shipped and Kelpie keeps it."
     }
   ]
 }
