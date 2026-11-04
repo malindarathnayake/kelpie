@@ -259,6 +259,12 @@
       "subject": "fix: send pane appearance changes only after the matching background (#5517)",
       "status": "ported",
       "pr": 5517
+    },
+    {
+      "sha": "43b36b68caf593e7623fa389462d8ba097edcb11",
+      "subject": "fix: detect hermes started by the newer installer launcher (#5518)",
+      "status": "ported",
+      "pr": 5518
     }
   ]
 }
