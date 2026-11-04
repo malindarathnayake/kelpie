@@ -29,6 +29,53 @@ pub(crate) use power::monitor_host_power;
 static ALLOW_UNELEVATED_CLIENTS: OnceLock<bool> = OnceLock::new();
 static ALLOW_LOW_INTEGRITY_CLIENTS: OnceLock<bool> = OnceLock::new();
 
+pub(crate) struct PrivateLocalListener {
+    listener: interprocess::os::windows::named_pipe::PipeListener<
+        interprocess::os::windows::named_pipe::pipe_mode::Bytes,
+        interprocess::os::windows::named_pipe::pipe_mode::Bytes,
+    >,
+    stream_nonblocking: std::sync::atomic::AtomicBool,
+}
+
+impl PrivateLocalListener {
+    pub(crate) fn bind(path: &std::path::Path) -> std::io::Result<Self> {
+        use interprocess::os::windows::{
+            named_pipe::PipeListenerOptions, security_descriptor::SecurityDescriptor,
+        };
+
+        let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;SY)(A;;GA;;;OW)")
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+        let security_descriptor = SecurityDescriptor::deserialize(&sddl)?;
+        // The default 512-byte buffers serialize busy SSH output behind reader polling.
+        let listener = PipeListenerOptions::new()
+            .path(format!(r"\\.\pipe\{}", path.to_string_lossy()))
+            .input_buffer_size_hint(64 * 1024)
+            .output_buffer_size_hint(64 * 1024)
+            .security_descriptor(Some(security_descriptor))
+            .create_duplex()?;
+        Ok(Self {
+            listener,
+            stream_nonblocking: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    pub(crate) fn accept(&self) -> std::io::Result<crate::ipc::LocalStream> {
+        let stream = self.listener.accept()?;
+        stream.set_nonblocking(self.stream_nonblocking.load(AtomicOrdering::Acquire))?;
+        Ok(crate::ipc::LocalStream::NamedPipe(stream.into()))
+    }
+
+    pub(crate) fn set_nonblocking(
+        &self,
+        mode: interprocess::local_socket::ListenerNonblockingMode,
+    ) -> std::io::Result<()> {
+        self.listener.set_nonblocking(mode.accept_nonblocking())?;
+        self.stream_nonblocking
+            .store(mode.stream_nonblocking(), AtomicOrdering::Release);
+        Ok(())
+    }
+}
+
 pub(crate) struct ChildPipe(std::fs::File);
 
 impl ChildPipe {

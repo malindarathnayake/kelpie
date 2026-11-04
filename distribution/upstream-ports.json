@@ -217,6 +217,12 @@
       "kelpie": [
         "e38863b01c0dc8f9cdf3876e4a7f5245795bec27"
       ]
+    },
+    {
+      "sha": "ccc7521ad0cc9cfd2406bd7847f1ff8792c2e97a",
+      "subject": "fix: prevent windows ssh output from delaying typing (#5463)",
+      "status": "ported",
+      "pr": 5463
     }
   ]
 }
