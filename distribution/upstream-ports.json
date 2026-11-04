@@ -247,6 +247,12 @@
       "subject": "fix: keep a slow server's socket instead of treating a connect timeout as stale (#5511)",
       "status": "ported",
       "pr": 5511
+    },
+    {
+      "sha": "6b526626f66e22c08962a7f39a83fc9ac2ebda62",
+      "subject": "fix: keep the saved layout when panes die during host shutdown (#5510)",
+      "status": "ported",
+      "pr": 5510
     }
   ]
 }
