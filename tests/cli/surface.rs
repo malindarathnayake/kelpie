@@ -287,8 +287,8 @@ fn root_and_command_group_help_point_agents_to_plain_text_docs() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for expected in [
             "Are you an AI? Use these resources ONLY IF your task specifically asks you to:",
-            "https://kelpie.example/agent-guide.md",
-            "https://kelpie.example/llms.txt",
+            "https://kelpie.multicastbits.com/agent-guide.md",
+            "https://kelpie.multicastbits.com/llms.txt",
             "kelpie --skill",
         ] {
             assert!(

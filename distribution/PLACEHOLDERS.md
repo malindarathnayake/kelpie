@@ -15,7 +15,6 @@ When Kelpie has real addresses, replace these and turn the release feed back on.
 | `https://kelpie.example/latest.json`, `/preview.json` | Release manifests | `src/update.rs`, `src/remote/attach.rs`, `distribution/install.*` |
 | `https://kelpie.example/install.sh`, `.ps1`, `.cmd` | Installers | `distribution/`, docs |
 | `https://kelpie.example/agent-detection/index.toml` | Agent-detection manifest catalog | `src/detect/manifest_update.rs` |
-| `https://kelpie.example/agent-guide.md`, `/llms.txt` | Agent guide | `src/cli.rs`, docs |
 | `https://kelpie.example/plugins/` | Plugin marketplace | docs |
 | `https://kelpie.example/docs/...` | Documentation pages | README, docs |
 
