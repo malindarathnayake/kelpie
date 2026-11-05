@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.2.1] - 2026-11-04
+
+### Changed
+- Windows releases are now Authenticode-signed.
+
 ### Fixed
 - Busy output from a Windows SSH session no longer delays typing. (herdr #5463)
 - On Linux and macOS, a busy server that is slow to accept a connection keeps its socket instead of having it removed as stale. (herdr #5511)
@@ -14,6 +19,8 @@
 - `kelpie server stop` saves surviving panes even when an earlier pane exit left a save pending.
 - With `OPENCODE_CONFIG_DIR` set, integration status and uninstall also cover a plugin left in the global OpenCode config directory.
 - `kelpie --help` and the docs point AI agents at the live agent guide and `llms.txt` instead of a dead address.
+- Selection copy reports success only after the write has run. (herdr #5583)
+- A pane repeating the same clipboard text no longer shows the copy toast.
 
 ## [0.2.0] - 2026-10-19
 
