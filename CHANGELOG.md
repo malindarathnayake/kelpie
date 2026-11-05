@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+- Busy output from a Windows SSH session no longer delays typing. (herdr #5463)
+- On Linux and macOS, a busy server that is slow to accept a connection keeps its socket instead of having it removed as stale. (herdr #5511)
+- The saved layout survives a host shutdown that kills panes before the server can save. (herdr #5510)
+- Panes hear about a light or dark switch only once the matching background has arrived, so apps that re-query pick the right theme. (herdr #5517)
+- Hermes panes started by the newer installer's launcher are detected as Hermes again. (herdr #5518)
+- On Linux, a hung `wl-copy`, `wl-paste` or `xclip` can no longer freeze Kelpie on copy or paste; clipboard helpers now stop after five seconds. (herdr #5583)
+- Connecting to a host whose login shell is tcsh no longer fails waiting for the ready marker. (herdr #5519)
+- OpenCode and Kilo integrations now install under `XDG_CONFIG_HOME` when it is set, and OpenCode's `OPENCODE_CONFIG_DIR` takes priority over it. (herdr #5585)
+
 ## [0.2.0] - 2026-10-19
 
 ### Added
