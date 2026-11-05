@@ -288,6 +288,12 @@
       "subject": "fix: make the remote ready marker work under tcsh login shells (#5519)",
       "status": "ported",
       "pr": 5519
+    },
+    {
+      "sha": "2713feb56e9c9db33992db0a262c68f7426d46dd",
+      "subject": "fix: install opencode and kilo integrations under XDG_CONFIG_HOME (#5585)",
+      "status": "ported",
+      "pr": 5585
     }
   ]
 }
