@@ -11,6 +11,9 @@
 - On Linux, a hung `wl-copy`, `wl-paste` or `xclip` can no longer freeze Kelpie on copy or paste; clipboard helpers now stop after five seconds. (herdr #5583)
 - Connecting to a host whose login shell is tcsh no longer fails waiting for the ready marker. (herdr #5519)
 - OpenCode and Kilo integrations now install under `XDG_CONFIG_HOME` when it is set, and OpenCode's `OPENCODE_CONFIG_DIR` takes priority over it. (herdr #5585)
+- `kelpie server stop` saves surviving panes even when an earlier pane exit left a save pending.
+- With `OPENCODE_CONFIG_DIR` set, integration status and uninstall also cover a plugin left in the global OpenCode config directory.
+- `kelpie --help` and the docs point AI agents at the live agent guide and `llms.txt` instead of a dead address.
 
 ## [0.2.0] - 2026-10-19
 
