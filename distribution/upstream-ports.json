@@ -294,6 +294,18 @@
       "subject": "fix: install opencode and kilo integrations under XDG_CONFIG_HOME (#5585)",
       "status": "ported",
       "pr": 5585
+    },
+    {
+      "sha": "bc8c28988f75c538d4ca058b702f5adbea30566e",
+      "subject": "ci: close stale issues without outside engagement monthly",
+      "status": "skipped",
+      "reason": "not-applicable: monthly stale-issue automation gated to herdrdev/herdr; needs a secret and bot accounts Kelpie does not have."
+    },
+    {
+      "sha": "ee5bfb5041bb3e4a49d591c72308aae3c81ecdde",
+      "subject": "chore: point agents at the source instead of agent-guide and llms.txt",
+      "status": "skipped",
+      "reason": "owner-decision: Kelpie hosts its own live agent-guide.md and llms.txt at kelpie.multicastbits.com, so upstream's removal does not fit; a separate Kelpie commit fixes the dead links."
     }
   ]
 }
