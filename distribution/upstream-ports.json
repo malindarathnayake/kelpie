@@ -282,6 +282,12 @@
       "subject": "fix: bound clipboard helpers so a hung wl-copy or wl-paste can't freeze herdr (#5583)",
       "status": "ported",
       "pr": 5583
+    },
+    {
+      "sha": "65da135f6211520da8e636f5279075a531a51dda",
+      "subject": "fix: make the remote ready marker work under tcsh login shells (#5519)",
+      "status": "ported",
+      "pr": 5519
     }
   ]
 }
