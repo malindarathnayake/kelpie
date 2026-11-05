@@ -2655,6 +2655,126 @@ fn install_opencode_and_kilo_use_xdg_config_home() {
 }
 
 #[test]
+fn opencode_status_reports_plugin_left_in_global_dir_behind_override() {
+    let _lock = integration_env_lock();
+    let _env = ConfigPathEnvGuard::new();
+    let base = unique_base_without_clearing_env();
+    std::env::remove_var("OPENCODE_CONFIG_DIR");
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::set_var("XDG_STATE_HOME", base.join("state"));
+    let home = base.join("home");
+    let custom = base.join("custom");
+    fs::create_dir_all(home.join(".config/opencode")).unwrap();
+    fs::create_dir_all(&custom).unwrap();
+    std::env::set_var("HOME", &home);
+    let global = install_opencode().unwrap();
+    std::env::set_var("OPENCODE_CONFIG_DIR", &custom);
+
+    let opencode_status = || {
+        installed_integration_statuses()
+            .into_iter()
+            .find(|status| status.target == crate::api::schema::IntegrationTarget::Opencode)
+            .unwrap()
+    };
+
+    let status = opencode_status();
+    assert_eq!(status.path, global.plugin_path);
+    assert_eq!(status.state, IntegrationStatusKind::Current);
+
+    fs::write(&global.plugin_path, "// stale plugin").unwrap();
+    let status = opencode_status();
+    assert_eq!(status.path, global.plugin_path);
+    assert_eq!(status.state, IntegrationStatusKind::Outdated);
+    assert!(outdated_installed_integrations()
+        .iter()
+        .any(|status| status.target == crate::api::schema::IntegrationTarget::Opencode));
+
+    let custom_install = install_opencode().unwrap();
+    let status = opencode_status();
+    assert_eq!(status.path, custom_install.plugin_path);
+    assert_eq!(status.state, IntegrationStatusKind::Current);
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_opencode_also_removes_global_install_behind_override() {
+    let _lock = integration_env_lock();
+    let _env = ConfigPathEnvGuard::new();
+    let base = unique_base_without_clearing_env();
+    std::env::remove_var("OPENCODE_CONFIG_DIR");
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::set_var("XDG_STATE_HOME", base.join("state"));
+    let home = base.join("home");
+    let custom = base.join("custom");
+    fs::create_dir_all(home.join(".config/opencode")).unwrap();
+    fs::create_dir_all(&custom).unwrap();
+    std::env::set_var("HOME", &home);
+    let global = install_opencode().unwrap();
+    std::env::set_var("OPENCODE_CONFIG_DIR", &custom);
+
+    let result = uninstall_opencode().unwrap();
+
+    assert!(!result.removed_plugin);
+    let global_result = result.global_install.as_deref().unwrap();
+    assert!(global_result.removed_plugin);
+    assert!(global_result.removed_tui_plugin);
+    assert_eq!(global_result.plugin_path, global.plugin_path);
+    assert!(!global.plugin_path.exists());
+    assert!(!global.tui_plugin_path.exists());
+    let tui_config: Value =
+        serde_json::from_str(&fs::read_to_string(&global.tui_config_path).unwrap()).unwrap();
+    assert_eq!(tui_config, json!({}));
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_opencode_leaves_global_config_alone_without_a_plugin_there() {
+    let _lock = integration_env_lock();
+    let _env = ConfigPathEnvGuard::new();
+    let base = unique_base_without_clearing_env();
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::set_var("XDG_STATE_HOME", base.join("state"));
+    let home = base.join("home");
+    let custom = base.join("custom");
+    let global_tui_config = home.join(".config/opencode/tui.json");
+    fs::create_dir_all(global_tui_config.parent().unwrap()).unwrap();
+    fs::create_dir_all(&custom).unwrap();
+    let user_config = format!(r#"{{"plugin":["{OPENCODE_TUI_PLUGIN_SPEC}"]}}"#);
+    fs::write(&global_tui_config, &user_config).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("OPENCODE_CONFIG_DIR", &custom);
+    install_opencode().unwrap();
+
+    let result = uninstall_opencode().unwrap();
+
+    assert!(result.removed_plugin);
+    assert!(result.global_install.is_none());
+    assert_eq!(fs::read_to_string(&global_tui_config).unwrap(), user_config);
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_opencode_missing_override_dir_names_the_variable() {
+    let _lock = integration_env_lock();
+    let _env = ConfigPathEnvGuard::new();
+    let base = unique_base_without_clearing_env();
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::set_var("HOME", base.join("home"));
+    std::env::set_var("OPENCODE_CONFIG_DIR", base.join("missing"));
+
+    let err = install_opencode().unwrap_err().to_string();
+
+    assert!(err.contains("opencode config directory not found"));
+    assert!(err.contains("unset OPENCODE_CONFIG_DIR"));
+    assert!(!err.contains("install opencode first"));
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn install_opencode_writes_server_and_tui_plugins() {
     let _lock = integration_env_lock();
     let base = unique_base();

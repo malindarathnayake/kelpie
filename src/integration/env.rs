@@ -141,7 +141,19 @@ pub(crate) fn opencode_dir() -> io::Result<PathBuf> {
         return Ok(PathBuf::from(value));
     }
 
+    opencode_global_dir()
+}
+
+fn opencode_global_dir() -> io::Result<PathBuf> {
     Ok(xdg_config_dir()?.join("opencode"))
+}
+
+/// OpenCode's global config dir, when `OPENCODE_CONFIG_DIR` sends installs
+/// elsewhere. OpenCode loads the override in addition to the global dir, so a
+/// plugin installed there before the override was set stays live.
+pub(crate) fn opencode_global_dir_when_overridden() -> Option<PathBuf> {
+    let global = opencode_global_dir().ok()?;
+    (opencode_dir().ok()? != global).then_some(global)
 }
 
 pub(crate) fn opencode_state_dir() -> io::Result<PathBuf> {
