@@ -314,6 +314,9 @@ impl HeadlessServer {
                 .unwrap_or(ShutdownReason::Unknown)
         };
         info!(%reason, "server shutdown initiated");
+        if matches!(reason, ShutdownReason::ApiStop { .. }) {
+            self.app.release_pane_exit_checkpoint_for_api_stop();
+        }
         self.shutting_down = true;
 
         // Clear client-local host graphics, then send ServerShutdown to all connected clients.

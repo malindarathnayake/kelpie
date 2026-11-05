@@ -2690,7 +2690,8 @@ impl PaneRuntime {
             let on_reader_exit = Box::new(move || {
                 cwd_process_exited.store(true, Ordering::Release);
                 // Imported handoff panes have no child wait handle, so their exit cause is
-                // unknowable. Checkpoint conservatively; normal autosave settles clean exits.
+                // unknowable. Checkpoint conservatively; the next durable session change
+                // or an explicit server stop settles clean exits.
                 let _ = rt.block_on(exit_events.send(AppEvent::PaneDied {
                     pane_id,
                     exit_reason: crate::platform::ChildExitReason::Handoff,
@@ -4099,16 +4100,17 @@ impl PaneRuntime {
         (release_tx, writer)
     }
 
-    pub(crate) fn test_process_pty_bytes(&self, bytes: &[u8]) {
+    pub(crate) fn test_process_pty_bytes(&self, bytes: &[u8]) -> Vec<Bytes> {
         let _content_write_guard = match self.content_write_lock.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
         self.content_seq.fetch_add(1, Ordering::AcqRel);
         let (tx, _rx) = mpsc::channel(1);
-        let _ = self.terminal.process_pty_bytes(self.pane_id, 0, bytes, &tx);
+        let result = self.terminal.process_pty_bytes(self.pane_id, 0, bytes, &tx);
         self.content_seq.fetch_add(1, Ordering::Release);
         self.compression.wake();
+        result.terminal_responses
     }
 
     pub(crate) fn test_with_scrollback_bytes(

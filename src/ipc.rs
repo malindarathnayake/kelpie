@@ -9,6 +9,10 @@ use interprocess::local_socket::traits::Stream as _;
 
 pub(crate) type LocalListener = interprocess::local_socket::Listener;
 pub(crate) type LocalStream = interprocess::local_socket::Stream;
+#[cfg(unix)]
+type PrivateLocalListener = LocalListener;
+#[cfg(windows)]
+type PrivateLocalListener = crate::platform::PrivateLocalListener;
 
 pub(crate) enum LocalStreamRead {
     Data,
@@ -164,8 +168,8 @@ pub(crate) fn prepare_socket_path(
 fn stale_socket_connect_error(kind: io::ErrorKind) -> bool {
     matches!(
         kind,
-        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound | io::ErrorKind::TimedOut
-    ) || (cfg!(windows) && kind == io::ErrorKind::WouldBlock)
+        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+    ) || (cfg!(windows) && matches!(kind, io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock))
 }
 
 pub(crate) fn local_stream_peer_closed(stream: &mut LocalStream) -> io::Result<bool> {
@@ -187,7 +191,7 @@ pub(crate) fn set_local_stream_polling(stream: &mut LocalStream, enabled: bool) 
 
 /// Binds a listener for private terminal traffic. Unix callers restrict the
 /// socket file after binding; Windows must set the named-pipe DACL at creation.
-pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<LocalListener> {
+pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<PrivateLocalListener> {
     #[cfg(unix)]
     {
         bind_local_listener(path)
@@ -195,21 +199,7 @@ pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<LocalListen
 
     #[cfg(windows)]
     {
-        use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
-        use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
-        use interprocess::os::windows::security_descriptor::SecurityDescriptor;
-        use widestring::U16CString;
-
-        let sddl = U16CString::from_str("D:P(A;;GA;;;SY)(A;;GA;;;OW)")
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-        let security_descriptor = SecurityDescriptor::deserialize(&sddl)?;
-        let name = path.to_string_lossy().to_string();
-        let name = name.to_ns_name::<GenericNamespaced>()?;
-        let listener = ListenerOptions::new()
-            .name(name)
-            .reclaim_name(false)
-            .security_descriptor(security_descriptor)
-            .create_sync()?;
+        let listener = PrivateLocalListener::bind(path)?;
         fs::write(path, windows_socket_marker())?;
         Ok(listener)
     }
@@ -403,7 +393,10 @@ mod tests {
     fn stale_socket_connect_errors_keep_unix_would_block_strict() {
         assert!(stale_socket_connect_error(io::ErrorKind::ConnectionRefused));
         assert!(stale_socket_connect_error(io::ErrorKind::NotFound));
-        assert!(stale_socket_connect_error(io::ErrorKind::TimedOut));
+        assert_eq!(
+            stale_socket_connect_error(io::ErrorKind::TimedOut),
+            cfg!(windows)
+        );
         assert_eq!(
             stale_socket_connect_error(io::ErrorKind::WouldBlock),
             cfg!(windows)
@@ -412,22 +405,34 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn private_named_pipe_accepts_same_user() {
+    fn private_named_pipe_transfers_surface_bursts_without_waiting_for_peer() {
+        use interprocess::local_socket::traits::Stream as _;
         use std::io::Write as _;
 
         let path = temp_socket_marker_path("private-pipe");
         let _ = fs::remove_file(&path);
         let listener = bind_private_local_listener(&path).unwrap();
+        listener
+            .set_nonblocking(interprocess::local_socket::ListenerNonblockingMode::Accept)
+            .unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
         let mut client = connect_local_stream(&path).unwrap();
         let mut server = listener.accept().unwrap();
-        client.write_all(b"remote").unwrap();
+        server.set_nonblocking(true).unwrap();
+        client.set_nonblocking(true).unwrap();
 
-        let mut buffer = [0_u8; 16];
-        assert!(matches!(
-            poll_local_stream_read_count(&mut server, &mut buffer).unwrap(),
-            LocalStreamReadCount::Data(6)
-        ));
-        assert_eq!(&buffer[..6], b"remote");
+        // A screen update must fit before the peer's next poll in either direction.
+        let payload = vec![b'x'; 48 * 1024];
+        let mut received = vec![0; payload.len()];
+        assert_eq!(server.write(&payload).unwrap(), payload.len());
+        client.read_exact(&mut received).unwrap();
+        assert_eq!(received, payload);
+        assert_eq!(client.write(&payload).unwrap(), payload.len());
+        server.read_exact(&mut received).unwrap();
+        assert_eq!(received, payload);
 
         drop(client);
         drop(server);
@@ -486,7 +491,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn second_listener_on_live_pipe_name_is_rejected() {
-        for bind in [bind_local_listener, bind_private_local_listener] {
+        fn assert_second_bind_fails<L>(bind: impl Fn(&Path) -> io::Result<L>) {
             let path = temp_socket_marker_path("pipe-squat");
             let _ = fs::remove_file(&path);
             let listener = bind(&path).unwrap();
@@ -497,6 +502,9 @@ mod tests {
             drop(listener);
             let _ = fs::remove_file(path);
         }
+
+        assert_second_bind_fails(bind_local_listener);
+        assert_second_bind_fails(bind_private_local_listener);
     }
 
     #[cfg(windows)]

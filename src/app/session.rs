@@ -66,6 +66,11 @@ impl App {
             return;
         }
 
+        if self.pane_exit_checkpoint_pending && !self.state.session_dirty {
+            self.session_save_deadline = None;
+            return;
+        }
+
         self.reap_finished_session_save();
         if self.session_save_thread.is_some() {
             self.session_save_deadline = Some(Instant::now() + Duration::from_millis(250));
@@ -111,13 +116,25 @@ impl App {
         }
         self.save_session_now();
         self.pane_exit_checkpoint_pending = true;
+        self.pane_exit_replaced_session = false;
         self.state.session_dirty = false;
     }
 
     pub(crate) fn finish_checkpointed_pane_exit(&mut self) {
         if self.pane_exit_checkpoint_pending {
             self.state.session_dirty = false;
-            self.session_save_deadline = Some(Instant::now() + SESSION_SAVE_DEBOUNCE);
+            self.session_save_deadline = None;
+        }
+    }
+
+    /// An explicit `server stop` is not the host taking panes down, so the live
+    /// session is newer than a pane-exit checkpoint: surviving panes keep their
+    /// current cwd and history, and the dead pane stays gone. The checkpoint
+    /// still stands when no pane survived, because then the live session is only
+    /// an empty or automatic replacement for the layout it holds.
+    pub(crate) fn release_pane_exit_checkpoint_for_api_stop(&mut self) {
+        if !self.pane_exit_replaced_session && !self.state.workspaces.is_empty() {
+            self.pane_exit_checkpoint_pending = false;
         }
     }
 

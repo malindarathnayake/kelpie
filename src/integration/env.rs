@@ -24,6 +24,7 @@ pub(crate) const GROK_CONFIG_DIR_ENV_VAR: &str = "GROK_CONFIG_DIR";
 /// `$GROK_HOME/config.toml` and `$GROK_HOME/auth.json`).
 pub(crate) const GROK_HOME_ENV_VAR: &str = "GROK_HOME";
 pub(crate) const HERMES_HOME_ENV_VAR: &str = "HERMES_HOME";
+pub(crate) const OPENCODE_CONFIG_DIR_ENV_VAR: &str = "OPENCODE_CONFIG_DIR";
 
 pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
@@ -126,8 +127,33 @@ pub(crate) fn expand_tilde_path(path: PathBuf) -> io::Result<PathBuf> {
     Ok(path)
 }
 
+fn xdg_config_dir() -> io::Result<PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+        Some(value) => Ok(PathBuf::from(value)),
+        None => Ok(home_dir()?.join(".config")),
+    }
+}
+
 pub(crate) fn opencode_dir() -> io::Result<PathBuf> {
-    Ok(home_dir()?.join(".config/opencode"))
+    if let Some(value) =
+        std::env::var_os(OPENCODE_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
+    {
+        return Ok(PathBuf::from(value));
+    }
+
+    opencode_global_dir()
+}
+
+fn opencode_global_dir() -> io::Result<PathBuf> {
+    Ok(xdg_config_dir()?.join("opencode"))
+}
+
+/// OpenCode's global config dir, when `OPENCODE_CONFIG_DIR` sends installs
+/// elsewhere. OpenCode loads the override in addition to the global dir, so a
+/// plugin installed there before the override was set stays live.
+pub(crate) fn opencode_global_dir_when_overridden() -> Option<PathBuf> {
+    let global = opencode_global_dir().ok()?;
+    (opencode_dir().ok()? != global).then_some(global)
 }
 
 pub(crate) fn opencode_state_dir() -> io::Result<PathBuf> {
@@ -139,7 +165,7 @@ pub(crate) fn opencode_state_dir() -> io::Result<PathBuf> {
 }
 
 pub(crate) fn kilo_dir() -> io::Result<PathBuf> {
-    Ok(home_dir()?.join(".config/kilo"))
+    Ok(xdg_config_dir()?.join("kilo"))
 }
 
 pub(crate) fn hermes_dir() -> io::Result<PathBuf> {

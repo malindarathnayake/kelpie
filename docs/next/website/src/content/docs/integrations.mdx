@@ -191,7 +191,7 @@ Install the OpenCode plugin:
 kelpie integration install opencode
 ```
 
-The integration supports OpenCode V1 `1.18.29` or later and OpenCode V2 (tested with beta `19242`). The OpenCode config directory must already exist. Kelpie installs the server entrypoint at `~/.config/opencode/plugins/kelpie-agent-state.js`, the shared TUI plugin at `kelpie-tui-session.js`, and a V2 TUI entrypoint at `kelpie-opencode/tui.js` in that config directory.
+The integration supports OpenCode V1 `1.18.29` or later and OpenCode V2 (tested with beta `19242`). Kelpie uses `$OPENCODE_CONFIG_DIR` when it is set, then `$XDG_CONFIG_HOME/opencode`, and otherwise `~/.config/opencode`. That config directory must already exist. Kelpie installs the server entrypoint at `plugins/kelpie-agent-state.js`, the shared TUI plugin at `kelpie-tui-session.js`, and a V2 TUI entrypoint at `kelpie-opencode/tui.js` in that config directory.
 
 Install registers the V1 TUI plugin in `tui.jsonc` and the V2 TUI plugin in `cli.json`, preserving other preferences and plugins. An existing V1 registration in `tui.json` also counts as installed and is reused without creating `tui.jsonc`. Uninstall removes the Kelpie registration from both TUI config files while keeping the files and other preferences. If OpenCode still has V1 TUI preferences to import (`tui.json` or `kv.json`), Kelpie defers registration so the first-start migration can run; start `opencode2` once and reinstall the integration afterward. Otherwise Kelpie creates `cli.json` with the plugin registration. Restart the OpenCode TUI after installation. Uninstall removes the managed plugin files and their configuration entries.
 
@@ -211,7 +211,7 @@ Install the Kilo Code CLI plugin:
 kelpie integration install kilo
 ```
 
-Kelpie writes the plugin to `~/.config/kilo/plugin/kelpie-agent-state.js`. The Kilo config directory must already exist. Uninstall removes only that plugin file.
+Kelpie uses `$XDG_CONFIG_HOME/kilo` when `XDG_CONFIG_HOME` is set, and otherwise `~/.config/kilo`. That config directory must already exist. Kelpie writes the plugin to `plugin/kelpie-agent-state.js` inside it. Uninstall removes only that plugin file.
 
 The plugin reports lifecycle state and session identity while Kilo runs inside a Kelpie pane. After Kilo emits a session-bearing event, Kelpie can use the reported session id to resume the pane with `kilo --session <id>`. Native screen manifest detection remains available when the plugin is not installed.
 

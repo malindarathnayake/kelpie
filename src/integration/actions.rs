@@ -10,6 +10,7 @@ use super::targets::{
     uninstall_kilo, uninstall_kimi, uninstall_letta, uninstall_mastracode, uninstall_omp,
     uninstall_opencode, uninstall_pi, uninstall_qodercli, uninstall_qwen,
 };
+use super::types::OpenCodeUninstallResult;
 use super::version::{agent_version_requirement, enforce_agent_version};
 use super::{KIMI_MIN_VERSION, PI_EXTENSION_INSTALL_NAME};
 
@@ -323,6 +324,41 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
     Ok(messages)
 }
 
+fn opencode_uninstall_messages(result: &OpenCodeUninstallResult) -> Vec<String> {
+    let mut messages = vec![if result.removed_plugin {
+        format!(
+            "removed opencode integration plugin at {}",
+            result.plugin_path.display()
+        )
+    } else {
+        format!(
+            "no opencode integration plugin found at {}",
+            result.plugin_path.display()
+        )
+    }];
+    messages.push(if result.removed_tui_plugin {
+        format!(
+            "removed opencode tui integration plugin at {}",
+            result.tui_plugin_path.display()
+        )
+    } else {
+        format!(
+            "no opencode tui integration plugin found at {}",
+            result.tui_plugin_path.display()
+        )
+    });
+    for path in &result.updated_tui_configs {
+        messages.push(format!(
+            "removed kelpie opencode plugin entry from {}",
+            path.display()
+        ));
+    }
+    if let Some(global_install) = &result.global_install {
+        messages.extend(opencode_uninstall_messages(global_install));
+    }
+    messages
+}
+
 pub(crate) fn uninstall_target(
     target: crate::api::schema::IntegrationTarget,
 ) -> io::Result<Vec<String>> {
@@ -533,36 +569,7 @@ pub(crate) fn uninstall_target(
             messages
         }
         crate::api::schema::IntegrationTarget::Opencode => {
-            let result = uninstall_opencode()?;
-            let mut messages = vec![if result.removed_plugin {
-                format!(
-                    "removed opencode integration plugin at {}",
-                    result.plugin_path.display()
-                )
-            } else {
-                format!(
-                    "no opencode integration plugin found at {}",
-                    result.plugin_path.display()
-                )
-            }];
-            messages.push(if result.removed_tui_plugin {
-                format!(
-                    "removed opencode tui integration plugin at {}",
-                    result.tui_plugin_path.display()
-                )
-            } else {
-                format!(
-                    "no opencode tui integration plugin found at {}",
-                    result.tui_plugin_path.display()
-                )
-            });
-            for path in result.updated_tui_configs {
-                messages.push(format!(
-                    "removed kelpie opencode plugin entry from {}",
-                    path.display()
-                ));
-            }
-            messages
+            opencode_uninstall_messages(&uninstall_opencode()?)
         }
         crate::api::schema::IntegrationTarget::Kilo => {
             let result = uninstall_kilo()?;

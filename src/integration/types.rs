@@ -262,6 +262,9 @@ pub(crate) struct OpenCodeUninstallResult {
     pub removed_plugin: bool,
     pub removed_tui_plugin: bool,
     pub updated_tui_configs: Vec<PathBuf>,
+    /// Set when `OPENCODE_CONFIG_DIR` is in effect and an install was also
+    /// removed from OpenCode's global config dir.
+    pub global_install: Option<Box<OpenCodeUninstallResult>>,
 }
 
 #[derive(Debug)]

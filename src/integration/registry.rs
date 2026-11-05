@@ -263,6 +263,23 @@ pub(crate) fn outdated_installed_integrations() -> Vec<super::IntegrationStatus>
         .collect()
 }
 
+/// The OpenCode plugin to report on: the one in the install dir, or failing
+/// that one still loaded from the global dir behind `OPENCODE_CONFIG_DIR`.
+fn opencode_plugin_status_path() -> io::Result<PathBuf> {
+    let plugin_in = |dir: PathBuf| {
+        dir.join("plugins")
+            .join(super::OPENCODE_PLUGIN_INSTALL_NAME)
+    };
+    let path = plugin_in(opencode_dir()?);
+    if path.is_file() {
+        return Ok(path);
+    }
+    Ok(opencode_global_dir_when_overridden()
+        .map(plugin_in)
+        .filter(|global_path| global_path.is_file())
+        .unwrap_or(path))
+}
+
 fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
@@ -311,10 +328,7 @@ fn integration_specs() -> [(
         ),
         (
             crate::api::schema::IntegrationTarget::Opencode,
-            opencode_dir().map(|dir| {
-                dir.join("plugins")
-                    .join(super::OPENCODE_PLUGIN_INSTALL_NAME)
-            }),
+            opencode_plugin_status_path(),
             super::OPENCODE_INTEGRATION_VERSION,
         ),
         (

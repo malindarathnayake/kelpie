@@ -352,6 +352,32 @@ fn should_prefer_osc52() -> bool {
     )
 }
 
+/// What happened to a clipboard write request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardWriteOutcome {
+    /// The bytes went to the native clipboard or out as OSC 52.
+    Dispatched,
+    /// The clipboard already held this text, so no write was made.
+    AlreadyMatched,
+    /// Neither the native clipboard nor stdout took the bytes.
+    Failed,
+}
+
+impl ClipboardWriteOutcome {
+    /// True when the clipboard holds the text, whether written now or already there.
+    /// A user copy toasts on this: repeating a copy should still confirm it.
+    pub fn clipboard_holds_text(self) -> bool {
+        matches!(self, Self::Dispatched | Self::AlreadyMatched)
+    }
+
+    /// True only when this request changed or re-sent the clipboard.
+    /// A pane's OSC 52 toasts on this: a pane repeating itself is not news, and
+    /// its toast would replace a supervisor notice in the same feedback slot.
+    pub fn dispatched(self) -> bool {
+        self == Self::Dispatched
+    }
+}
+
 /// Write clipboard bytes to the system clipboard via native platform tools or OSC 52.
 ///
 /// OSC 52 format: `ESC ] 52 ; c ; <base64> BEL`
@@ -359,26 +385,65 @@ fn should_prefer_osc52() -> bool {
 /// Some terminals still only honor BEL-terminated OSC 52 writes, so kelpie
 /// emits BEL here even though ST works in newer emulators.
 ///
-/// Returns false when the clipboard already holds the same text or output fails.
-pub fn write_osc52_bytes(bytes: &[u8]) -> bool {
-    let prefer_osc52 = should_prefer_osc52();
-    if !prefer_osc52 && crate::platform::clipboard_text_matches(bytes) == Some(true) {
+/// Text the clipboard already holds is not written again, which keeps clipboard
+/// history free of duplicate entries.
+pub fn write_osc52_bytes(bytes: &[u8]) -> ClipboardWriteOutcome {
+    write_osc52_bytes_with_match(
+        bytes,
+        should_prefer_osc52(),
+        crate::platform::clipboard_text_matches,
+    )
+}
+
+fn write_osc52_bytes_with_match(
+    bytes: &[u8],
+    prefer_osc52: bool,
+    clipboard_text_matches: impl FnOnce(&[u8]) -> Option<bool>,
+) -> ClipboardWriteOutcome {
+    if !prefer_osc52 && clipboard_text_matches(bytes) == Some(true) {
         tracing::debug!(bytes = bytes.len(), "suppressed duplicate clipboard write");
-        return false;
+        return ClipboardWriteOutcome::AlreadyMatched;
     }
 
     if !prefer_osc52 && crate::platform::write_clipboard(bytes) {
-        true
+        return ClipboardWriteOutcome::Dispatched;
+    }
+
+    let sequence = osc52_sequence(bytes);
+    let mut stdout = std::io::stdout();
+    if stdout.write_all(sequence.as_bytes()).is_ok() && stdout.flush().is_ok() {
+        ClipboardWriteOutcome::Dispatched
     } else {
-        let sequence = osc52_sequence(bytes);
-        let mut stdout = std::io::stdout();
-        stdout.write_all(sequence.as_bytes()).is_ok() && stdout.flush().is_ok()
+        ClipboardWriteOutcome::Failed
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn duplicate_clipboard_copy_reports_success() {
+        let outcome = write_osc52_bytes_with_match(b"same text", false, |bytes| {
+            assert_eq!(bytes, b"same text");
+            Some(true)
+        });
+
+        assert_eq!(outcome, ClipboardWriteOutcome::AlreadyMatched);
+        assert!(outcome.clipboard_holds_text());
+    }
+
+    #[test]
+    fn repeated_pane_clipboard_write_is_not_reported_as_dispatched() {
+        assert!(!ClipboardWriteOutcome::AlreadyMatched.dispatched());
+        assert!(ClipboardWriteOutcome::Dispatched.dispatched());
+    }
+
+    #[test]
+    fn failed_clipboard_write_reports_neither_success() {
+        assert!(!ClipboardWriteOutcome::Failed.clipboard_holds_text());
+        assert!(!ClipboardWriteOutcome::Failed.dispatched());
+    }
 
     #[test]
     fn visible_rects_match_selection_cells_when_scrolled_and_reversed() {

@@ -217,6 +217,95 @@
       "kelpie": [
         "e38863b01c0dc8f9cdf3876e4a7f5245795bec27"
       ]
+    },
+    {
+      "sha": "ccc7521ad0cc9cfd2406bd7847f1ff8792c2e97a",
+      "subject": "fix: prevent windows ssh output from delaying typing (#5463)",
+      "status": "ported",
+      "pr": 5463
+    },
+    {
+      "sha": "a2008661cd4a89ff6df22bf4a6b472bd413018be",
+      "subject": "test: stabilize plugin worker lease test (#5467)",
+      "status": "ported",
+      "pr": 5467
+    },
+    {
+      "sha": "5bd900d88c80d95f5b145397e45bbeea398b8165",
+      "subject": "test: synchronize shell and server startup checks (#5476)",
+      "status": "ported",
+      "pr": 5476
+    },
+    {
+      "sha": "9168dd332303cfe0d0beedfdc5a3ee6506c9a0e5",
+      "subject": "fix: use newer stable releases on the preview channel",
+      "status": "skipped",
+      "reason": "not-applicable: Kelpie has no release feed or preview builds (RELEASE_FEED_ENABLED is false), so no install can select a release. Revisit when the feed goes live or a preview manifest ships."
+    },
+    {
+      "sha": "ff5881ef45086ffef98a907f0009f37f36565681",
+      "subject": "fix: keep a slow server's socket instead of treating a connect timeout as stale (#5511)",
+      "status": "ported",
+      "pr": 5511
+    },
+    {
+      "sha": "6b526626f66e22c08962a7f39a83fc9ac2ebda62",
+      "subject": "fix: keep the saved layout when panes die during host shutdown (#5510)",
+      "status": "ported",
+      "pr": 5510
+    },
+    {
+      "sha": "3f5032c963ee6a3e37eae7c8747b8196ef1dc1db",
+      "subject": "fix: send pane appearance changes only after the matching background (#5517)",
+      "status": "ported",
+      "pr": 5517
+    },
+    {
+      "sha": "43b36b68caf593e7623fa389462d8ba097edcb11",
+      "subject": "fix: detect hermes started by the newer installer launcher (#5518)",
+      "status": "ported",
+      "pr": 5518
+    },
+    {
+      "sha": "b796ca60ff01a15eef280a70e23143eb8150437e",
+      "subject": "chore: remove the claude.md symlink",
+      "status": "skipped",
+      "reason": "not-applicable: upstream contributor-tooling choice; the CLAUDE.md symlink is not shipped and Kelpie keeps it."
+    },
+    {
+      "sha": "5608de0608918aba2f9d501e7793b984a0ca9cfa",
+      "subject": "test: wait for the hook to exit instead of a fixed timer in hook tests",
+      "status": "ported"
+    },
+    {
+      "sha": "de8503c190712d453573c0de228da36d56d464d1",
+      "subject": "fix: bound clipboard helpers so a hung wl-copy or wl-paste can't freeze herdr (#5583)",
+      "status": "ported",
+      "pr": 5583
+    },
+    {
+      "sha": "65da135f6211520da8e636f5279075a531a51dda",
+      "subject": "fix: make the remote ready marker work under tcsh login shells (#5519)",
+      "status": "ported",
+      "pr": 5519
+    },
+    {
+      "sha": "2713feb56e9c9db33992db0a262c68f7426d46dd",
+      "subject": "fix: install opencode and kilo integrations under XDG_CONFIG_HOME (#5585)",
+      "status": "ported",
+      "pr": 5585
+    },
+    {
+      "sha": "bc8c28988f75c538d4ca058b702f5adbea30566e",
+      "subject": "ci: close stale issues without outside engagement monthly",
+      "status": "skipped",
+      "reason": "not-applicable: monthly stale-issue automation gated to herdrdev/herdr; needs a secret and bot accounts Kelpie does not have."
+    },
+    {
+      "sha": "ee5bfb5041bb3e4a49d591c72308aae3c81ecdde",
+      "subject": "chore: point agents at the source instead of agent-guide and llms.txt",
+      "status": "skipped",
+      "reason": "owner-decision: Kelpie hosts its own live agent-guide.md and llms.txt at kelpie.multicastbits.com, so upstream's removal does not fit; a separate Kelpie commit fixes the dead links."
     }
   ]
 }

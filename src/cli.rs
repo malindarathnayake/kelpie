@@ -50,9 +50,9 @@ const TERMINAL_SESSION_CONTROL_USAGE: &str =
 pub(crate) const AGENT_HELP_FOOTER: &str = concat!(
     "Are you an AI? Use these resources ONLY IF your task specifically asks you to:\n",
     "  Help a human understand or set up Kelpie for the first time:\n",
-    "    https://kelpie.example/agent-guide.md\n",
+    "    https://kelpie.multicastbits.com/agent-guide.md\n",
     "  Debug or investigate a problem with Kelpie:\n",
-    "    https://kelpie.example/llms.txt\n",
+    "    https://kelpie.multicastbits.com/llms.txt\n",
     "  Control Kelpie panes, agents, or workspaces:\n",
     "    SKIP if a Kelpie skill is already in your context. Otherwise run: kelpie --skill",
 );

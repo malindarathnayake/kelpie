@@ -193,7 +193,7 @@ OpenCode プラグインをインストールします:
 kelpie integration install opencode
 ```
 
-この連携は OpenCode V1 `1.18.29` 以降と OpenCode V2（beta `19242` で検証済み）に対応します。OpenCode の設定ディレクトリはあらかじめ存在している必要があります。Kelpie はサーバー側のエントリポイントを `~/.config/opencode/plugins/kelpie-agent-state.js` に、共通 TUI プラグインを同じ設定ディレクトリの `kelpie-tui-session.js` に、V2 TUI エントリポイントを `kelpie-opencode/tui.js` にインストールします。
+この連携は OpenCode V1 `1.18.29` 以降と OpenCode V2（beta `19242` で検証済み）に対応します。Kelpie は `OPENCODE_CONFIG_DIR` が設定されていればそのディレクトリを使い、次に `$XDG_CONFIG_HOME/opencode`、それ以外では `~/.config/opencode` を使います。この設定ディレクトリはあらかじめ存在している必要があります。Kelpie はサーバー側のエントリポイントを `plugins/kelpie-agent-state.js` に、共通 TUI プラグインを同じ設定ディレクトリの `kelpie-tui-session.js` に、V2 TUI エントリポイントを `kelpie-opencode/tui.js` にインストールします。
 
 インストール時、V1 TUI プラグインを `tui.jsonc` に、V2 TUI プラグインを `cli.json` に登録し、他の設定やプラグインは保持します。`tui.json` に既存の V1 登録がある場合もインストール済みとみなし、`tui.jsonc` を作成せずに再利用します。アンインストールでは、両方の TUI 設定ファイルから Kelpie の登録を削除し、ファイルと他の設定は保持します。OpenCode に移行すべき V1 TUI 設定（`tui.json` または `kv.json`）が残っている場合、Kelpie は初回起動時の移行を妨げないよう登録を見送ります。その場合は一度 `opencode2` を起動してから連携を再インストールしてください。それ以外の場合は Kelpie が `cli.json` を作成してプラグインを登録します。インストール後は OpenCode TUI を再起動してください。アンインストールは管理対象のプラグインファイルと設定項目を削除します。
 
@@ -213,7 +213,7 @@ Kilo Code CLI プラグインをインストールします:
 kelpie integration install kilo
 ```
 
-Kelpie はプラグインを `~/.config/kilo/plugin/kelpie-agent-state.js` に書き込みます。Kilo の設定ディレクトリはあらかじめ存在している必要があります。アンインストールはそのプラグインファイルだけを削除します。
+`XDG_CONFIG_HOME` が設定されていれば Kelpie は `$XDG_CONFIG_HOME/kilo` を使い、それ以外では `~/.config/kilo` を使います。この設定ディレクトリはあらかじめ存在している必要があります。Kelpie はプラグインをその中の `plugin/kelpie-agent-state.js` に書き込みます。アンインストールはそのプラグインファイルだけを削除します。
 
 このプラグインは、Kilo が Kelpie のペイン内で動いている間、ライフサイクル状態とセッション識別を報告します。Kilo がセッション情報を含むイベントを発行した後、Kelpie は報告されたセッション id を使って `kilo --session <id>` でペインを resume できます。プラグインがインストールされていないときは、スクリーンマニフェスト検出が引き続き利用できます。
 

@@ -280,6 +280,50 @@ fn pane_updated_events(event_hub: &api::EventHub) -> usize {
 }
 
 #[test]
+fn only_an_api_stop_releases_a_pane_exit_checkpoint() {
+    let _guard = crate::config::test_config_env_lock().lock().unwrap();
+    let config_home = std::env::temp_dir().join(format!(
+        "kelpie-api-stop-checkpoint-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    ));
+    std::env::set_var("XDG_CONFIG_HOME", &config_home);
+    std::env::remove_var(crate::session::SESSION_ENV_VAR);
+
+    for (reason, expected_panes) in [
+        (ShutdownReason::ApiStop { caller: None }, 1),
+        (ShutdownReason::HostShutdown, 2),
+    ] {
+        let mut server = test_headless_server();
+        server.app.policy.persist_session = true;
+        let mut workspace = crate::workspace::Workspace::test_new("survivor");
+        let dead_pane = workspace.tabs[0].root_pane;
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+
+        server.app.handle_internal_event(AppEvent::PaneDied {
+            pane_id: dead_pane,
+            exit_reason: crate::platform::ChildExitReason::Interrupted,
+        });
+        server.server_stop.request(reason);
+        server.initiate_shutdown();
+        server.app.save_session_on_shutdown();
+
+        let snapshot = crate::persist::load().expect("session should be saved");
+        assert_eq!(snapshot.workspaces[0].tabs[0].panes.len(), expected_panes);
+        shutdown_test_runtimes(&mut server);
+    }
+
+    std::env::remove_var("XDG_CONFIG_HOME");
+    let _ = std::fs::remove_dir_all(config_home);
+}
+
+#[test]
 fn server_stop_interrupts_server_event_backlog() {
     let mut server = test_headless_server();
     for client_id in 1..=64 {
@@ -4606,6 +4650,101 @@ fn client_shell_host_theme_follows_foreground_client() {
         Some(crate::terminal_theme::HostAppearance::Light)
     );
     assert!(!server.app.state.host_terminal_appearance_explicit);
+}
+
+#[tokio::test]
+async fn foreground_switch_coalesces_pending_appearance_before_releasing_colors() {
+    use crate::terminal::{TerminalId, TerminalRuntime};
+    use crate::terminal_theme::{HostAppearance, RgbColor, TerminalTheme};
+
+    for incoming in [Some(HostAppearance::Dark), None] {
+        let mut server = test_headless_server();
+        server.app.set_host_terminal_theme(TerminalTheme {
+            background: Some(RgbColor {
+                r: 17,
+                g: 17,
+                b: 17,
+            }),
+            ..Default::default()
+        });
+        server
+            .app
+            .set_host_terminal_appearance_state(Some(HostAppearance::Dark), true);
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
+        runtime.apply_host_terminal_theme(server.app.state.host_terminal_theme);
+        runtime.apply_host_terminal_appearance(Some(HostAppearance::Dark));
+        runtime.test_process_pty_bytes(b"\x1b[?2031h");
+        let id = TerminalId::alloc();
+        server.app.terminal_runtimes.insert(id.clone(), runtime);
+        server
+            .app
+            .set_host_terminal_appearance_state(Some(HostAppearance::Light), true);
+        assert!(rx.try_recv().is_err());
+
+        let mut client = ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            2,
+            RenderEncoding::SemanticFrame,
+            None,
+        );
+        client.host_terminal_theme.background = Some(RgbColor {
+            r: 255,
+            g: 255,
+            b: 255,
+        });
+        client.host_terminal_appearance = incoming;
+        client.host_terminal_appearance_explicit = incoming.is_some();
+        server.clients.insert(2, client);
+        server.foreground_client_id = Some(2);
+        server.sync_foreground_client_state();
+        assert!(
+            rx.try_recv().is_err(),
+            "must not announce outgoing client A Light"
+        );
+        let expected =
+            incoming.map(|appearance| bytes::Bytes::from_static(appearance.color_scheme_report()));
+        assert_eq!(
+            server
+                .app
+                .terminal_runtimes
+                .get(&id)
+                .unwrap()
+                .test_process_pty_bytes(b"\x1b[?996n"),
+            expected.into_iter().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn pending_host_appearance_is_released_by_headless_deadline() {
+    use crate::terminal_theme::{HostAppearance, RgbColor, TerminalTheme};
+
+    let mut server = test_headless_server();
+    server.app.set_host_terminal_theme(TerminalTheme {
+        background: Some(RgbColor {
+            r: 17,
+            g: 17,
+            b: 17,
+        }),
+        ..Default::default()
+    });
+    server
+        .app
+        .set_host_terminal_appearance_state(Some(HostAppearance::Dark), true);
+    server
+        .app
+        .set_host_terminal_appearance_state(Some(HostAppearance::Light), true);
+    let deadline = server.app.pending_host_appearance_deadline.unwrap();
+    assert!(
+        server
+            .app
+            .next_headless_loop_deadline_with_git_refresh(Instant::now(), false, false)
+            .unwrap()
+            <= deadline
+    );
+    server.handle_scheduled_tasks_headless(deadline, false);
+    assert!(server.app.pending_host_appearance_deadline.is_none());
 }
 
 #[test]

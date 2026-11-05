@@ -23,7 +23,8 @@ use super::config_file::{check_config_targets, write_config};
 use super::env::{
     antigravity_cli_dir, claude_dir, codex_dir, copilot_dir, cursor_dir, devin_dir, droid_dir,
     grok_dir, hermes_dir, hermes_plugin_dir, kilo_dir, kimi_dir, letta_dir, mastracode_dir,
-    omp_extension_dir, opencode_dir, opencode_state_dir, pi_extension_dir, qodercli_dir, qwen_dir,
+    omp_extension_dir, opencode_dir, opencode_global_dir_when_overridden, opencode_state_dir,
+    pi_extension_dir, qodercli_dir, qwen_dir,
 };
 use super::file_ops::{
     make_executable, remove_dir_all_if_exists, remove_file_if_exists, remove_legacy_bash_hook_file,
@@ -469,8 +470,13 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     let dir = opencode_dir()?;
     check_config_targets(&dir, &["tui.jsonc", "tui.json", "cli.json"])?;
     if !dir.is_dir() {
+        let hint = if opencode_global_dir_when_overridden().is_some() {
+            "create it or unset OPENCODE_CONFIG_DIR"
+        } else {
+            "install opencode first"
+        };
         return Err(io::Error::other(format!(
-            "opencode config directory not found at {}. install opencode first",
+            "opencode config directory not found at {}. {hint}",
             dir.display()
         )));
     }
@@ -852,12 +858,36 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
 }
 
 pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
-    let dir = opencode_dir()?;
-    check_config_targets(&dir, &["tui.jsonc", "tui.json", "cli.json"])?;
+    let override_result = uninstall_opencode_at(&opencode_dir()?);
+    let global_result = opencode_global_dir_when_overridden()
+        .filter(|dir| {
+            dir.join("plugins")
+                .join(OPENCODE_PLUGIN_INSTALL_NAME)
+                .is_file()
+                || dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME).is_file()
+        })
+        .map(|dir| uninstall_opencode_at(&dir));
+
+    // A failure in one dir must not leave the plugin in the other one live.
+    match (override_result, global_result) {
+        (Ok(result), None) => Ok(result),
+        (Ok(mut result), Some(Ok(global))) => {
+            result.global_install = Some(Box::new(global));
+            Ok(result)
+        }
+        (Err(err), None | Some(Ok(_))) | (Ok(_), Some(Err(err))) => Err(err),
+        (Err(override_err), Some(Err(global_err))) => {
+            Err(io::Error::other(format!("{override_err}; {global_err}")))
+        }
+    }
+}
+
+fn uninstall_opencode_at(dir: &Path) -> io::Result<OpenCodeUninstallResult> {
+    check_config_targets(dir, &["tui.jsonc", "tui.json", "cli.json"])?;
     let plugin_path = dir.join("plugins").join(OPENCODE_PLUGIN_INSTALL_NAME);
     let tui_plugin_path = dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
     let mut errors = Vec::new();
-    remove_cli_plugin(&dir, super::OPENCODE_V2_TUI_PLUGIN_SPEC).unwrap_or_else(|err| {
+    remove_cli_plugin(dir, super::OPENCODE_V2_TUI_PLUGIN_SPEC).unwrap_or_else(|err| {
         errors.push(err.to_string());
         false
     });
@@ -867,7 +897,7 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
         false
     });
     let updated_tui_configs =
-        remove_tui_plugin(&dir, OPENCODE_TUI_PLUGIN_SPEC).unwrap_or_else(|err| {
+        remove_tui_plugin(dir, OPENCODE_TUI_PLUGIN_SPEC).unwrap_or_else(|err| {
             errors.push(err.to_string());
             Vec::new()
         });
@@ -892,6 +922,7 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
         removed_plugin,
         removed_tui_plugin,
         updated_tui_configs,
+        global_install: None,
     })
 }
 
