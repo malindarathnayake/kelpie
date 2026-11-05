@@ -1,14 +1,14 @@
 name: Release
 
 # Push a tag like v0.1.0 (matching Cargo.toml) to build the Windows and Mac
-# packages and publish them as the latest GitHub release. The website links to
-# releases/latest/download/<asset>, so the newest release is what people get.
+# packages and stage them as a draft GitHub release. The draft is published by
+# release-publish.yml once kelpie.exe is signed (scripts/sign_windows_release.ps1).
 #
 # Three jobs, split by privilege. `build` and `sbom` run project code and tools
-# with a read-only token. `publish` never runs project code: it receives the
-# built files, signs an SLSA build-provenance attestation and creates the
-# release in the `release` environment. A tag push can bypass a PR, so the
-# dependency vulnerability gate runs again here on the tagged commit.
+# with a read-only token. `stage` never runs project code: it receives the
+# built files and creates the draft release in the `release` environment. A tag
+# push can bypass a PR, so the dependency vulnerability gate runs again here on
+# the tagged commit.
 #
 # Supply-chain rules (see SECURITY.md): actions pinned to full commit SHAs,
 # no build cache in release builds, checkout never persists the token, and
@@ -94,8 +94,9 @@ jobs:
         shell: bash
         run: cargo build --release --locked --target "$TARGET"
 
-      # Code signing goes here once the certificate is ready: signtool on
-      # kelpie.exe (Windows), codesign + notarytool on kelpie (Mac).
+      # kelpie.exe is signed after this workflow, on the maintainer's machine:
+      # the Certum key lives in a cloud HSM that needs an interactive login.
+      # Mac codesign + notarytool would go here.
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -187,16 +188,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
-    name: Attest and publish
+  stage:
+    name: Stage draft release
     needs: [build, sbom]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
     permissions:
-      contents: write      # create the release
-      id-token: write      # OIDC token for the Sigstore-signed attestation
-      attestations: write  # store the attestation on the repository
+      contents: write      # create the draft release
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -204,40 +203,13 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Checksums
-        working-directory: dist
-        run: |
-          sha256sum kelpie-windows-x64.zip kelpie-macos-arm64.tar.gz \
-            kelpie-sbom.cdx.json kelpie-sbom.spdx.json > SHA256SUMS.txt
-
-      # Users verify with: gh attestation verify <file> --repo malindarathnayake/kelpie
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: |
-            dist/kelpie-windows-x64.zip
-            dist/kelpie-macos-arm64.tar.gz
-
-      # The hash table goes at the top of the release notes so it is visible
-      # without downloading anything; GitHub appends the generated notes after it.
-      - name: Create GitHub Release
+      # A draft is visible only to maintainers. Checksums, attestations and the
+      # release notes are added by release-publish.yml after signing.
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
-          {
-            echo "## Verify your download"
-            echo
-            echo "| File | SHA-256 |"
-            echo "| --- | --- |"
-            while read -r hash file; do
-              echo "| \`$file\` | \`$hash\` |"
-            done < dist/SHA256SUMS.txt
-            echo
-            echo "Check a file with \`sha256sum -c SHA256SUMS.txt --ignore-missing\` (macOS: \`shasum -a 256 -c\`)"
-            echo "or \`Get-FileHash <file>\` in PowerShell, and its build provenance with"
-            echo "\`gh attestation verify <file> --repo $REPO\`. See SECURITY.md."
-            echo
-          } > notes.md
-          gh release create "$TAG" dist/* --repo "$REPO" --verify-tag \
-            --title "Kelpie $TAG" --notes-file notes.md --generate-notes --latest
+          gh release create "$TAG" dist/* --repo "$REPO" --verify-tag --draft \
+            --title "Kelpie $TAG" --notes "Awaiting Windows code signing."

@@ -1,0 +1,165 @@
+name: Release publish
+
+# Publishes the draft release that release.yml staged, once the maintainer has
+# uploaded a signed kelpie.exe as kelpie-signed.exe. Run it on the release tag:
+#
+#   gh workflow run release-publish.yml --ref v0.1.0
+#
+# scripts/sign_windows_release.ps1 does the signing, the upload and this call.
+#
+# The signed file came from the maintainer's machine, so it is not trusted as
+# is: it must equal the CI-built kelpie.exe in the staged zip except for the
+# Authenticode signature, and that signature must be valid, timestamped and
+# from the Kelpie certificate. Everything else in the zip stays as CI built it.
+# This job never checks out or runs project code.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # SHA-1 thumbprint of the Certum code signing certificate (CN=Malinda
+  # Rathnayake), valid until 2027-10-22. Update it when the certificate renews.
+  SIGNING_THUMBPRINT: 2447CAE7D60C185DCBBCA51A04FE3F7D2AE01C3B
+
+jobs:
+  publish:
+    name: Verify signature, attest and publish
+    runs-on: windows-2022
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write      # publish the release
+      id-token: write      # OIDC token for the Sigstore-signed attestation
+      attestations: write  # store the attestation on the repository
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      REPO: ${{ github.repository }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check release tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if ($env:REF -notmatch '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "run this workflow on a release tag (gh workflow run release-publish.yml --ref vX.Y.Z), not '$env:REF'"
+          }
+          $draft = gh release view $env:TAG --repo $env:REPO --json isDraft --jq .isDraft
+          if ($LASTEXITCODE -ne 0) { throw "no release found for $env:TAG" }
+          if ($draft -ne 'true') { throw "release $env:TAG is already published" }
+
+      - name: Download draft assets
+        run: |
+          gh release download $env:TAG --repo $env:REPO --dir dist
+          if ($LASTEXITCODE -ne 0) { throw "download failed" }
+          $expected = @(
+            'kelpie-windows-x64.zip', 'kelpie-macos-arm64.tar.gz',
+            'kelpie-sbom.cdx.json', 'kelpie-sbom.spdx.json', 'kelpie-signed.exe'
+          )
+          $actual = @(Get-ChildItem dist -File | ForEach-Object Name)
+          $missing = @($expected | Where-Object { $_ -notin $actual })
+          $extra = @($actual | Where-Object { $_ -notin $expected })
+          if ($missing -or $extra) {
+            throw "unexpected draft assets; missing: $($missing -join ', '); extra: $($extra -join ', ')"
+          }
+
+      - name: Verify signed kelpie.exe and repackage
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stage = Join-Path $env:RUNNER_TEMP "kelpie-windows-x64"
+          Expand-Archive dist\kelpie-windows-x64.zip -DestinationPath $stage
+          $unsignedPath = Join-Path $stage "kelpie.exe"
+          $signedPath = "dist\kelpie-signed.exe"
+          $unsigned = [IO.File]::ReadAllBytes($unsignedPath)
+          $signed = [IO.File]::ReadAllBytes($signedPath)
+
+          # Signing changes only the PE checksum and the security data directory
+          # in the header, and appends the certificate table at the end.
+          $peOffset = [BitConverter]::ToInt32($unsigned, 0x3C)
+          $optional = $peOffset + 24
+          if ([BitConverter]::ToUInt16($unsigned, $optional) -ne 0x20B) { throw "kelpie.exe is not PE32+" }
+          $checksumAt = $optional + 64
+          $securityAt = $optional + 144
+          if ([BitConverter]::ToUInt64($unsigned, $securityAt) -ne 0) { throw "CI-built kelpie.exe is already signed" }
+          $tableAt = [BitConverter]::ToUInt32($signed, $securityAt)
+          $tableSize = [BitConverter]::ToUInt32($signed, $securityAt + 4)
+          if ($tableAt -lt $unsigned.Length -or ($tableAt + $tableSize) -ne $signed.Length) {
+            throw "certificate table in kelpie-signed.exe is not appended after the CI-built image"
+          }
+          $prefix = [byte[]]::new($unsigned.Length)
+          [Array]::Copy($signed, $prefix, $unsigned.Length)
+          foreach ($image in @($unsigned, $prefix)) {
+            [Array]::Clear($image, $checksumAt, 4)
+            [Array]::Clear($image, $securityAt, 8)
+          }
+          $sha = [Security.Cryptography.SHA256]::Create()
+          if ([Convert]::ToHexString($sha.ComputeHash($unsigned)) -ne [Convert]::ToHexString($sha.ComputeHash($prefix))) {
+            throw "kelpie-signed.exe differs from the CI-built kelpie.exe beyond its signature"
+          }
+
+          $signature = Get-AuthenticodeSignature $signedPath
+          if ($signature.Status -ne "Valid") { throw "signature is not valid: $($signature.Status) $($signature.StatusMessage)" }
+          if ($signature.SignerCertificate.Thumbprint -ne $env:SIGNING_THUMBPRINT) {
+            throw "signed by $($signature.SignerCertificate.Subject) ($($signature.SignerCertificate.Thumbprint)), not the Kelpie certificate"
+          }
+          if ($null -eq $signature.TimeStamperCertificate) { throw "signature has no timestamp" }
+
+          Copy-Item $signedPath $unsignedPath -Force
+          Remove-Item dist\kelpie-windows-x64.zip, $signedPath
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath dist\kelpie-windows-x64.zip
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          $lines = foreach ($file in 'kelpie-windows-x64.zip', 'kelpie-macos-arm64.tar.gz', 'kelpie-sbom.cdx.json', 'kelpie-sbom.spdx.json') {
+            "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
+          }
+          [IO.File]::WriteAllText("$PWD\SHA256SUMS.txt", (($lines -join "`n") + "`n"))
+
+      # Users verify with: gh attestation verify <file> --repo malindarathnayake/kelpie
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/kelpie-windows-x64.zip
+            dist/kelpie-macos-arm64.tar.gz
+
+      # The hash table goes at the top of the release notes so it is visible
+      # without downloading anything; GitHub's generated notes follow it.
+      - name: Publish release
+        run: |
+          $ErrorActionPreference = "Stop"
+          $rows = Get-Content dist\SHA256SUMS.txt | ForEach-Object {
+            $hash, $file = $_ -split '\s+', 2
+            "| ``$file`` | ``$hash`` |"
+          }
+          $generated = gh api "repos/$env:REPO/releases/generate-notes" -f tag_name=$env:TAG --jq .body
+          if ($LASTEXITCODE -ne 0) { throw "could not generate release notes" }
+          $notes = @(
+            "## Verify your download", "",
+            "| File | SHA-256 |", "| --- | --- |"
+          ) + $rows + @(
+            "",
+            "Check a file with ``sha256sum -c SHA256SUMS.txt --ignore-missing`` (macOS: ``shasum -a 256 -c``)",
+            "or ``Get-FileHash <file>`` in PowerShell, and its build provenance with",
+            "``gh attestation verify <file> --repo $env:REPO``. kelpie.exe is Authenticode-signed",
+            "by Malinda Rathnayake (Certum). See SECURITY.md.",
+            ""
+          ) + $generated
+          [IO.File]::WriteAllText("$PWD\notes.md", ($notes -join "`n"))
+
+          gh release upload $env:TAG dist\kelpie-windows-x64.zip dist\SHA256SUMS.txt --repo $env:REPO --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }
+          gh release delete-asset $env:TAG kelpie-signed.exe --repo $env:REPO --yes
+          if ($LASTEXITCODE -ne 0) { throw "could not remove kelpie-signed.exe" }
+          gh release edit $env:TAG --repo $env:REPO --draft=false --latest --notes-file notes.md
+          if ($LASTEXITCODE -ne 0) { throw "could not publish the release" }

@@ -11,7 +11,8 @@ WINDOWS (x64)
   3. Open a new terminal and run:  kelpie
   Installs to %LOCALAPPDATA%\Programs\kelpie and adds it to your user PATH.
   Includes Microsoft's ConPTY (conpty.dll, OpenConsole.exe), signed by Microsoft.
-  kelpie.exe is not code-signed yet, so SmartScreen or Defender may ask once.
+  kelpie.exe is code-signed by Malinda Rathnayake. SmartScreen may still ask
+  once while the certificate builds reputation.
 
 MAC (Apple Silicon only)
   1. Extract kelpie-macos-arm64.tar.gz.

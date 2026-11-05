@@ -177,7 +177,7 @@ pre-release-check:
     @echo "release review required: investigate material render-scaling regressions before publishing."
     @echo "release review required: update skills/kelpie/SKILL.md so it matches the current CLI, IDs, agent lifecycle semantics, and safety guidance."
 
-# Tag a release; .github/workflows/release.yml builds and publishes it.
+# Tag a release; .github/workflows/release.yml builds it into a draft release.
 release $version:
     @printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { \
         echo "error: version must look like 0.1.0 without a v prefix"; \
@@ -194,6 +194,10 @@ release $version:
     fi
     git tag -a "v$version" -m "v$version"
     git push origin "v$version"
+
+# Sign kelpie.exe in the draft release and publish it (needs SimplySign Desktop).
+sign-release $version:
+    pwsh -NoProfile -File scripts/sign_windows_release.ps1 -Tag "v$version"
 
 # Print default config
 default-config:

@@ -239,11 +239,12 @@ Kelpie has one branch, `main`, and one release line. Each release is a `v<versio
 
 1. Update `CHANGELOG.md` (and `docs/next/CHANGELOG.md`) with the release notes, bump `version` in `Cargo.toml`, run `cargo update -p kelpie --offline`, and commit as `release: v<version>`.
 2. Run `just check`, then `just release <version>`. It checks that the tag matches `Cargo.toml` and pushes the annotated tag.
-3. `.github/workflows/release.yml` builds Windows x64 and macOS Apple Silicon, then publishes a GitHub Release with `SHA256SUMS.txt`. It is marked latest, so `releases/latest/download/...` links follow it.
+3. `.github/workflows/release.yml` builds Windows x64 and macOS Apple Silicon and stages them as a draft GitHub Release.
+4. Start SimplySign Desktop, log in, and run `just sign-release <version>`. It signs `kelpie.exe` with the Certum certificate, uploads it as `kelpie-signed.exe` and runs `.github/workflows/release-publish.yml`, which checks that the signed file differs from the CI build only by a valid Kelpie signature, rebuilds the zip, adds `SHA256SUMS.txt` and the attestations, and publishes the release as latest, so `releases/latest/download/...` links follow it.
 
 The release must publish these assets:
 
-- `kelpie-windows-x64.zip`: `kelpie.exe`, its app-local ConPTY runtime, `THIRD-PARTY-NOTICES/`, `install.ps1` and `README.txt`. Never publish a bare executable for Windows.
+- `kelpie-windows-x64.zip`: `kelpie.exe` (Authenticode-signed), its app-local ConPTY runtime, `THIRD-PARTY-NOTICES/`, `install.ps1` and `README.txt`. Never publish a bare executable for Windows.
 - `kelpie-macos-arm64.tar.gz`: `kelpie`, `install.sh` and `README.txt`.
 - `kelpie-sbom.cdx.json` and `kelpie-sbom.spdx.json`: SBOMs of `Cargo.lock`, gated by Grype on high or critical.
 - `SHA256SUMS.txt`: hashes of all of the above, also printed in the release notes. Both packages carry a build-provenance attestation.

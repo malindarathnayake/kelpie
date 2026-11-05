@@ -1,6 +1,6 @@
 # Security
 
-Kelpie is open source and maintained by a security engineer. Releases are built only by GitHub Actions from a tagged commit, with pinned dependencies, secret, dependency and workflow scanning, signed build provenance, a published SBOM and published checksums. The binaries are not yet code-signed.
+Kelpie is open source and maintained by a security engineer. Releases are built only by GitHub Actions from a tagged commit, with pinned dependencies, secret, dependency and workflow scanning, signed build provenance, a published SBOM and published checksums. The Windows `kelpie.exe` is Authenticode-signed; the Mac binary is not yet signed or notarized.
 
 As with any binary from the internet, verify before you run it: check the checksum and the provenance attestation below, read the SBOM, or build from source.
 
@@ -83,7 +83,7 @@ Reviewed false positives are listed one by one in `.gitleaksignore`, each with t
 
 ## Not yet in place
 
-- **Code signing.** Windows SmartScreen and macOS Gatekeeper will warn until the binaries are signed and notarized. This is planned.
+- **Mac signing.** macOS Gatekeeper will warn until the Mac binary is signed and notarized. This is planned.
 - **The vendored terminal engine** (`vendor/libghostty-vt`, Zig) is listed in the SBOM but not analysed by CodeQL; its upstream changes are reviewed when it is updated (`vendor/libghostty-vt.patches.md`).
 
 ## Scope
