@@ -193,7 +193,7 @@ Kelpie 的 Droid 钩子使用 `~/.factory`。Factory 配置目录必须已经存
 kelpie integration install opencode
 ```
 
-该集成支持 OpenCode V1 `1.18.29` 及更高版本，以及 OpenCode V2（已验证 beta `19242`）。OpenCode 配置目录必须已经存在。Kelpie 将服务端入口安装到 `~/.config/opencode/plugins/kelpie-agent-state.js`，并在该配置目录安装共享 TUI 插件 `kelpie-tui-session.js` 和 V2 TUI 入口 `kelpie-opencode/tui.js`。
+该集成支持 OpenCode V1 `1.18.29` 及更高版本，以及 OpenCode V2（已验证 beta `19242`）。设置了 `OPENCODE_CONFIG_DIR` 时,Kelpie 使用该目录,其次使用 `$XDG_CONFIG_HOME/opencode`,否则使用 `~/.config/opencode`。该配置目录必须已经存在。Kelpie 将服务端入口安装到 `plugins/kelpie-agent-state.js`，并在该配置目录安装共享 TUI 插件 `kelpie-tui-session.js` 和 V2 TUI 入口 `kelpie-opencode/tui.js`。
 
 安装会在 `tui.jsonc` 中注册 V1 TUI 插件，并在 `cli.json` 中注册 V2 TUI 插件，同时保留其他设置和插件。`tui.json` 中已有的 V1 注册也视为已安装,会直接复用而不创建 `tui.jsonc`。卸载会从两个 TUI 配置文件中移除 Kelpie 注册,同时保留文件和其他设置。如果 OpenCode 仍有 V1 TUI 偏好需要迁移(`tui.json` 或 `kv.json`),Kelpie 会推迟注册，以便首次启动时执行迁移；此时请先启动一次 `opencode2`，然后重新安装集成。否则 Kelpie 会创建 `cli.json` 并注册插件。安装后请重启 OpenCode TUI。卸载会删除受管理的插件文件及其配置条目。
 
@@ -213,7 +213,7 @@ V1 TUI 跟踪窗格选中的会话及其后代。只要其中任何会话仍在�
 kelpie integration install kilo
 ```
 
-Kelpie 把插件写入 `~/.config/kilo/plugin/kelpie-agent-state.js`。Kilo 配置目录必须已经存在。卸载只删除那个插件文件。
+设置了 `XDG_CONFIG_HOME` 时,Kelpie 使用 `$XDG_CONFIG_HOME/kilo`,否则使用 `~/.config/kilo`。该配置目录必须已经存在。Kelpie 把插件写入其中的 `plugin/kelpie-agent-state.js`。卸载只删除那个插件文件。
 
 该插件在 Kilo 运行于 Kelpie 窗格内时上报生命周期状态和会话身份。在 Kilo 发出携带会话信息的事件后,Kelpie 可以用上报的会话 id 通过 `kilo --session <id>` 恢复该窗格。插件未安装时,屏幕清单检测仍然可用。
 

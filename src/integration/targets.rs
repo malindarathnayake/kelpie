@@ -858,16 +858,28 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
 }
 
 pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
-    let mut result = uninstall_opencode_at(&opencode_dir()?)?;
-    if let Some(global_dir) = opencode_global_dir_when_overridden().filter(|dir| {
-        dir.join("plugins")
-            .join(OPENCODE_PLUGIN_INSTALL_NAME)
-            .is_file()
-            || dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME).is_file()
-    }) {
-        result.global_install = Some(Box::new(uninstall_opencode_at(&global_dir)?));
+    let override_result = uninstall_opencode_at(&opencode_dir()?);
+    let global_result = opencode_global_dir_when_overridden()
+        .filter(|dir| {
+            dir.join("plugins")
+                .join(OPENCODE_PLUGIN_INSTALL_NAME)
+                .is_file()
+                || dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME).is_file()
+        })
+        .map(|dir| uninstall_opencode_at(&dir));
+
+    // A failure in one dir must not leave the plugin in the other one live.
+    match (override_result, global_result) {
+        (Ok(result), None) => Ok(result),
+        (Ok(mut result), Some(Ok(global))) => {
+            result.global_install = Some(Box::new(global));
+            Ok(result)
+        }
+        (Err(err), None | Some(Ok(_))) | (Ok(_), Some(Err(err))) => Err(err),
+        (Err(override_err), Some(Err(global_err))) => {
+            Err(io::Error::other(format!("{override_err}; {global_err}")))
+        }
     }
-    Ok(result)
 }
 
 fn uninstall_opencode_at(dir: &Path) -> io::Result<OpenCodeUninstallResult> {
